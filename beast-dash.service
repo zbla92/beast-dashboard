@@ -1,0 +1,17 @@
+[Unit]
+Description=Beast Dash — dev dashboard (projects, processes, docker, tunnels)
+After=network-online.target tailscaled.service docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/beast-dash
+Environment=PATH=%h/.nvm/versions/node/v24.19.0/bin:%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=NODE_ENV=production
+ExecStart=%h/.nvm/versions/node/v24.19.0/bin/node %h/beast-dash/server.js
+Restart=always
+RestartSec=2
+KillMode=process
+
+[Install]
+WantedBy=default.target

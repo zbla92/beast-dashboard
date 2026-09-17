@@ -1,0 +1,13 @@
+[Unit]
+Description=Beast Term — ttyd web terminal for tmux sessions (tailnet only)
+After=network-online.target tailscaled.service
+
+[Service]
+Type=simple
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/ttyd -p 7681 -b /term -W -a -t fontSize=14 -t fontFamily="JetBrains Mono, Menlo, monospace" -t 'theme={"background":"#0a0d13","foreground":"#e6edf3","cursor":"#5eead4","selectionBackground":"#264f78"}' -t cursorBlink=true -t scrollback=20000 --ping-interval 20 -I %h/beast-dash/term/index.html %h/beast-dash/bin/term.sh
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target

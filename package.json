@@ -1,0 +1,9 @@
+{
+  "name": "beast-dash",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Dev dashboard for the beast server — projects, processes, docker, git, tunnels.",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "license": "MIT"
+}

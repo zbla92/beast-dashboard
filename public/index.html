@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<!-- interactive-widget: Android Chrome then shrinks the LAYOUT viewport for the keyboard, so the terminal panel (100dvh)
+     follows it natively. iOS ignores it — there app.js sizes the panel from visualViewport. -->
+<title>Beast Dash</title>
+
+<!--
+ Dodavanje na pocetni ekran (iOS) i instalacija (Chrome).
+
+ SERVICE WORKERA NEMA I NE TREBA GA: on sluzi za rad bez mreze, a bez
+ beasta ovdje nema sta da se prikaze. Dodao bi samo ustajali kes.
+
+ Isto tako ne treba ni manifest ni HTTPS da bi se na iOS-u dobio prozor
+ bez Safarijevih traka — to rade ova dva `apple-` taga, preko obicnog
+ HTTP-a. Manifest i HTTPS traze tek Chrome i Android, za "Install app".
+
+ `status-bar-style: black` a ne `black-translucent`: translucent pusta
+ sadrzaj POD statusnu traku, pa bi zaglavlje zavrsilo ispod sata.
+-->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Beast">
+<meta name="theme-color" content="#0b0e14">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b0e14'/%3E%3Cpath d='M9 8h9a5 5 0 0 1 3.2 8.9A5.5 5.5 0 0 1 18.5 24H9z M13 12v4h5a2 2 0 1 0 0-4z M13 19.5V21h5.5a1.5 1.5 0 1 0 0-3H13z' fill='%235eead4'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" defer></script>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="logo">B</span><div><div class="title">BEAST <span class="dim">dash</span></div><div class="sub" id="hostline">connecting…</div></div></div>
+  <nav class="nav" id="nav">
+    <button class="navb on" data-view="home">Home</button>
+    <button class="navb" data-view="projects">Projects <span class="n" id="proj-count">0</span></button>
+  </nav>
+  <div class="search"><span class="icon">⌕</span><input id="search" placeholder="Search projects, ports, branches…  ( / )" autocomplete="off"></div>
+  <div class="topbtns">
+    <button class="btn ghost" id="btn-tunnels" title="Exposed ports (socat → tailscale)">⇄ Tunnels <span class="pill" id="tunnel-count">0</span></button>
+    <button class="btn ghost" id="btn-shell" title="Terminals: live tmux sessions (Claude, dev servers) in the dashboard  (t)">⌨ Terminals <span class="pill" id="term-count">0</span><span class="pill need hidden" id="need-count" title="Claude sessions that need you">0</span></button>
+    <button class="btn ghost" id="btn-palette" title="Jump to any session or project  (⌘K / Ctrl+K)">⌘K</button>
+    <button class="btn ghost" id="btn-rescan" title="Rescan ~/dev">↻ Rescan</button>
+    <button class="btn ghost" id="btn-settings" title="Settings">⚙</button>
+  </div>
+</header>
+
+<section class="banner hidden" id="banner"></section>
+<section class="tunnels hidden" id="tunnels"></section>
+
+<div id="view-home">
+  <section class="stats" id="stats"></section>
+  <section class="termstrip" id="termstrip"></section>
+  <section class="running" id="running"></section>
+</div>
+
+<div id="view-projects" class="hidden">
+  <div class="pbar"><div class="chips" id="filters"></div><span class="sp"></span><span class="dim" id="pbar-hint">click a project name for details · ✦ Claude ▾ starts a session</span></div>
+  <main id="main"></main>
+</div>
+
+<aside class="drawer" id="drawer"></aside>
+<div class="termpanel hidden" id="termpanel"></div>
+<div class="scrim hidden" id="scrim"></div>
+<div class="toasts" id="toasts"></div>
+<div class="menu hidden" id="menu"></div>
+<div class="modal hidden" id="modal"></div>
+<div class="modal palette hidden" id="palette"></div>
+<script src="/app.js"></script>
+</body>
+</html>

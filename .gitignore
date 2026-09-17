@@ -1,0 +1,5 @@
+node_modules/
+state/
+state-backups/
+.DS_Store
+*.log
