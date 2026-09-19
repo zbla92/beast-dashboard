@@ -4,11 +4,12 @@
 #
 # Install: brew install --cask swiftbar   (or xbar), then copy this file into the plugin folder as
 #   beast.30s.sh   (the "30s" in the name is the refresh interval) and chmod +x it.
-# Needs the beast reachable over Tailscale: https://<host>.<tailnet>.ts.net (or set BEAST_URL).
+# Set BEAST_URL to your dashboard's HTTPS address (tailscale serve), e.g. https://myserver.tailxxxx.ts.net — required.
 # <xbar.title>Beast Dash</xbar.title>
 # <xbar.desc>Claude sessions that need you</xbar.desc>
-URL="${BEAST_URL:-https://<host>.<tailnet>.ts.net}"
-j="$(curl -s -m 4 "$URL/api/badge")" || { echo "✦ –"; echo "---"; echo "beast unreachable | color=red"; exit 0; }
+URL="${BEAST_URL:-}"
+[ -n "$URL" ] || { echo "✦ ?"; echo "---"; echo "set BEAST_URL in this script (your dashboard URL) | color=red"; exit 0; }
+j="$(curl -s -m 4 "$URL/api/badge")" || { echo "✦ –"; echo "---"; echo "dashboard unreachable | color=red"; exit 0; }
 need=$(echo "$j" | python3 -c 'import json,sys; print(json.load(sys.stdin)["need"])' 2>/dev/null || echo "?")
 work=$(echo "$j" | python3 -c 'import json,sys; print(json.load(sys.stdin)["working"])' 2>/dev/null || echo "?")
 cost=$(echo "$j" | python3 -c 'import json,sys; print("$%.0f" % json.load(sys.stdin)["today"])' 2>/dev/null || echo "")

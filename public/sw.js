@@ -1,4 +1,4 @@
-// Beast Dash service worker: push notifications only (no caching — without the beast there is nothing to show).
+// Beast Dash service worker: push notifications only (no caching — without the server there is nothing to show).
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
 self.addEventListener('push', e => {

@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
-"""Pravi ikone za pocetni ekran i za Chrome "Install app".
+"""Generates the home-screen / "Install app" icons in public/.
 
-Rucno, bez biblioteke: beast-dash nema nijednu zavisnost i ne isplati se
-dodavati je zbog cetiri slike. Motiv je isti kao favicon u index.html —
-teal "B" na tamnom zaobljenom kvadratu.
+By hand, without a library: Beast Dash has no dependencies and four images are not worth
+adding one. The motif is the same as the favicon in index.html — a teal "B" on a dark
+rounded square.
 
     ./bin/make-icons.py
 
-Maskable varijanta je namjerno drugacija: Android preko nje navlaci svoj
-oblik (krug, squircle...), pa pozadina ide preko CIJELOG kvadrata bez
-zaobljenja, a znak je manji da ostane unutar sigurne zone.
+The maskable variant is deliberately different: Android draws its own shape over it (circle,
+squircle …), so the background covers the WHOLE square without rounding and the glyph is
+smaller to stay inside the safe zone.
 """
 import zlib, struct, os
 
-POZ  = (0x0b, 0x0e, 0x14)
-ZNAK = (0x5e, 0xea, 0xd4)
+BG    = (0x0b, 0x0e, 0x14)
+GLYPH_COLOR = (0x5e, 0xea, 0xd4)
 
-GLIF = [
+GLYPH = [
     "11111100",
     "11000110",
     "11000110",
@@ -29,16 +29,15 @@ GLIF = [
     "11000110",
     "11111100",
 ]
-GW, GH = len(GLIF[0]), len(GLIF)
+GW, GH = len(GLYPH[0]), len(GLYPH)
 
 
-def napravi(S, radius_udio=0.22, glif_udio=0.62):
-    R = S * radius_udio
-    cell = min(S * glif_udio / GW, S * glif_udio / GH * (GW / GH))
-    cell = S * glif_udio / GH          # visina vodi — "B" je vise nego sire
+def render(S, radius_ratio=0.22, glyph_ratio=0.62):
+    R = S * radius_ratio
+    cell = S * glyph_ratio / GH          # height leads — the "B" is taller than it is wide
     gx, gy = (S - GW * cell) / 2, (S - GH * cell) / 2
 
-    def u_kvadratu(x, y):
+    def in_square(x, y):
         if R <= 0:
             return True
         if x < R and y < R:         return (x - R) ** 2 + (y - R) ** 2 <= R * R
@@ -47,53 +46,53 @@ def napravi(S, radius_udio=0.22, glif_udio=0.62):
         if x > S - R and y > S - R: return (x - (S - R)) ** 2 + (y - (S - R)) ** 2 <= R * R
         return True
 
-    def u_glifu(x, y):
+    def in_glyph(x, y):
         c, r = (x - gx) / cell, (y - gy) / cell
         if 0 <= c < GW and 0 <= r < GH:
-            return GLIF[int(r)][int(c)] == "1"
+            return GLYPH[int(r)][int(c)] == "1"
         return False
 
-    N = 3                              # 3x3 nadouzorkovanje -> glatke ivice
-    red = bytearray()
+    N = 3                              # 3x3 supersampling -> smooth edges
+    rows = bytearray()
     for y in range(S):
-        red.append(0)                  # filter byte
+        rows.append(0)                 # filter byte
         for x in range(S):
-            pok = zn = 0
+            covered = glyph = 0
             for sy in range(N):
                 for sx in range(N):
                     px, py = x + (sx + 0.5) / N, y + (sy + 0.5) / N
-                    if u_kvadratu(px, py):
-                        pok += 1
-                        if u_glifu(px, py):
-                            zn += 1
-            if pok == 0:
-                red += bytes((0, 0, 0, 0))
+                    if in_square(px, py):
+                        covered += 1
+                        if in_glyph(px, py):
+                            glyph += 1
+            if covered == 0:
+                rows += bytes((0, 0, 0, 0))
                 continue
-            t = zn / pok
-            boja = tuple(round(POZ[i] * (1 - t) + ZNAK[i] * t) for i in range(3))
-            red += bytes(boja) + bytes((round(255 * pok / (N * N)),))
+            t = glyph / covered
+            color = tuple(round(BG[i] * (1 - t) + GLYPH_COLOR[i] * t) for i in range(3))
+            rows += bytes(color) + bytes((round(255 * covered / (N * N)),))
 
-    def dio(tip, tijelo):
-        d = tip + tijelo
-        return (struct.pack(">I", len(tijelo)) + d
+    def chunk(kind, body):
+        d = kind + body
+        return (struct.pack(">I", len(body)) + d
                 + struct.pack(">I", zlib.crc32(d) & 0xffffffff))
 
     return (b"\x89PNG\r\n\x1a\n"
-            + dio(b"IHDR", struct.pack(">IIBBBBB", S, S, 8, 6, 0, 0, 0))
-            + dio(b"IDAT", zlib.compress(bytes(red), 9))
-            + dio(b"IEND", b""))
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", S, S, 8, 6, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(bytes(rows), 9))
+            + chunk(b"IEND", b""))
 
 
 if __name__ == "__main__":
-    javno = os.path.join(os.path.dirname(__file__), "..", "public")
-    posao = [
+    public = os.path.join(os.path.dirname(__file__), "..", "public")
+    jobs = [
         ("icon-180.png", 180, 0.22, 0.62),   # apple-touch-icon
-        ("icon-192.png", 192, 0.22, 0.62),   # Chrome trazi 192
-        ("icon-512.png", 512, 0.22, 0.62),   # i 512
-        ("icon-512-maskable.png", 512, 0.0, 0.44),  # bez uglova, znak u sigurnoj zoni
+        ("icon-192.png", 192, 0.22, 0.62),   # Chrome wants 192
+        ("icon-512.png", 512, 0.22, 0.62),   # and 512
+        ("icon-512-maskable.png", 512, 0.0, 0.44),  # no corners, glyph inside the safe zone
     ]
-    for ime, s, r, g in posao:
-        p = os.path.join(javno, ime)
+    for name, s, r, g in jobs:
+        p = os.path.join(public, name)
         with open(p, "wb") as f:
-            n = f.write(napravi(s, r, g))
-        print(f"{ime}: {s}x{s}, {n} bajta")
+            f.write(render(s, r, g))
+        print(f"{name}: {os.path.getsize(p)} bytes")

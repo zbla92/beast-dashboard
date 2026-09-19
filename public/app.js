@@ -20,6 +20,36 @@ const fmtUp = s => { const d = Math.floor(s / 86400), hh = Math.floor(s % 86400 
 // onto a fixed palette instead of hardcoding a map. Same folder always gets the same colour.
 const ORG_COLORS = 6;
 const orgColor = o => { if (!o) return 'var(--org-default)'; let n = 0; for (let i = 0; i < o.length; i++) n = (n * 31 + o.charCodeAt(i)) >>> 0; return `var(--org-${n % ORG_COLORS + 1})`; };
+// Project avatar: an app-icon tile in the org's colour with the tech glyph (RN, React, Next, Py, iOS, JS …) and the
+// org initial in the corner. Same tile everywhere a project shows up (cards, sidebar, terminal bar, drawers).
+const REACT_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><ellipse cx="12" cy="12" rx="10" ry="4"/><ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(60 12 12)"/><ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(120 12 12)"/></svg>';
+function techGlyph(p) {
+  if (!p) return { t: '$', cls: 'g-sh' };
+  const f = p.framework, pr = p.primary, st = p.stack;
+  if (f === 'expo' || f === 'react-native') return { t: 'RN', cls: 'g-rn' };
+  if (f === 'ios' || st === 'swift') return { t: 'iOS', cls: 'g-ios' };
+  if (f === 'next') return { t: 'N', cls: 'g-next' };
+  if (f === 'nuxt') return { t: 'Nu', cls: 'g-vue' };
+  if (f === 'angular') return { t: 'A', cls: 'g-ng' };
+  if (f === 'vite' || pr === 'frontend') return { svg: REACT_SVG, cls: 'g-react' };
+  if (f === 'flask' || f === 'django' || f === 'fastapi' || st === 'python') return { t: 'Py', cls: 'g-py' };
+  if (f === 'nest' || f === 'fastify' || f === 'express' || pr === 'backend' || pr === 'node') return { t: 'JS', cls: 'g-node' };
+  if (pr === 'infra' || st === 'docker') return { t: 'Ops', cls: 'g-ops' };
+  if (pr === 'lib') return { t: 'Lib', cls: 'g-lib' };
+  if (pr === 'monorepo') return { t: 'Mo', cls: 'g-lib' };
+  return { t: (p.name || '?').replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase() || '?', cls: 'g-lib' };
+}
+// Every project gets its own muted hue (stable hash of its name) so twenty repos of one client don't all look alike;
+// the org still shows as the initial in the corner.
+function projColor(p) { if (!p) return null; let x = 0; for (const c of p.name) x = (x * 31 + c.charCodeAt(0)) >>> 0; const hues = [210, 25, 150, 275, 45, 190, 330, 95, 240, 10, 170, 300]; return `hsl(${hues[x % hues.length]} 40% 66%)`; }
+// pid: project id (or null for plain shells). size: css class 'sm' | '' | 'lg'
+function avatar(pid, size = '') {
+  const p = pid && byId()[pid]; const g = techGlyph(p); const org = p ? p.org : null;
+  const el = h('span', { class: 'av ' + size + ' ' + g.cls + (org ? ' org-' + org : ' org-none'), style: `--org:${projColor(p) || orgColor(org)};--oc:${orgColor(org)}`, title: p ? [p.name, p.framework || p.primary, p.org].filter(Boolean).join(' · ') : 'shell' });
+  if (g.svg) { const w = h('span', { class: 'g' }); w.innerHTML = g.svg; el.append(w); } else el.append(h('span', { class: 'g' }, g.t));
+  if (org) el.append(h('i', { class: 'oi' }, org[0].toUpperCase()));
+  return el;
+}
 
 // ---------- state ----------
 const S = { projects: [], runtime: { sessions: [], external: [], containers: [], recent: [], exposures: [], otherPorts: [] }, settings: {}, host: {}, stats: null, hist: { cpu: [], mem: [], gpu: [], net: [], t: [] } };
@@ -45,16 +75,47 @@ function isLive(id) { const r = runtimeFor(id); return r.sessions.length || r.ex
 function gitOf(p) { if (p.git) return p.git; if (p.parent) { const par = byId()[p.parent]; return par?.git || null; } return null; }
 function publicHost() { return S.host.publicHost || location.hostname; }
 function portUrl(port) { return `http://${publicHost()}:${port}`; }
-function vscodeUrl(path) { const s = S.settings; return `vscode://vscode-remote/ssh-remote+${s.sshUser ? s.sshUser + '@' : ''}${s.sshHost || 'beast'}${path}?windowId=_blank`; } // windowId=_blank => always a NEW VS Code window
+function vscodeUrl(path) { const s = S.settings; return `vscode://vscode-remote/ssh-remote+${s.sshUser ? s.sshUser + '@' : ''}${s.sshHost || S.host.hostname}${path}?windowId=_blank`; } // windowId=_blank => always a NEW VS Code window
 // ttyd runs with --base-path /term. Over HTTPS (tailscale serve routes /term to it) the terminal is SAME-ORIGIN, which
 // is what makes clipboard, paste-image and the mobile keyboard fit work without workarounds; plain HTTP goes to :7681.
 function termUrl(session) { return (location.protocol === 'https:' ? '' : `http://${publicHost()}:${S.host.terminalPort || 7681}`) + `/term/?arg=${encodeURIComponent(session)}`; }
 // ---------- terminals panel (embedded ttyd, one iframe per opened session, kept alive for instant switching) ----------
-const TERM = { open: false, active: null, frames: new Map(), lastUsed: new Map(), showList: false, listKey: '', chat: new Set(JSON.parse(localStorage.getItem('bd.chat') || '[]')), chatEv: {}, chatN: 40 };
-function setChat(name, on) { if (on) TERM.chat.add(name); else TERM.chat.delete(name); localStorage.setItem('bd.chat', JSON.stringify([...TERM.chat])); renderTermPanel(true); renderChatPane(true); if (!on) { const f = TERM.frames.get(name); if (f) setTimeout(() => f.focus(), 50); } }
+// Line icons (SF-Symbols-ish, 1.8 stroke, currentColor) instead of emoji — one look on Mac, iPhone and Linux.
+const ICONS = {
+  terminal: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="m7 9 3 3-3 3M13 15h4"/>',
+  chat: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1.1-4.2A8 8 0 1 1 21 12z"/>',
+  bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20a2 2 0 0 0 4 0"/>',
+  bellOff: '<path d="M6 16V11a6 6 0 0 1 9.3-5M18 11v5l1.5 2H7"/><path d="M10 20a2 2 0 0 0 4 0M4 4l16 16"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  back: '<path d="m15 5-7 7 7 7"/>',
+  ext: '<path d="M7 17 17 7M9 7h8v8"/>',
+  x: '<path d="M6 6l12 12M18 6 6 18"/>',
+  power: '<path d="M12 3v9"/><path d="M6.3 7A8 8 0 1 0 17.7 7"/>',
+  clip: '<path d="m21 12-8.5 8.5a5 5 0 0 1-7-7L14 5a3.3 3.3 0 0 1 4.7 4.7L10.5 18a1.7 1.7 0 0 1-2.4-2.4L16 7.7"/>',
+  mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  full: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+  copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/>',
+  refresh: '<path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/>',
+  send: '<path d="M12 19V5M5 12l7-7 7 7"/>',
+  sidebar: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/>',
+  folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+};
+function ico(name, size = 15) {
+  const e = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  e.setAttribute('viewBox', '0 0 24 24'); e.setAttribute('width', size); e.setAttribute('height', size); e.setAttribute('fill', 'none'); e.setAttribute('stroke', 'currentColor'); e.setAttribute('stroke-width', '1.8'); e.setAttribute('stroke-linecap', 'round'); e.setAttribute('stroke-linejoin', 'round'); e.setAttribute('class', 'ico ico-' + name); e.setAttribute('aria-hidden', 'true');
+  e.innerHTML = ICONS[name] || ''; return e;
+}
+// Terminal / Chat is ONE global switch for this device (Mac, phone …): every Claude session shows the same way.
+const TERM = { open: false, active: null, frames: new Map(), lastUsed: new Map(), showList: false, listKey: '', mode: localStorage.getItem('bd.mode') === 'chat' ? 'chat' : 'term', chatEv: {}, chatN: 40 };
+const chatMode = name => TERM.mode === 'chat' && !!claudeOf(name);
+// Focus: hide the session list in the terminal panel (screen sharing) — per device, remembered
+TERM.focus = localStorage.getItem('bd.focus') === '1';
+function setFocus(on) { TERM.focus = on; localStorage.setItem('bd.focus', on ? '1' : '0'); document.body.classList.toggle('focus', on); renderTermPanel(true); }
+function setMode(mode) { TERM.mode = mode; localStorage.setItem('bd.mode', mode); renderTermPanel(true); renderChatPane(true); if (mode === 'term') { const f = TERM.frames.get(TERM.active); if (f) setTimeout(() => f.focus(), 50); } }
 // Chat mode for the active session: the conversation view in place of the tmux iframe (same tmux session underneath)
 async function renderChatPane(force) {
-  const pane = $('#term-chat'); if (!pane) return; const name = TERM.active; const on = TERM.open && name && TERM.chat.has(name) && !!claudeOf(name);
+  const pane = $('#term-chat'); if (!pane) return; const name = TERM.active; const on = TERM.open && name && chatMode(name);
   pane.classList.toggle('hidden', !on); const f = name && TERM.frames.get(name); if (f) f.classList.toggle('on', !on && f.classList.contains('on'));
   if (!on) return;
   if (pane.dataset.name !== name) { pane.innerHTML = ''; pane.append(h('div', { class: 'dim', style: 'padding:20px' }, 'loading…')); pane.dataset.name = name; TERM.chatEv.key = ''; }
@@ -71,7 +132,7 @@ async function renderChatPane(force) {
 // text, and no hook fires for that — 2 s is fast enough to feel live and cheap (a tail read of one file).
 setInterval(() => {
   if (document.hidden) return;
-  if (TERM.open && TERM.active && TERM.chat.has(TERM.active) && claudeOf(TERM.active)) renderChatPane(false);
+  if (TERM.open && TERM.active && chatMode(TERM.active)) renderChatPane(false);
   if (UI.drawer && String(UI.drawer).startsWith('session:') && SESS.tab === 'transcript') renderSessionDrawer(false);
 }, 2000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) { renderChatPane(false); if (UI.drawer && String(UI.drawer).startsWith('session:')) renderSessionDrawer(false); } });
@@ -81,7 +142,7 @@ function openTerm(session) {
   TERM.open = true; TERM.showList = false; ensureFrame(session); TERM.active = session; TERM.lastUsed.set(session, Date.now());
   const cl = claudeOf(session); if (cl && (cl.state === 'needs-you' || cl.state === 'error')) api('claude-seen', { session }).catch(() => {});
   renderTermPanel(true); renderChatPane(true);
-  const f = TERM.frames.get(session); if (f && !TERM.chat.has(session)) setTimeout(() => f.focus(), 50);   // focus ONLY here, never on a state tick
+  const f = TERM.frames.get(session); if (f && !chatMode(session)) setTimeout(() => f.focus(), 50);   // focus ONLY here, never on a state tick
 }
 function openTermTab(session) { window.open(termUrl(session), '_blank'); }
 function closeTermPanel(pop = true) { if (!TERM.open) return; TERM.open = false; renderTermPanel(); if (pop) popLayer(); }
@@ -160,43 +221,83 @@ function stateBadge(cl) {
   if (!cl) return null; const st = cl.state || 'unknown';
   return h('span', { class: 'cst ' + st, title: (STATE_LABEL[st] || st) + (cl.since ? ' since ' + new Date(cl.since).toLocaleTimeString() : '') }, h('i', null, STATE_ICON[st] || '·'), ' ', STATE_LABEL[st] || st, cl.since && st !== 'unknown' ? h('b', null, ' ' + ago(cl.since)) : null);
 }
+// which Claude on a project this is: the base one (by account), a numbered extra instance, or a git worktree
+function instOf(it) {
+  const cl = it.claude || {}; const wt = cl.worktree || (it.name.match(/-wt-([^-]+)/) ? { name: it.name.match(/-wt-([^-]+)/)[1] } : null);
+  const n = it.name.match(/^claude-.*-(\d+)(-company)?$/);
+  return { wt, n: n ? +n[1] : null, branch: cl.branch || null, label: wt ? '⎇ ' + wt.name : n ? '#' + n[1] : '#1' };
+}
+// Claude sessions grouped per project, in tmux order (the first session of a project fixes the group's position)
+function claudeGroups(list) {
+  const groups = []; const by = new Map();
+  for (const it of list) { const key = it.pid || it.name; let g = by.get(key); if (!g) { g = { key, pid: it.pid, project: it.project, org: it.org, items: [] }; by.set(key, g); groups.push(g); } g.items.push(it); }
+  return groups;
+}
+const GROUP_SEL = JSON.parse(localStorage.getItem('bd.gsel') || '{}');
+function selectTab(key, name) { GROUP_SEL[key] = name; localStorage.setItem('bd.gsel', JSON.stringify(GROUP_SEL)); renderTermStrip(); }
+// "+" on a card / group: another instance or a worktree on that project (same menu as the ✦ Claude ▾ button)
+function plusClaude(ev, pid) { ev.stopPropagation(); const p = pid && byId()[pid]; if (!p) return toast('no project for this session', 'err'); claudeMenu(ev, p); }
+// branch / worktree tag: a worktree gets its own colour and the path on hover
+function whereTag(cl) {
+  if (!cl) return null;
+  if (cl.worktree) return h('span', { class: 'ag-tag wt', title: `git worktree · ${home(cl.worktree.path)}` + (cl.branch ? ` · branch ${cl.branch}` : '') }, '⎇ ', cl.worktree.name, cl.branch && cl.branch !== cl.worktree.name ? h('i', null, ' · ' + cl.branch) : null);
+  if (cl.branch) return h('span', { class: 'ag-tag br', title: 'branch ' + cl.branch }, '⎇ ', cl.branch);
+  return null;
+}
 const nice = n => n.startsWith('claude-') ? '✦ ' + n.replace(/^claude-/, '').replace(/-company$/, ' (company)') : n.startsWith('bd_') ? '▶ ' + n.replace(/^bd_/, '').replace('__', ' · ') : n === 'shell' ? 'bash' : n.startsWith('sh-') ? '$ ' + n : n;
 function renderTermPanel(force) {
   const el = $('#termpanel'); const live = S.runtime.sessions.length; $('#term-count').textContent = live;
   el.classList.toggle('hidden', !TERM.open); document.body.classList.toggle('term-open', TERM.open);
   if (!TERM.open) { fitTermPanel(); return; }
   trackVV(300);
-  el.classList.toggle('showlist', TERM.showList);
+  el.classList.toggle('showlist', TERM.showList); el.classList.toggle('focus', TERM.focus);
   if (!$('#term-list')) {
-    el.append(h('aside', { class: 'termside' }, h('div', { class: 'termside-head' }, h('button', { class: 'btn sm ghost back', title: 'back to dashboard — all sessions keep running (Esc)', onclick: closeTermPanel }, '← Dashboard'), h('span', { class: 'sp' }), h('button', { class: 'btn sm', title: 'new bash shell in ~/dev', onclick: newShell }, '+ shell')), h('div', { id: 'term-list' })),
+    el.append(h('aside', { class: 'termside' }, h('div', { class: 'termside-head' }, h('button', { class: 'btn sm ghost back', title: 'back to dashboard — all sessions keep running (Esc)', onclick: closeTermPanel }, ico('back'), 'Dashboard'), h('span', { class: 'sp' }), h('button', { class: 'btn sm', title: 'new bash shell in the dev folder', onclick: newShell }, ico('plus', 13), 'Shell'), h('button', { class: 'btn sm ghost icon desk', title: 'focus mode — hide the session list (for screen sharing)', onclick: () => setFocus(true) }, ico('sidebar', 15))), h('div', { id: 'term-list' })),
       h('section', { class: 'termmain' }, h('div', { class: 'termbar', id: 'term-bar' }), h('div', { class: 'termframes', id: 'term-frames' }, h('div', { class: 'chatpane hidden', id: 'term-chat' }))));
   }
   const S3 = termSessions(); const known = new Set(S.runtime.sessions.map(s => s.name));
   const extra = [...TERM.frames.keys()].filter(k => !known.has(k));
   // The list and the bar are rebuilt only when something they show actually changed. Rebuilding them on every
   // 3-second state tick blurred the terminal iframe (the focus bug) and made the sidebar flicker.
-  const key = JSON.stringify([TERM.active, TERM.showList, [...TERM.chat], S3.all.map(x => [x.name, x.claude?.state, x.claude?.title, x.claude?.draft, Math.floor((x.cpu || 0) / 10), x.ports.map(p => p.port)]), extra, [...TERM.frames.keys()], S.runtime.sessions.filter(s => s.name === TERM.active).map(s => s.project + (gitOf(byId()[s.project] || {})?.dirty || 0))]);
-  const frames = $('#term-frames'); const chatOn = TERM.active && TERM.chat.has(TERM.active) && !!claudeOf(TERM.active);
+  const key = JSON.stringify([TERM.active, TERM.showList, TERM.mode, TERM.focus, S3.all.map(x => [x.name, x.claude?.state, x.claude?.title, x.claude?.draft, x.claude?.model, x.claude?.effort, x.claude?.branch, x.claude?.worktree?.name, x.claude?.version, (S.settings.muted || []).includes(x.name), Math.floor((x.cpu || 0) / 10), x.ports.map(p => p.port)]), extra, [...TERM.frames.keys()], S.runtime.sessions.filter(s => s.name === TERM.active).map(s => s.project + (gitOf(byId()[s.project] || {})?.dirty || 0))]);
+  const frames = $('#term-frames'); const chatOn = TERM.active && chatMode(TERM.active);
   for (const [k, f] of TERM.frames) { if (!f.isConnected) frames.append(f); f.classList.toggle('on', k === TERM.active && !chatOn); }
   $('#term-chat').classList.toggle('hidden', !chatOn);
   if (!force && key === TERM.listKey) return;
   TERM.listKey = key;
   const list = $('#term-list'); list.innerHTML = '';
   let idx = 0;
-  const item = (it, kind) => {
-    const isActive = TERM.active === it.name; const opened = TERM.frames.has(it.name); const cl = it.claude; const n = ++idx;
-    return h('div', { class: 'titem ' + kind + (isActive ? ' on' : '') + (opened ? ' opened' : '') + (cl ? ' st-' + cl.state : ''), style: `--org:${orgColor(it.org)}`, onclick: () => openTerm(it.name), title: cl ? (STATE_LABEL[cl.state] || '') + (cl.title ? ' — ' + cl.title : '') : it.name },
-      h('span', { class: 'dot' }), h('div', { class: 'tt' }, h('div', { class: 'tn' }, kind === 'claude' ? h('span', null, '✦ ', it.project, ' ', h('span', { class: 'badge tag acc ' + it.account }, it.account), it.name.match(/-wt-([^-]+)/) ? h('span', { class: 'grp' }, ' ⎇ ' + it.name.match(/-wt-([^-]+)/)[1]) : it.name.match(/^claude-.*-(\d+)(-company)?$/) ? h('span', { class: 'grp' }, ' #' + it.name.match(/-(\d+)(-company)?$/)[1]) : null) : kind === 'dev' ? h('span', null, it.project, ' ', h('span', { class: 'grp' }, '· ' + it.label)) : it.name.startsWith('sh-') ? h('span', null, '$ ' + it.name, ' ', h('span', { class: 'grp' }, '· bash')) : it.name),
-        h('div', { class: 'ts' }, cl ? [h('span', { class: 'cst mini ' + cl.state }, STATE_ICON[cl.state] || '·', ' ', STATE_LABEL[cl.state] || cl.state), cl.title ? ' · ' + cl.title : ''] : [[it.group, it.org].filter(Boolean).join(' · ') || it.cwd, ` · ${ago(it.started)} · ${it.cpu.toFixed(0)}% ${fmtB(it.mem)}`])),
-      n <= 9 ? h('kbd', { class: 'tnum', title: `Ctrl+Shift+${n} inside the terminal` }, n) : null,
-      h('button', { class: 'x', title: 'open in new tab', onclick: ev => { ev.stopPropagation(); openTermTab(it.name); } }, '↗'));
+  // Sidebar card: avatar · name + account · state pill + model · branch / title. Three clear lines, actions on hover.
+  const item = (it, kind, sub) => {
+    const isActive = TERM.active === it.name; const opened = TERM.frames.has(it.name); const cl = it.claude; const i = kind === 'claude' ? instOf(it) : null;
+    const where = i && (i.wt ? h('span', { class: 'grp wt', title: i.wt.path ? 'git worktree · ' + home(i.wt.path) : 'git worktree' }, '⎇ ' + i.wt.name + (i.branch && i.branch !== i.wt.name ? ' · ' + i.branch : '')) : i.branch ? h('span', { class: 'grp', title: 'branch' }, '⎇ ' + i.branch) : null);
+    const name = kind === 'claude' ? (sub ? h('span', { class: 'inst' }, i.label) : (cl?.label || it.project)) : kind === 'dev' ? it.project : it.name.startsWith('sh-') ? it.name : it.name;
+    const tag = kind === 'claude' ? h('span', { class: 'badge tag acc ' + it.account }, it.account) : kind === 'dev' ? h('span', { class: 'grp' }, it.label) : it.name.startsWith('sh-') ? h('span', { class: 'grp' }, 'bash') : null;
+    const line2 = cl ? [h('span', { class: 'cst mini ' + cl.state }, STATE_ICON[cl.state] || '·', ' ', STATE_LABEL[cl.state] || cl.state), cl.model ? h('span', { class: 'mdl' }, modelName(cl.model)) : null, !sub && i && i.n ? h('span', { class: 'grp' }, '#' + i.n) : null]
+      : [h('span', { class: 'grp' }, [it.group, it.org].filter(Boolean).join(' · ') || home(it.cwd)), h('span', { class: 'grp' }, `${ago(it.started)} · ${it.cpu.toFixed(0)}% · ${fmtB(it.mem)}`)];
+    const line3 = cl ? [where, cl.title ? h('span', { class: 'ttl', title: cl.title }, cl.title) : cl.lastPrompt ? h('span', { class: 'ttl dim', title: cl.lastPrompt }, '❯ ' + cl.lastPrompt) : null] : null;
+    return h('div', { class: 'titem ' + kind + (sub ? ' sub' : '') + (isActive ? ' on' : '') + (opened ? ' opened' : '') + (cl ? ' st-' + cl.state : ''), style: `--org:${orgColor(it.org)}`, onclick: () => openTerm(it.name), title: it.name },
+      kind === 'claude' && !sub ? avatar(it.pid) : h('span', { class: 'dot' }),
+      h('div', { class: 'tt' },
+        h('div', { class: 'tn' }, h('span', { class: 'nm' }, name), tag),
+        h('div', { class: 'ts' }, ...line2.filter(Boolean)),
+        line3 && line3.some(Boolean) ? h('div', { class: 't3' }, ...line3.filter(Boolean)) : null),
+      h('div', { class: 'tacts' },
+        kind === 'claude' && !sub && it.pid ? h('button', { class: 'x plus', title: 'another Claude on this project', onclick: ev => plusClaude(ev, it.pid) }, ico('plus', 15)) : null,
+        h('button', { class: 'x', title: 'open in new tab', onclick: ev => { ev.stopPropagation(); openTermTab(it.name); } }, ico('ext', 15))));
   };
   const section = (title, arr, kind) => arr.length ? [h('div', { class: 'tsec' }, title, h('span', { class: 'n' }, arr.length)), ...arr.map(it => item(it, kind))] : [];
-  list.append(...section('Claude instances', S3.claude, 'claude'), ...section('Dev servers', S3.dev, 'dev'), ...section('Other tmux', S3.other, 'other'));
+  // Claude: one row per session; a project with several Claudes gets a header row and its sessions indented under it (tabs)
+  const claudeRows = [];
+  for (const g of claudeGroups(S3.claude)) {
+    if (g.items.length === 1) { claudeRows.push(item(g.items[0], 'claude')); continue; }
+    claudeRows.push(h('div', { class: 'tgrp', style: `--org:${orgColor(g.org)}` }, avatar(g.pid, 'sm'), h('span', { class: 'tgn' }, g.project), h('span', { class: 'n' }, g.items.length), h('span', { class: 'sp' }), g.pid ? h('button', { class: 'x plus', title: 'another Claude on this project', onclick: ev => plusClaude(ev, g.pid) }, ico('plus', 13)) : null));
+    for (const it of g.items) claudeRows.push(item(it, 'claude', true));
+  }
+  list.append(...(S3.claude.length ? [h('div', { class: 'tsec' }, 'Claude instances', h('span', { class: 'n' }, S3.claude.length)), ...claudeRows] : []), ...section('Dev servers', S3.dev, 'dev'), ...section('Other tmux', S3.other, 'other'));
   // opened frames whose session vanished (or plain shells)
-  if (extra.length) list.append(h('div', { class: 'tsec' }, 'Open tabs', h('span', { class: 'n' }, extra.length)), ...extra.map(k => h('div', { class: 'titem other' + (TERM.active === k ? ' on' : ''), onclick: () => { TERM.active = k; renderTermPanel(true); } }, h('span', { class: 'dot', style: k === 'shell' ? 'background:var(--accent);box-shadow:0 0 8px var(--accent)' : 'background:var(--dim);box-shadow:none' }), h('div', { class: 'tt' }, h('div', { class: 'tn' }, k === 'shell' ? 'bash · ~/dev' : k), h('div', { class: 'ts' }, k === 'shell' ? 'plain shell' : 'session ended')), h('button', { class: 'x', title: 'close tab', onclick: ev => { ev.stopPropagation(); dropFrame(k); } }, '✕'))));
+  if (extra.length) list.append(h('div', { class: 'tsec' }, 'Open tabs', h('span', { class: 'n' }, extra.length)), ...extra.map(k => h('div', { class: 'titem other' + (TERM.active === k ? ' on' : ''), onclick: () => { TERM.active = k; renderTermPanel(true); } }, h('span', { class: 'dot', style: k === 'shell' ? 'background:var(--accent);box-shadow:0 0 8px var(--accent)' : 'background:var(--dim);box-shadow:none' }), h('div', { class: 'tt' }, h('div', { class: 'tn' }, k === 'shell' ? 'bash · ' + home(S.host.devRoot || '~') : k), h('div', { class: 'ts' }, k === 'shell' ? 'plain shell' : 'session ended')), h('button', { class: 'x', title: 'close tab', onclick: ev => { ev.stopPropagation(); dropFrame(k); } }, ico('x', 13)))));
   if (!S.runtime.sessions.length && !TERM.frames.size) list.append(h('div', { class: 'note', style: 'padding:12px' }, 'No tmux sessions. Start a Claude session from a project card (✦ Claude ▾) or a dev server (▶), or open a shell.'));
-  list.append(h('div', { class: 'tkeys' }, h('kbd', null, 'Ctrl⇧←/→'), ' switch · ', h('kbd', null, 'Ctrl⇧1-9'), ' jump · ', h('kbd', null, 'Ctrl⇧↑'), ' dashboard · ', h('kbd', null, 'Ctrl⇧P'), ' palette'));
   const bar = $('#term-bar'); bar.innerHTML = '';
   const barAdd = (...xs) => bar.append(...xs.filter(x => x != null && x !== false)); // Element.append() would render a literal "null" for sessions without a project
   const act = S.runtime.sessions.find(s => s.name === TERM.active); const cl = act && act.claude;
@@ -206,15 +307,20 @@ function renderTermPanel(force) {
     h('select', { class: 'mob tsel', onchange: e => openTerm(e.target.value) }, allNames.map(n => h('option', { value: n, selected: n === TERM.active }, (claudeOf(n) ? (STATE_ICON[claudeOf(n).state] || '') + ' ' : '') + nice(n)))));
   const actProj = act && byId()[act.project]; const actGit = actProj && gitOf(actProj);
   const actDirty = actGit && !actGit.error ? actGit.dirty + actGit.untracked : 0;
-  const chatSw = cl && cl.hooked ? h('span', { class: 'seg', title: 'same session, two ways to use it' }, h('button', { class: 'segb' + (!TERM.chat.has(TERM.active) ? ' on' : ''), onclick: () => setChat(TERM.active, false) }, '⌨ Terminal'), h('button', { class: 'segb' + (TERM.chat.has(TERM.active) ? ' on' : ''), onclick: () => setChat(TERM.active, true) }, '💬 Chat')) : null;
-  if (TERM.active) barAdd(chatSw, h('span', { class: 'mono tname desk' }, TERM.active), cl ? stateBadge(cl) : null, cl && cl.title ? h('span', { class: 'dim desk ttitle', title: cl.title }, cl.title) : act ? h('span', { class: 'dim mono desk', style: 'font-size:11.5px' }, act.cwd) : h('span', { class: 'dim desk' }, TERM.active === 'shell' ? '~/dev' : 'session ended'), h('span', { class: 'sp' }),
-    actProj ? h('button', { class: 'btn sm' + (actDirty ? ' dirtybtn' : ''), title: 'git changes of this project — branch, staged & pending diffs', onclick: () => openDrawer(actProj.id, 'changes') }, '± ', String(actDirty || 'diff')) : null,
-    act ? h('button', { class: 'btn sm desk', title: 'copy Mac command', onclick: () => navigator.clipboard.writeText(TERM.active.startsWith('claude-') ? `cs ${TERM.active.endsWith('-company') ? '-c ' : ''}${TERM.active.replace(/^claude-/, '').replace(/-company$/, '')}` : `mosh beast -- tmux attach -t ${TERM.active}`).then(() => toast('copied')) }, '⎘ Mac') : null,
-    h('button', { class: 'btn sm desk', title: 'open in new browser tab', onclick: () => openTermTab(TERM.active) }, '↗ tab'),
-    h('button', { class: 'btn sm ghost desk', title: 'close this VIEW only — the session keeps running in tmux', onclick: () => dropFrame(TERM.active) }, '✕ Close view'),
-    act ? h('button', { class: 'btn sm danger', title: 'KILL this tmux session — the process is stopped (Ctrl-C, then kill)', onclick: () => killSession(TERM.active) }, '⊘ Kill session') : null,
-    h('button', { class: 'btn sm ghost mob', title: 'back to dashboard (sessions keep running)', onclick: closeTermPanel }, '←'));
-  else barAdd(h('span', { class: 'dim' }, 'Pick a session.'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost mob', onclick: closeTermPanel }, '←'));
+  // one switch for every session on this device — not per session
+  const chatSw = cl && cl.hooked ? h('span', { class: 'seg', title: 'Terminal or Chat view — applies to all Claude sessions on this device' }, h('button', { class: 'segb' + (TERM.mode !== 'chat' ? ' on' : ''), onclick: () => setMode('term') }, ico('terminal', 14), h('span', { class: 'desk' }, 'Terminal')), h('button', { class: 'segb' + (TERM.mode === 'chat' ? ' on' : ''), onclick: () => setMode('chat') }, ico('chat', 14), h('span', { class: 'desk' }, 'Chat'))) : null;
+  const actName = act ? (cl?.label || (act.project && byId()[act.project]?.name) || TERM.active) : TERM.active;
+  if (TERM.active) barAdd(TERM.focus ? h('button', { class: 'btn sm ghost icon desk', title: 'show the session list', onclick: () => setFocus(false) }, ico('sidebar', 15)) : null, act ? avatar(act.project, 'sm') : null, h('span', { class: 'tname desk', title: TERM.active }, actName, instOf(act || { name: TERM.active }).n ? h('span', { class: 'grp' }, ' #' + instOf(act).n) : null), chatSw, cl ? stateBadge(cl) : null, modelChip(cl), cl ? whereTag(cl) : null, cl && cl.title ? h('span', { class: 'dim desk ttitle', title: cl.title }, cl.title) : act ? h('span', { class: 'dim mono desk', style: 'font-size:11.5px' }, act.cwd) : h('span', { class: 'dim desk' }, TERM.active === 'shell' ? home(S.host.devRoot || '~') : 'session ended'), h('span', { class: 'sp' }),
+    actProj ? h('button', { class: 'btn sm projbtn', title: 'project details — changes, files, logs, branches, docker', onclick: () => openDrawer(actProj.id, actDirty ? 'changes' : 'overview') }, ico('folder', 14), h('span', { class: 'desk' }, 'Project'), actDirty ? h('span', { class: 'pill warn' }, '± ' + actDirty) : null) : null,
+    act ? h('button', { class: 'btn sm desk', title: 'copy the ssh command that attaches to this tmux session', onclick: () => navigator.clipboard.writeText(attachCmd(TERM.active)).then(() => toast('copied')) }, ico('copy', 13), 'ssh') : null,
+    h('button', { class: 'btn sm desk', title: 'open in new browser tab', onclick: () => openTermTab(TERM.active) }, ico('ext', 13), 'Tab'),
+    h('button', { class: 'btn sm ghost desk', title: 'close this VIEW only — the session keeps running in tmux', onclick: () => dropFrame(TERM.active) }, ico('x', 13), 'Close view'),
+    cl && cl.state === 'limit' && act ? h('button', { class: 'btn sm primary', title: 'start the other account in this folder with a summary of where this one stopped', onclick: () => handoff({ name: TERM.active, account: cl.account, project: act.project }) }, '⇄ Hand off') : null,
+    cl && cl.version && S.claude?.installed && cl.version !== S.claude.installed ? h('button', { class: 'btn sm dirtybtn desk', title: `running Claude Code ${cl.version}, ${S.claude.installed} is installed — restart this session (same conversation, --resume)`, onclick: () => restartSession({ name: TERM.active, project: act?.project }) }, ico('refresh', 13), S.claude.installed) : null,
+    cl && cl.hooked ? h('button', { class: 'btn sm ghost desk', title: (S.settings.muted || []).includes(TERM.active) ? 'muted — click to get notifications again' : 'mute notifications from this session', onclick: () => api('claude-mute', { session: TERM.active, muted: !(S.settings.muted || []).includes(TERM.active) }).then(r => toast(r.muted.includes(TERM.active) ? 'muted' : 'unmuted')) }, ico((S.settings.muted || []).includes(TERM.active) ? 'bellOff' : 'bell', 14)) : null,
+    act ? h('button', { class: 'btn sm danger', title: 'KILL this tmux session — the process is stopped (Ctrl-C, then kill)', onclick: () => killSession(TERM.active) }, ico('power', 13), 'Kill') : null,
+    h('button', { class: 'btn sm ghost mob', title: 'back to dashboard (sessions keep running)', onclick: closeTermPanel }, ico('back', 15)));
+  else barAdd(h('span', { class: 'dim' }, 'Pick a session.'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost mob', onclick: closeTermPanel }, ico('back', 15)));
 }
 // remember what gets started per project (dev commands, compose, Claude account) -> "▶▶ Start all" brings it all up next time
 function noteBundle(p, entry) { const b = (S.settings.projects?.[p.id]?.bundle || []).filter(x => !(x.kind === entry.kind && x.name === entry.name)); b.push(entry); api('project', { id: p.id, bundle: b.slice(-8) }).catch(() => {}); }
@@ -247,7 +353,7 @@ function claudeMenu(ev, p) {
     p.isGit ? { label: 'Personal in a git worktree…', sub: 'claude --worktree <name> · separate branch + directory', icon: '⎇', onclick: () => wt('personal') } : null,
     p.isGit ? { label: 'Company in a git worktree…', sub: 'claude --worktree <name> · separate branch + directory', icon: '⎇', onclick: () => wt('company') } : null,
     'sep',
-    { label: 'Copy Mac command', sub: `cs ${base}   (cs -c ${base} = company)`, icon: '⎘', onclick: () => navigator.clipboard.writeText(`cs ${base}`).then(() => toast('copied "cs ' + base + '" — paste in Mac terminal (cs -c for company)')) },
+    { label: 'Copy ssh command', sub: attachCmd(per), icon: '⎘', onclick: () => navigator.clipboard.writeText(attachCmd(per)).then(() => toast('copied — paste in a terminal on your laptop')) },
   ].filter(Boolean));
 }
 function exposedPort(port) { return S.runtime.exposures.find(e => e.port === port); }
@@ -264,6 +370,7 @@ function renderHeader() {
   for (const [key, label, n, color] of chips) f.append(h('button', { class: 'chip' + (UI.filter === key ? ' on' : ''), onclick: () => { UI.filter = key; render(); } }, color ? h('span', { class: 'dot', style: `background:${color}` }) : null, label, h('span', { class: 'n' }, n)));
   $('#tunnel-count').textContent = S.runtime.exposures.length;
   $('#proj-count').textContent = S.projects.filter(p => !p.hidden).length;
+  { const open = (S.claude?.tasks || []).filter(t => t.status !== 'done').length; const tc = $('#task-count'); if (tc) { tc.textContent = open; tc.classList.toggle('hot', open > 0); } }
   const need = S.runtime.sessions.filter(s => s.claude && s.claude.needsYou).length; const nb = $('#need-count'); if (nb) { nb.textContent = need; nb.classList.toggle('hidden', !need); }
   document.title = (need ? `(${need}) ` : '') + 'Beast Dash';
 }
@@ -281,27 +388,73 @@ function sparkline(canvas, data, color, max = 100, fill = true) {
   if (fill && data.length > 1) { ctx.lineTo(x(data.length - 1), H); ctx.lineTo(x(0), H); ctx.closePath(); const g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, color.replace(')', ',.35)').replace('rgb', 'rgba')); g.addColorStop(1, 'rgba(0,0,0,0)'); ctx.fillStyle = g; ctx.fill(); }
 }
 const usd = v => v == null ? '–' : v < 10 ? '$' + v.toFixed(2) : '$' + v.toFixed(0);
+// "claude-opus-5[1m]" -> "Opus 5 · 1M", "claude-fable-5-1" -> "Fable 5.1", "claude-haiku-4-5-20251001" -> "Haiku 4.5"
+function modelName(id) {
+  if (!id) return null; const m = String(id).match(/^(?:claude-)?([a-z]+)(?:-(\d+)(?:-(\d+))?)?(?:-\d{8})?(?:\[(\w+)\])?/i); if (!m) return id;
+  const name = m[1][0].toUpperCase() + m[1].slice(1); const ver = m[2] ? ' ' + m[2] + (m[3] ? '.' + m[3] : '') : '';
+  return name + ver + (m[4] ? ' · ' + m[4].toUpperCase() : '');
+}
+const modelChip = cl => cl && cl.model ? h('span', { class: 'badge tag model', title: `model: ${cl.model}${cl.effort ? ' · effort ' + cl.effort : ''}` }, '◈ ', modelName(cl.model), cl.effort && cl.effort !== 'high' ? h('i', null, ' · ' + cl.effort) : null) : null;
+// plan limits (5 h session / 7 d / Fable) per account, as Claude Code's /usage shows them
+const inStr = ts => { const s = Math.max(0, (ts - Date.now()) / 1000); const mm = Math.round(s / 60), hh = Math.round(s / 3600); if (s < 60) return '<1m'; if (mm < 60) return mm + 'm'; if (hh < 24) return Math.floor(mm / 60) + 'h ' + (mm % 60) + 'm'; return Math.floor(hh / 24) + 'd ' + (hh % 24) + 'h'; };
+const resetStr = ts => { if (!ts) return ''; const d = new Date(ts); const hm = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); return (ts - Date.now() < 86400e3 && d.getDate() === new Date().getDate() ? hm : d.toLocaleDateString([], { weekday: 'short' }) + ' ' + hm) + ' (in ' + inStr(ts) + ')'; };
+const limCls = w => !w || w.pct == null ? '' : w.pct >= 90 || w.severity === 'critical' ? 'hot' : w.pct >= 70 || (w.severity && w.severity !== 'normal') ? 'warn' : '';
+function limitRow(label, w, title) {
+  if (!w) return null; const c = limCls(w);
+  return h('div', { class: 'limrow ' + c, title: (title || label) + (w.resetsAt ? ' · resets ' + resetStr(w.resetsAt) : '') }, h('span', { class: 'll' }, label), h('span', { class: 'lb' }, h('b', { style: `width:${Math.min(100, w.pct || 0)}%` })), h('span', { class: 'lp mono' }, (w.pct ?? '–') + '%'), h('span', { class: 'lr mono' }, w.resetsAt ? inStr(w.resetsAt) : ''));
+}
+// one column of the "Claude usage limits" card: big 5 h number + reset, then the week / Fable / extra rows
+function limitCol(account, L) {
+  const badge = h('span', { class: 'badge tag acc ' + account, title: (L.plan || '') + (L.tier ? ' · ' + L.tier : '') + (L.fetchedAt ? ' · fetched ' + ago(L.fetchedAt) + ' ago' : '') + (L.error ? ' · last fetch failed: ' + L.error : '') }, account, L.plan ? ' · ' + L.plan : '');
+  if (L.error && !L.session) return h('div', { class: 'limcol' }, h('div', { class: 'k' }, badge), h('div', { class: 'v' }, '–'), h('div', { class: 's' }, L.error));
+  const se = L.session; const all = [se, L.weekly, ...(L.scoped || [])].map(limCls); const cls = all.includes('hot') ? 'hot' : all.includes('warn') ? 'warn' : '';
+  return h('div', { class: 'limcol ' + cls },
+    h('div', { class: 'k' }, badge, se && se.resetsAt ? h('span', { class: 'mono dim', style: 'text-transform:none;letter-spacing:0;font-weight:500' }, 'resets ' + resetStr(se.resetsAt)) : null),
+    h('div', { class: 'v' }, se ? se.pct + '' : '–', h('small', null, se ? '% of 5h session' : (L.error || 'no session window'))),
+    h('div', { class: 'lim' }, limitRow('week', L.weekly, '7-day window, all models'), ...(L.scoped || []).map(w => limitRow(w.name, w, `7-day window, ${w.name} only`)),
+      L.extra?.enabled ? h('div', { class: 'limrow' }, h('span', { class: 'll' }, 'extra'), h('span', { class: 'lb' }, h('b', { style: `width:${Math.min(100, L.extra.pct || 0)}%` })), h('span', { class: 'lp mono wide' }, `${usd(L.extra.used || 0)} / ${usd(L.extra.limit)}`)) : null));
+}
+function limitsTile(LM) {
+  const cols = ['personal', 'company'].filter(a => LM[a]); if (!cols.length) return null;
+  return h('div', { class: 'tile w3', 'data-k': 'limits' }, h('div', { class: 'k' }, h('span', null, 'Claude usage limits'), h('span', { class: 'dim', style: 'font-size:10.5px;text-transform:none;letter-spacing:0', title: 'the same windows /usage shows inside Claude Code: 5-hour session, 7-day all models, 7-day per model, extra-usage credits' }, '/usage')),
+    h('div', { class: 'limcols' }, cols.map(a => limitCol(a, LM[a]))));
+}
+// donut: used share of a whole, percent in the middle (disk)
+function ring(pct, size = 58, stroke = 7) {
+  const r = (size - stroke) / 2, c = 2 * Math.PI * r; const color = pct > 90 ? 'var(--red)' : pct > 75 ? 'var(--amber)' : 'var(--accent)';
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('class', 'ring'); svg.setAttribute('width', size); svg.setAttribute('height', size); svg.setAttribute('viewBox', `0 0 ${size} ${size}`);
+  const circ = (cls, dash, col) => { const e = document.createElementNS('http://www.w3.org/2000/svg', 'circle'); e.setAttribute('cx', size / 2); e.setAttribute('cy', size / 2); e.setAttribute('r', r); e.setAttribute('fill', 'none'); e.setAttribute('stroke', col); e.setAttribute('stroke-width', stroke); if (dash != null) { e.setAttribute('stroke-dasharray', `${dash} ${c}`); e.setAttribute('stroke-linecap', 'round'); e.setAttribute('transform', `rotate(-90 ${size / 2} ${size / 2})`); } e.setAttribute('class', cls); return e; };
+  svg.append(circ('bg', null, 'rgba(255,255,255,.08)'), circ('fg', c * Math.min(100, Math.max(0, pct)) / 100, color));
+  const t = document.createElementNS('http://www.w3.org/2000/svg', 'text'); t.setAttribute('x', size / 2); t.setAttribute('y', size / 2); t.setAttribute('text-anchor', 'middle'); t.setAttribute('dominant-baseline', 'central'); t.setAttribute('class', 'rt'); t.textContent = pct.toFixed(0) + '%'; svg.append(t);
+  return svg;
+}
+// temperature chip: hue slides cyan -> green -> yellow -> red as it climbs (35 °C and below is cool, 95 °C is red)
+function tempChip(t, what) {
+  if (t == null || !(t > 0)) return null; const hue = Math.round(195 * (1 - Math.min(1, Math.max(0, (t - 35) / 60))));
+  return h('span', { class: 'temp', style: `color:hsl(${hue} 45% 68%);background:hsl(${hue} 45% 68% / .12);border-color:hsl(${hue} 45% 68% / .3)`, title: (what || 'temperature') + ` ${t.toFixed(1)} °C` }, t.toFixed(0) + '°');
+}
 function renderStats() {
   const s = S.stats; const el = $('#stats'); if (!s) return;
   const tiles = [];
   const tile = (key, k, v, unit, sub, cls, extra) => h('div', { class: 'tile ' + (cls || ''), 'data-k': key }, h('div', { class: 'k' }, h('span', null, k), extra?.right), h('div', { class: 'v' }, v, h('small', null, unit)), h('div', { class: 's' }, sub), extra?.body, h('canvas'));
   const cpuCls = s.cpu.pct > 85 ? 'hot' : s.cpu.pct > 60 ? 'warn' : '';
-  tiles.push(tile('cpu', 'CPU', s.cpu.pct.toFixed(0), '%', `${s.cpu.count} cores · ${s.cpu.temp ? s.cpu.temp.toFixed(0) + '°C · ' : ''}load ${s.load.map(x => x.toFixed(2)).join(' ')}`, cpuCls, { body: h('div', { class: 'cores' }, s.cpu.cores.map(c => h('i', null, h('b', { style: `width:${c}%;background:${c > 85 ? 'var(--red)' : c > 50 ? 'var(--amber)' : 'var(--accent)'}` })))) }));
+  tiles.push(tile('cpu', 'CPU', s.cpu.pct.toFixed(0), '%', `${s.cpu.count} cores · load ${s.load.map(x => x.toFixed(2)).join(' ')}`, cpuCls, { right: tempChip(s.cpu.temp, 'CPU (Tctl)'), body: h('div', { class: 'cores' }, s.cpu.cores.map(c => h('i', null, h('b', { style: `width:${c}%;background:${c > 85 ? 'var(--red)' : c > 50 ? 'var(--amber)' : 'var(--accent)'}` })))) }));
   const memPct = s.mem.used / s.mem.total * 100;
   tiles.push(tile('mem', 'Memory', fmtB(s.mem.used), '/ ' + fmtB(s.mem.total), `${memPct.toFixed(0)}% used · cache ${fmtB(s.mem.cached)}${s.mem.swapUsed > 50e6 ? ' · swap ' + fmtB(s.mem.swapUsed) : ''}`, memPct > 90 ? 'hot' : memPct > 75 ? 'warn' : ''));
-  if (s.gpu) tiles.push(tile('gpu', 'GPU', s.gpu.util, '%', `${s.gpu.name.replace('NVIDIA GeForce ', '')} · ${fmtB(s.gpu.memUsed)}/${fmtB(s.gpu.memTotal)} · ${s.gpu.temp}°C${s.gpu.power ? ' · ' + s.gpu.power.toFixed(0) + 'W' : ''}`, s.gpu.util > 85 ? 'warn' : ''));
-  tiles.push(tile('net', 'Network', fmtRate(s.net.rxRate), '↓', `↑ ${fmtRate(s.net.txRate)} · ${Object.keys(s.net.ifaces).filter(i => i !== 'tailscale0').join(', ')} + tailscale0`));
-  const d = s.disks?.[0]; if (d) tiles.push(tile('disk', 'Disk ' + d.mount, fmtB(d.used), '/ ' + fmtB(d.size), `${(d.used / d.size * 100).toFixed(0)}% · ${fmtB(d.avail)} free · ${d.fs}`));
+  if (s.gpu) tiles.push(tile('gpu', 'GPU', s.gpu.util, '%', `${s.gpu.name.replace('NVIDIA GeForce ', '')} · ${fmtB(s.gpu.memUsed)}/${fmtB(s.gpu.memTotal)}${s.gpu.power ? ' · ' + s.gpu.power.toFixed(0) + 'W' : ''}`, s.gpu.util > 85 ? 'warn' : '', { right: tempChip(s.gpu.temp, 'GPU') }));
+  tiles.push(tile('net', 'Network', fmtRate(s.net.rxRate), '↓', `↑ ${fmtRate(s.net.txRate)} · ${Object.keys(s.net.ifaces).filter(i => i !== 'tailscale0').join(', ')} + tailscale0`, '', { right: tempChip(s.temps?.nic, 'ethernet controller') }));
+  const d = s.disks?.[0]; if (d) { const pct = d.used / d.size * 100; tiles.push(tile('disk', 'Disk ' + d.mount, fmtB(d.used), '/ ' + fmtB(d.size), `${fmtB(d.avail)} free · ${d.fs}`, pct > 90 ? 'hot' : pct > 75 ? 'warn' : '', { right: tempChip(s.temps?.nvme, 'hottest NVMe drive'), body: ring(pct) })); }
   const u = S.claude?.usage;
-  if (u) tiles.push(tile('claude', 'Claude today', usd(u.total.today), 'API-equiv.', `personal ${usd(u.personal.today)} · company ${usd(u.company.today)} · 7d ${usd(u.total.week)}`, '', { right: h('span', { class: 'dim', style: 'font-size:10.5px', title: 'What these tokens would cost at API list price. On a subscription nothing is billed per token; this measures how much work the sessions did.' }, 'est.') }));
+  if (u) tiles.push(tile('claude', 'Claude today', usd(u.total.today), 'API-equiv.', `personal ${usd(u.personal.today)} · company ${usd(u.company.today)} · yesterday ${usd(u.total.yesterday)} · 7d ${usd(u.total.week)}`, '', { right: h('span', { class: 'dim', style: 'font-size:10.5px', title: 'What these tokens would cost at API list price. On a subscription nothing is billed per token; this measures how much work the sessions did.' }, 'est.') }));
+  const lt = limitsTile(S.claude?.limits || {}); if (lt) tiles.push(lt);
   tiles.push(tile('up', 'Uptime', fmtUp(s.uptime), '', `${S.runtime.sessions.length} sessions · ${S.runtime.external.length} procs · ${S.runtime.containers.filter(c => c.state === 'running').length}/${S.runtime.containers.length} containers`));
   el.replaceChildren(...tiles);
   drawSparks();
 }
 function drawSparks() {
   const H = S.hist; const u = S.claude?.usage;
-  const map = { cpu: [H.cpu, 'rgb(94,234,212)', 100], mem: [H.mem, 'rgb(192,132,252)', 100], gpu: [H.gpu, 'rgb(96,165,250)', 100], net: [H.net.map(x => x[0] + x[1]), 'rgb(251,146,60)', Math.max(1e5, ...H.net.map(x => x[0] + x[1]))] };
-  if (u) { const series = u.days.map((_, i) => u.personal.series[i] + u.company.series[i]); map.claude = [series, 'rgb(240,171,252)', Math.max(1, ...series)]; }
+  const map = { cpu: [H.cpu, 'rgb(126,166,224)', 100], mem: [H.mem, 'rgb(169,147,201)', 100], gpu: [H.gpu, 'rgb(127,191,149)', 100], net: [H.net.map(x => x[0] + x[1]), 'rgb(207,160,106)', Math.max(1e5, ...H.net.map(x => x[0] + x[1]))] };
+  if (u) { const series = u.days.map((_, i) => u.personal.series[i] + u.company.series[i]); map.claude = [series, 'rgb(142,142,147)', Math.max(1, ...series)]; }
   for (const [k, [data, color, max]] of Object.entries(map)) { const c = $(`.tile[data-k="${k}"] canvas`); if (c) sparkline(c, data, color, max); }
 }
 
@@ -310,62 +463,50 @@ function killSession(name, label) {
   if (!confirm(`Kill session "${label || name}"?\n\nThis STOPS the process (tmux session is destroyed). To just leave the terminal open, use ← Dashboard / Close view instead.`)) return;
   act('Kill ' + (label || name), api('stop', { session: name })).then(() => dropFrame(name));
 }
-// quick reply: type into a Claude session without opening the terminal (phone!)
-const PEEK_OPEN = JSON.parse(localStorage.getItem('bd.peek') || '{}');
-function quickReply(it) {
-  const st = it.claude?.state;
-  const inp = h('input', { class: 'qr-in', placeholder: st === 'permission' ? 'y / n, or type…' : st === 'needs-you' ? 'reply…' : 'send to Claude…', autocomplete: 'off', autocapitalize: 'off', spellcheck: false, onclick: ev => ev.stopPropagation() });
-  const sendText = async () => { const t = inp.value; if (!t.trim()) return; inp.value = ''; try { await api('send', { session: it.name, text: t }); toast('sent to ' + it.project, 'ok'); } catch (e) { toast('send failed: ' + e.message, 'err'); } };
-  inp.addEventListener('keydown', ev => { ev.stopPropagation(); if (ev.key === 'Enter') { ev.preventDefault(); sendText(); } });
-  const k = (label, key, title, cls = '') => h('button', { class: 'btn sm ghost qk ' + cls, title, onclick: ev => { ev.stopPropagation(); api('key', { session: it.name, key }).then(() => toast(label + ' → ' + it.project)).catch(e => toast(e.message, 'err')); } }, label);
-  return h('div', { class: 'qr', onclick: ev => ev.stopPropagation() }, inp, h('button', { class: 'btn sm primary qsend', title: 'send + Enter', onclick: sendText }, '↵'),
-    st === 'working' || st === 'background' ? k('Esc', 'esc', 'interrupt Claude (Escape)') : null,
-    st === 'permission' ? ['y', 'n'].map(t => h('button', { class: 'btn sm qk ' + (t === 'y' ? 'yes' : 'no'), title: t === 'y' ? 'yes' : 'no', onclick: ev => { ev.stopPropagation(); api('send', { session: it.name, text: t, enter: false }).then(() => toast(t + ' → ' + it.project)); } }, t)) : null,
-    h('button', { class: 'btn sm ghost qk', title: 'Ctrl-C', onclick: ev => { ev.stopPropagation(); if (confirm('Send Ctrl-C to ' + it.name + '?')) api('key', { session: it.name, key: 'c-c' }); } }, '^C'));
-}
 const home = c => (c || '').replace(/^\/home\/[^/]+\//, '~/');
+// The command that attaches to a tmux session from another machine (needs the ssh alias from Settings).
+const attachCmd = name => `ssh ${S.settings?.sshHost || S.host?.hostname || 'server'} -t tmux attach -t ${name}`;
 // health from the server probe: ok (2xx-4xx) · warn (5xx / no answer) · down (nothing accepts the connection) · tcp (up, not HTTP)
 function healthOf(port) { return (S.health || {})[port] || null; }
 function healthTitle(hh) { if (!hh) return ''; return hh.state === 'ok' ? `HTTP ${hh.status} · ${hh.ms} ms` : hh.state === 'warn' ? (hh.status ? `HTTP ${hh.status}` : hh.note || 'no answer') : hh.state === 'tcp' ? `accepts connections (not HTTP) · ${hh.ms} ms` : 'DOWN — nothing answers on this port'; }
 function portChip(p, extraTitle) { const hh = healthOf(p.port); return h('a', { href: portUrl(p.port), target: '_blank', title: (reachable(p) ? 'open ' + portUrl(p.port) : 'loopback only — not exposed') + (hh ? '\n' + healthTitle(hh) : '') + (extraTitle || ''), class: (reachable(p) ? '' : 'lo') + (hh ? ' h-' + hh.state : ''), onclick: ev => ev.stopPropagation() }, hh ? h('i', { class: 'hd' }) : null, ':' + p.port); }
 const portLinksOf = ports => ports?.length ? h('span', { class: 'ports' }, ports.map(p => portChip(p))) : null;
+// A compact, uniform card: who (name · #n / worktree · account), where (branch · model · cost), and ONE status line —
+// what the session is doing, or a one-line recap of why it needs you. The whole card opens the terminal;
+// prompting, kill, mute, handoff and restart live in the terminal bar.
+const oneLine = (t, n = 160) => { t = String(t || '').replace(/```[\s\S]*?```/g, ' ').replace(/[*_`#>|]+/g, '').replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
 function agentCard(it) {
-  const cl = it.claude || { state: 'unknown', peek: [] }; const st = cl.state || 'unknown';
-  const peekOpen = !!PEEK_OPEN[it.name];
-  const wt = it.name.match(/-wt-([^-]+)/); const inst = it.name.match(/^claude-.*-(\d+)(-company)?$/);
-  const pr = it.pid && byId()[it.pid]; const g = pr && gitOf(pr); const dirty = g && !g.error ? g.dirty + g.untracked : 0;
-  // what the card leads with depends on the state
-  let focus = null;
-  if (st === 'working' || st === 'background') focus = h('div', { class: 'ag-focus work' }, h('div', { class: 'ag-now' }, h('span', { class: 'spin' }), h('span', { class: 'mono' }, cl.lastTool || (st === 'background' ? 'waiting on a background task' : 'thinking…'))), cl.lastPrompt ? h('div', { class: 'ag-prompt', title: cl.lastPrompt }, '❯ ', cl.lastPrompt) : null);
-  else if (st === 'permission') focus = h('div', { class: 'ag-focus perm' }, h('div', { class: 'ag-now' }, '⚠ wants to run: ', h('span', { class: 'mono' }, cl.lastTool || '?')));
-  else if (st === 'limit') focus = h('div', { class: 'ag-focus limit' }, h('div', { class: 'ag-msg' }, '⏳ ', cl.limitText || 'usage limit reached on the ' + (it.account || '') + ' account'),
-    h('div', { style: 'margin-top:8px;display:flex;gap:6px;flex-wrap:wrap' }, h('button', { class: 'btn sm primary', title: 'start the ' + (it.account === 'company' ? 'personal' : 'company') + ' account in this folder with a summary of where this one stopped', onclick: ev => { ev.stopPropagation(); handoff(it); } }, '⇄ Hand off to ' + (it.account === 'company' ? 'personal' : 'company'))));
-  else if (st === 'needs-you' || st === 'error') focus = h('div', { class: 'ag-focus ' + (st === 'error' ? 'err' : 'done') }, cl.lastMessage ? h('div', { class: 'ag-msg' }, cl.lastMessage) : h('div', { class: 'ag-msg dim' }, st === 'error' ? 'API error — open the terminal' : 'finished — nothing to show'));
-  else if (cl.lastMessage) focus = h('div', { class: 'ag-focus quiet' }, h('div', { class: 'ag-msg dim' }, cl.lastMessage));
-  return h('div', { class: 'agent st-' + st, style: `--org:${orgColor(it.org)}`, 'data-name': it.name, title: 'open terminal', onclick: ev => { if (ev.target.closest('a,button,input,.peek,.qr')) return; openTerm(it.name); } },
+  const cl = it.claude || { state: 'unknown' }; const st = cl.state || 'unknown'; const i = instOf(it);
+  let line;   // [class, icon, text]
+  if (st === 'working') line = ['work', h('span', { class: 'spin' }), cl.lastTool ? cl.lastTool : 'thinking…'];
+  else if (st === 'background') line = ['work', '◐', 'waiting on a background task'];
+  else if (st === 'permission') line = ['need', '⚠', 'Needs you — wants to run: ' + (cl.lastTool || '?')];
+  else if (st === 'limit') line = ['need', '⏳', 'Usage limit — ' + oneLine(cl.limitText || (it.account + ' account'))];
+  else if (st === 'error') line = ['err', '✗', 'Error — ' + oneLine(cl.lastMessage || 'open the terminal')];
+  else if (st === 'needs-you') line = ['need', '✓', 'Needs you — ' + oneLine(cl.lastMessage || 'finished')];
+  else if (st === 'ended') line = ['dim', '■', 'claude exited'];
+  else line = ['dim', '○', cl.lastMessage ? oneLine(cl.lastMessage) : cl.lastPrompt ? '❯ ' + oneLine(cl.lastPrompt) : 'idle'];
+  return h('div', { class: 'agent st-' + st, style: `--org:${orgColor(it.org)}`, 'data-name': it.name, title: it.name + ' — open terminal', onclick: () => openTerm(it.name) },
     h('div', { class: 'ag-rail' }),
     h('div', { class: 'ag-head' },
-      h('span', { class: 'ag-ico' }, '✦'),
+      avatar(it.pid),
       h('div', { class: 'ag-id' },
-        h('div', { class: 'ag-name' }, cl.label || (it.name.startsWith('sh-') ? it.name : it.project), wt ? h('span', { class: 'ag-tag' }, '⎇ ' + wt[1]) : null, inst ? h('span', { class: 'ag-tag' }, '#' + inst[1]) : null, h('span', { class: 'badge tag acc ' + it.account }, it.account),
-          h('button', { class: 'x pen', title: 'rename this card (label only — position never changes)', onclick: ev => { ev.stopPropagation(); renameSession(it, cl); } }, '✎')),
-        h('div', { class: 'ag-sub' }, cl.label ? [it.name.startsWith('sh-') ? it.name : it.project, cl.title ? ' · ' + cl.title : ''] : cl.title ? cl.title : [it.group, it.org].filter(Boolean).join(' · ') || home(it.cwd))),
+        h('div', { class: 'ag-name' }, h('span', { class: 'nm' }, cl.label || (it.name.startsWith('sh-') ? it.name : it.project)), i.n ? h('span', { class: 'ag-tag' }, '#' + i.n) : null, i.wt ? h('span', { class: 'ag-tag wt', title: i.wt.path ? 'git worktree · ' + home(i.wt.path) : 'git worktree' }, '⎇ ' + i.wt.name) : null, h('span', { class: 'badge tag acc ' + it.account }, it.account)),
+        h('div', { class: 'ag-sub mono', title: [i.wt ? 'worktree ' + i.wt.name : null, i.branch ? 'branch ' + i.branch : null, cl.model, cl.usage ? usd(cl.usage.cost) + ' API-equivalent' : null].filter(Boolean).join(' · ') }, [i.branch && !i.wt ? '⎇ ' + i.branch : i.wt && i.branch && i.branch !== i.wt.name ? '⎇ ' + i.branch : null, cl.model ? modelName(cl.model) : null, cl.usage ? usd(cl.usage.cost) : null, ago(it.started)].filter(Boolean).join(' · '))),
       stateBadge(cl)),
-    focus,
-    cl.draft ? h('div', { class: 'ag-draft', title: 'typed in the prompt box but not sent' }, '✎ ', cl.draft) : null,
-    cl.peek?.length ? h('div', { class: 'peek' + (peekOpen ? ' open' : '') }, h('button', { class: 'peek-h', onclick: ev => { ev.stopPropagation(); PEEK_OPEN[it.name] = !peekOpen; localStorage.setItem('bd.peek', JSON.stringify(PEEK_OPEN)); renderTermStrip(); } }, peekOpen ? '▾ terminal output' : '▸ terminal output'), peekOpen ? h('pre', { class: 'peek-b' }, cl.peek.join('\n')) : null) : null,
-    st !== 'ended' ? quickReply(it) : null,
-    h('div', { class: 'ag-meta' },
-      h('span', { class: 'mono', title: 'session age · cpu · memory' }, `${ago(it.started)} · ${it.cpu.toFixed(0)}% · ${fmtB(it.mem)}`),
-      cl.usage ? h('span', { class: 'mono cost', title: `${cl.usage.requests} requests · ${fmtB(cl.usage.in + cl.usage.cr + cl.usage.cw)} in · ${fmtB(cl.usage.out)} out · ${cl.usage.model || ''} · API-equivalent` }, usd(cl.usage.cost)) : null,
-      portLinksOf(it.ports),
-      dirty ? h('button', { class: 'chdirty', title: dirty + ' changed files — review the diff', onclick: ev => { ev.stopPropagation(); openDrawer(it.pid, 'changes'); } }, '± ' + dirty) : null,
-      cl.version && S.claude?.installed && cl.version !== S.claude.installed ? h('button', { class: 'x upd', title: `running Claude Code ${cl.version}, ${S.claude.installed} is installed — restart this session (same conversation, --resume)`, onclick: ev => { ev.stopPropagation(); restartSession(it); } }, '↻ ', S.claude.installed) : null,
-      h('span', { class: 'sp' }),
-      h('button', { class: 'x' + ((S.settings.muted || []).includes(it.name) ? ' muted' : ''), title: (S.settings.muted || []).includes(it.name) ? 'muted — click to get notifications again' : 'mute notifications from this session', onclick: ev => { ev.stopPropagation(); api('claude-mute', { session: it.name, muted: !(S.settings.muted || []).includes(it.name) }).then(r => toast(r.muted.includes(it.name) ? 'muted ' + it.project : 'unmuted ' + it.project)); } }, (S.settings.muted || []).includes(it.name) ? '🔕' : '🔔'),
-      cl.hooked ? h('button', { class: 'x tr', title: 'conversation: read what happened without the terminal' + (cl.touched ? ` · ${cl.touched} files edited` : ''), onclick: ev => { ev.stopPropagation(); openSession(it.name, 'transcript'); } }, '📜', cl.touched ? h('span', { class: 'n' }, cl.touched) : null) : null,
-      h('button', { class: 'x', title: 'open in new browser tab', onclick: ev => { ev.stopPropagation(); openTermTab(it.name); } }, '↗'),
-      h('button', { class: 'x kill', title: 'KILL session (stops Claude)', onclick: ev => { ev.stopPropagation(); killSession(it.name, it.project); } }, '⊘')));
+    h('div', { class: 'ag-line ' + line[0], title: typeof line[2] === 'string' ? line[2] : '' }, h('span', { class: 'ic' }, line[1]), h('span', { class: 'tx' }, line[2])));
+}
+// One project, several Claudes: a tab per session (fixed tmux order) above the selected session's card.
+// Tabs never move; the other tabs' state shows as a coloured dot so you notice a "needs you" behind the active one.
+function agentGroup(g) {
+  if (g.items.length === 1) return agentCard(g.items[0]);
+  const sel = g.items.find(x => x.name === GROUP_SEL[g.key]) || g.items[0];
+  const tab = it => { const cl = it.claude || {}; const i = instOf(it); const st = cl.state || 'unknown';
+    return h('button', { class: 'agtab st-' + st + (it.name === sel.name ? ' on' : ''), title: `${it.name} · ${STATE_LABEL[st] || st}` + (i.branch ? ' · ' + i.branch : '') + (cl.title ? '\n' + cl.title : ''), onclick: ev => { ev.stopPropagation(); selectTab(g.key, it.name); } },
+      h('i', { class: 'dot' }), i.label, h('span', { class: 'badge tag acc ' + it.account }, it.account), cl.needsYou ? h('b', { class: 'need' }, STATE_ICON[st]) : null); };
+  return h('div', { class: 'agroup st-' + (sel.claude?.state || 'unknown'), style: `--org:${orgColor(g.org)}` },
+    h('div', { class: 'agtabs' }, h('span', { class: 'agproj', title: g.items.length + ' Claude sessions on ' + g.project }, avatar(g.pid, 'sm'), g.project), g.items.map(tab)),
+    agentCard(sel));
 }
 function restartSession(it) {
   if (!confirm(`Restart Claude in ${it.name}?\n\nIt sends /exit, waits, then relaunches with --resume on the same conversation (picks up the installed update). Takes ~10 s.`)) return;
@@ -383,9 +524,6 @@ function renameSession(it, cl) {
 function renderTermStrip() {
   const el = $('#termstrip'); if (!el) return;
   const S3 = termSessions();
-  // keep the quick-reply text the user is typing across re-renders
-  const drafts = {}; for (const i of el.querySelectorAll('.qr-in')) if (i.value) drafts[i.closest('.agent')?.dataset.name] = i.value;
-  const focused = document.activeElement?.classList.contains('qr-in') ? document.activeElement.closest('.agent')?.dataset.name : null;
   el.innerHTML = '';
   const need = S3.claude.filter(x => x.claude?.needsYou).length, working = S3.claude.filter(x => x.claude && (x.claude.state === 'working' || x.claude.state === 'background')).length;
   el.append(h('div', { class: 'tshead' },
@@ -393,12 +531,11 @@ function renderTermStrip() {
     S3.claude.length ? h('span', { class: 'inbox' }, need ? h('span', { class: 'ib need' }, `${need} need${need === 1 ? 's' : ''} you`) : null, working ? h('span', { class: 'ib work' }, `${working} working`) : null, !need && !working ? h('span', { class: 'ib idle' }, 'all idle') : null) : null,
     h('span', { class: 'sp' }),
     h('span', { class: 'hint dim', title: 'order never changes: alphabetical by tmux session name' }, 'fixed order'),
-    S.runtime.sessions.length ? h('button', { class: 'btn sm ghost', title: 'full-screen terminal view  (t)', onclick: () => { if (!TERM.open) pushLayer('term'); TERM.open = true; if (!TERM.active) { const c = S3.claude[0] || S.runtime.sessions[0]; if (c) ensureFrame(c.name), TERM.active = c.name; } renderTermPanel(true); } }, '⛶ Terminals') : null,
-    h('button', { class: 'btn sm', title: 'new bash shell in ~/dev  (s)', onclick: newShell }, '+ shell')));
+    S.runtime.sessions.length ? h('button', { class: 'btn sm ghost', title: 'full-screen terminal view  (t)', onclick: () => { if (!TERM.open) pushLayer('term'); TERM.open = true; if (!TERM.active) { const c = S3.claude[0] || S.runtime.sessions[0]; if (c) ensureFrame(c.name), TERM.active = c.name; } renderTermPanel(true); } }, ico('full', 13), 'Terminals') : null,
+    h('button', { class: 'btn sm', title: 'new bash shell in the dev folder  (s)', onclick: newShell }, ico('plus', 13), 'Shell')));
+  const ss = scheduledStrip(); if (ss) el.append(ss);
   if (!S3.claude.length) { el.append(h('div', { class: 'tsempty' }, 'No Claude sessions. Open ', h('a', { href: '#', onclick: ev => { ev.preventDefault(); setView('projects'); } }, 'Projects'), ' and press ✦ Claude ▾ on a card, or ⌘K.')); return; }
-  el.append(h('div', { class: 'agents' }, S3.claude.map(agentCard)));
-  for (const [name, v] of Object.entries(drafts)) { const inp = el.querySelector(`.agent[data-name="${CSS.escape(name)}"] .qr-in`); if (inp) inp.value = v; }
-  if (focused) { const inp = el.querySelector(`.agent[data-name="${CSS.escape(focused)}"] .qr-in`); if (inp) setTimeout(() => { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }, 0); }
+  el.append(h('div', { class: 'agents' }, claudeGroups(S3.claude).map(agentGroup)));
 }
 
 // ---------- running (home page): dev servers, processes, containers, shells — one table with controls ----------
@@ -409,8 +546,8 @@ function renderRunning() {
   const pname = id => P[id]?.name || null;
   for (const s of S3.dev) rows.push({ kind: 'dev', org: P[s.pid]?.org, id: s.pid, name: s.project, what: s.label, cmd: S.runtime.sessions.find(x => x.name === s.name)?.cmd || '', ports: s.ports, cpu: s.cpu, mem: s.mem, since: s.started, session: s.name,
     actions: [['⌨', 'terminal', () => openTerm(s.name)], ['☰', 'logs', () => openDrawer(s.pid, 'logs', s.name)], ['↻', 'restart', () => act('Restart ' + s.label, api('restart', { session: s.name }))], ['■', 'stop', () => act('Stop ' + s.label, api('stop', { session: s.name })), 'danger']] });
-  for (const e of S.runtime.external) rows.push({ kind: 'proc', org: P[e.project]?.org, id: e.project, name: pname(e.project) || e.comm, what: e.label, cmd: e.cmd, ports: e.ports.filter(p => !p.ephemeral), cpu: e.cpu, mem: e.mem, since: e.startedAt, pid: e.pid, title: 'started outside beast-dash (pid ' + e.pid + ') — no log capture',
-    actions: [['■', 'kill pid ' + e.pid, () => confirm(`Kill pid ${e.pid} (${e.comm})? It was started outside the dashboard.`) && act('Kill ' + e.pid, api('kill', { pid: e.pid })), 'danger']] });
+  for (const e of S.runtime.external) rows.push({ kind: 'proc', org: P[e.project]?.org, id: e.project, name: pname(e.project) || e.comm, what: e.label, cmd: e.cmd, ports: e.ports.filter(p => !p.ephemeral), cpu: e.cpu, mem: e.mem, since: e.startedAt, pid: e.pid, title: (e.unit ? 'systemd user unit ' + e.unit : 'started outside beast-dash') + ' (pid ' + e.pid + ')pture',
+    actions: [...(e.project && (e.unit || e.tty || e.outFile) ? [['☰', 'logs' + (e.unit ? ' (journal · ' + e.unit + ')' : e.tty ? ' (tmux pane)' : ' (file)'), () => openDrawer(e.project, 'logs', 'ext:' + e.pid)]] : []), ...(e.unit ? [['↻', 'restart ' + e.unit, () => confirm(`Restart ${e.unit}?`) && act('Restart ' + e.unit, api('unit', { unit: e.unit, action: 'restart' }))]] : []), ['■', 'kill pid ' + e.pid, () => confirm(`Kill pid ${e.pid} (${e.comm})? It was started outside the dashboard.`) && act('Kill ' + e.pid, api('kill', { pid: e.pid })), 'danger']] });
   for (const c of S.runtime.containers) {
     if (c.state !== 'running' && !RUN.stopped) continue;
     const ports = [...new Map(c.ports.filter(p => p.host).map(p => [p.host, { port: p.host, addr: p.hostIp, loopback: p.hostIp === '127.0.0.1' || p.hostIp === '::1' }])).values()];
@@ -461,12 +598,12 @@ function renderTunnels() {
       h('div', { class: 'row', style: 'border-top:0;padding-top:0' }, h('span', null, 'Expose manually:'), inp, h('button', { class: 'btn sm', onclick: doExpose }, 'expose'), h('span', { class: 'note', style: 'margin:0' }, 'Manual ports are pinned: they stay forwarded until you remove them, even if nothing listens yet.')),
       h('div', { id: 'tun-rows' }),
       h('div', { class: 'note', id: 'tun-other' }),
-      h('div', { class: 'note' }, 'Links use ' + (S.host.publicHost || '') + ':PORT. For localhost:PORT on the Mac see README (mac/).'));
+      h('div', { class: 'note' }, 'Links use ' + (S.host.publicHost || '') + ':PORT. For localhost:PORT on your laptop see README (mac/).'));
   }
   $('#tun-ip').textContent = S.host.tsIp || '?'; $('#tun-auto').checked = !!S.settings.autoExpose;
   const ex = S.runtime.exposures; const manual = new Set((S.runtime.manual || []).map(m => m.port));
   const rows = $('#tun-rows'); rows.innerHTML = '';
-  if (!ex.length && !manual.size) rows.append(h('div', { class: 'note' }, 'No forwards active. Loopback-only ports of running projects get exposed automatically (if enabled) so your Mac can reach them at ' + (S.host.tsIp || 'the tailscale IP') + ':PORT.'));
+  if (!ex.length && !manual.size) rows.append(h('div', { class: 'note' }, 'No forwards active. Loopback-only ports of running projects get exposed automatically (if enabled) so your laptop can reach them at ' + (S.host.tsIp || 'the tailscale IP') + ':PORT.'));
   const shown = new Set();
   for (const e of ex) { shown.add(e.port); rows.append(h('div', { class: 'row' }, h('a', { href: portUrl(e.port), target: '_blank' }, `${e.bind}:${e.port}`), h('span', { class: 'arrow' }, '→'), h('span', null, e.target || '127.0.0.1:' + e.port), manual.has(e.port) ? h('span', { class: 'badge tag' }, 'manual') : h('span', { class: 'badge tag' }, 'auto'), h('span', { style: 'flex:1' }), h('span', { class: 'dim' }, 'pid ' + e.pid), h('button', { class: 'btn sm danger', onclick: () => act('Remove ' + e.port, api('unexpose', { pid: e.pid, port: manual.has(e.port) ? e.port : null })) }, 'remove'))); }
   for (const m of (S.runtime.manual || [])) if (!shown.has(m.port)) rows.append(h('div', { class: 'row' }, h('span', { class: 'dim' }, `${S.host.tsIp}:${m.port}`), h('span', { class: 'arrow' }, '→'), h('span', { class: 'dim' }, `${m.addr}:${m.port}`), h('span', { class: 'badge tag' }, 'manual · pending'), h('span', { style: 'flex:1' }), h('span', { class: 'dim' }, 'already reachable directly, or starting…'), h('button', { class: 'btn sm danger', onclick: () => act('Remove ' + m.port, api('unexpose', { port: m.port })) }, 'remove')));
@@ -475,8 +612,8 @@ function renderTunnels() {
 function renderBanner() {
   const el = $('#banner'); if (!el) return; const lr = S.host.lastResume; const ts = S.host.tailscale;
   const parts = [];
-  if (lr && Date.now() - lr < 6 * 3600e3 && localStorage.getItem('bd.dismissResume') !== String(lr)) parts.push(h('div', { class: 'ban' }, h('b', null, '⏰ Beast woke up ' + ago(lr) + ' ago.'), ' Sessions, containers and forwards on the beast are still here. On the Mac: reconnect VS Code (Reload Window) / restart your tunnel if you use one.', h('span', { style: 'flex:1' }), h('button', { class: 'btn sm', onclick: () => act('Recover', api('recover', {})) }, '↻ Recover forwards'), h('button', { class: 'btn sm ghost', onclick: () => { localStorage.setItem('bd.dismissResume', String(lr)); renderBanner(); } }, '✕')));
-  if (ts && ts.online === false) parts.push(h('div', { class: 'ban err' }, h('b', null, '⚠ Tailscale is offline on the beast'), ' (' + (ts.backend || '') + '). ' + (ts.health || []).join(' ')));
+  if (lr && Date.now() - lr < 6 * 3600e3 && localStorage.getItem('bd.dismissResume') !== String(lr)) parts.push(h('div', { class: 'ban' }, h('b', null, '⏰ The server woke up ' + ago(lr) + ' ago.'), ' Sessions, containers and forwards on the server are still here. On your laptop: reconnect VS Code (Reload Window) / restart your tunnel if you use one.', h('span', { style: 'flex:1' }), h('button', { class: 'btn sm', onclick: () => act('Recover', api('recover', {})) }, '↻ Recover forwards'), h('button', { class: 'btn sm ghost', onclick: () => { localStorage.setItem('bd.dismissResume', String(lr)); renderBanner(); } }, '✕')));
+  if (ts && ts.online === false) parts.push(h('div', { class: 'ban err' }, h('b', null, '⚠ Tailscale is offline on the server'), ' (' + (ts.backend || '') + '). ' + (ts.health || []).join(' ')));
   // dev servers started from the dashboard that died with a non-zero exit in the last 15 minutes
   for (const c of (S.crashes || [])) { const p = byId()[c.project]; parts.push(h('div', { class: 'ban err' }, h('b', null, `▶ ${p ? p.name : c.project} · ${c.name.split('__')[1] || c.name} exited ${c.exitCode}`), h('span', { class: 'dim mono', style: 'font-size:11.5px' }, ` ${ago(c.endedAt)} ago · ${c.cmd || ''}`), h('span', { style: 'flex:1' }),
     p ? h('button', { class: 'btn sm', onclick: () => openDrawer(p.id, 'logs', c.name) }, '☰ Logs') : null, p ? h('button', { class: 'btn sm primary', onclick: () => act('Restart ' + c.name, api('restart', { session: c.name })) }, '↻ Restart') : null,
@@ -525,7 +662,7 @@ function gitRow(p) {
 function portLinks(ports) { return h('span', { class: 'ports' }, ports.filter(p => !p.ephemeral).map(p => portChip(p, reachable(p) ? '' : '\nbound to ' + p.addr + ' only — click ⇄ to expose'))); }
 function runRows(p) {
   const r = runtimeFor(p.id); const rows = [];
-  for (const s of r.sessions) rows.push(h('div', { class: 'run' + (s.name.startsWith('claude-') ? ' claude' : '') }, h('span', { class: 'dot' }), h('span', { class: 'lbl' }, s.name.startsWith('claude-') ? '✦ ' + (s.name.endsWith('-company') ? 'Claude · company' : 'Claude · personal') : s.label), h('span', { class: 'cmd', title: s.cmd || s.current }, s.cmd || s.current), portLinks(s.ports), h('span', { class: 'res' }, `${s.cpu.toFixed(0)}% · ${fmtB(s.mem)} · ${ago(s.startedAt)}`),
+  for (const s of r.sessions) rows.push(h('div', { class: 'run' + (s.name.startsWith('claude-') ? ' claude' : '') }, h('span', { class: 'dot' }), h('span', { class: 'lbl' }, s.name.startsWith('claude-') ? (s.name.endsWith('-company') ? 'Claude · company' : 'Claude · personal') : s.label), h('span', { class: 'cmd', title: s.cmd || s.current }, s.cmd || s.current), portLinks(s.ports), h('span', { class: 'res' }, `${s.cpu.toFixed(0)}% · ${fmtB(s.mem)} · ${ago(s.startedAt)}`),
     h('span', { class: 'acts' }, h('button', { class: 'btn sm', title: 'open live terminal (tmux attach in browser)', onclick: () => openTerm(s.name) }, '⌨'), h('button', { class: 'btn sm', title: 'logs', onclick: () => openDrawer(p.id, 'logs', s.name) }, '☰'), s.managed ? h('button', { class: 'btn sm', title: 'restart', onclick: () => act('Restart ' + s.label, api('restart', { session: s.name })) }, '↻') : null, h('button', { class: 'btn sm danger', title: 'stop (Ctrl-C, then kill)', onclick: () => act('Stop ' + s.label, api('stop', { session: s.name })) }, '■'))));
   for (const e of r.external) rows.push(h('div', { class: 'run ext', title: 'started outside beast-dash (pid ' + e.pid + ') — no log capture; attach via ssh' }, h('span', { class: 'dot' }), h('span', { class: 'lbl' }, e.label || e.comm), h('span', { class: 'cmd', title: e.cmd }, e.cmd), portLinks(e.ports), h('span', { class: 'res' }, `${e.cpu.toFixed(0)}% · ${fmtB(e.mem)}`),
     h('span', { class: 'acts' }, h('button', { class: 'btn sm danger', title: 'kill', onclick: () => confirm(`Kill pid ${e.pid} (${e.comm})? It was started outside the dashboard.`) && act('Kill ' + e.pid, api('kill', { pid: e.pid })) }, '■'))));
@@ -537,20 +674,33 @@ function primaryCmd(p) { return p.commands.find(c => c.primary) || p.commands.fi
 function card(p) {
   const live = isLive(p.id); const pc = primaryCmd(p); const r = runtimeFor(p.id);
   const running = new Set(r.sessions.map(s => s.label));
+  const g = gitOf(p); const target = p.isGit ? p : byId()[p.parent];
+  const claudes = r.sessions.filter(s => isClaudeSession(s)); const devs = r.sessions.filter(s => !isClaudeSession(s)); const conts = r.containers.filter(c => c.state === 'running');
+  // what is live, as small chips: Claude sessions (click -> terminal), dev servers with their port, containers
+  const liveRow = claudes.length || devs.length || conts.length || r.external.length ? h('div', { class: 'live-row' },
+    ...claudes.map(s => h('button', { class: 'lchip cl st-' + (s.claude?.state || 'unknown'), title: `${s.name} · ${STATE_LABEL[s.claude?.state] || ''}${s.claude?.title ? ' — ' + s.claude.title : ''}`, onclick: () => openTerm(s.name) }, h('i', { class: 'd' }), 'Claude', h('span', { class: 'badge tag acc ' + (s.claude?.account || (s.name.endsWith('-company') ? 'company' : 'personal')) }, s.claude?.account || (s.name.endsWith('-company') ? 'company' : 'personal')))),
+    ...devs.map(s => h('button', { class: 'lchip dev', title: (s.cmd || s.current || '') + ' · logs', onclick: () => openDrawer(p.id, 'logs', s.name) }, h('i', { class: 'd' }), s.label, ...(s.ports || []).filter(x => !x.ephemeral).slice(0, 2).map(x => portChip(x)))),
+    ...r.external.map(e => h('span', { class: 'lchip ext', title: e.cmd }, h('i', { class: 'd' }), e.label || e.comm, ...(e.ports || []).filter(x => !x.ephemeral).slice(0, 2).map(x => portChip(x)))),
+    conts.length ? h('button', { class: 'lchip dock', title: conts.map(c => c.service || c.name).join(', '), onclick: () => openDrawer(p.id, 'docker') }, h('i', { class: 'd' }), `${conts.length} container${conts.length > 1 ? 's' : ''}`) : null) : null;
+  const gitLine = !g ? null : g.error ? h('div', { class: 'gitrow' }, h('span', { style: 'color:var(--red)' }, g.error)) : h('div', { class: 'gitrow' },
+    h('button', { class: 'branch', title: 'switch branch', onclick: ev => branchMenu(ev, target) }, h('span', { class: 'ico' }, '⎇'), h('span', { class: 'b' }, g.branch), h('span', { class: 'caret' }, '▾')),
+    g.dirty + g.untracked ? h('button', { class: 'dirty', title: `${g.dirty} modified, ${g.untracked} untracked — open changes`, onclick: () => openDrawer(p.id, 'changes') }, '● ' + (g.dirty + g.untracked)) : null,
+    g.ahead ? h('span', { class: 'ab', title: 'ahead of upstream' }, '↑' + g.ahead) : null, g.behind ? h('span', { class: 'ab behind', title: 'behind upstream — pull' }, '↓' + g.behind) : null,
+    g.last ? h('span', { class: 'last', title: g.last.subject }, g.last.subject, h('i', null, ' · ' + g.last.rel)) : null);
   const startBtn = pc ? h('div', { class: 'split' },
-    h('button', { class: 'btn primary', disabled: running.has(pc.name), title: pc.cmd, onclick: () => { noteBundle(p, { kind: 'cmd', name: pc.name }); act(`${p.name}: ${pc.name}`, api('run', { id: p.id, name: pc.name })); } }, '▶ ', pc.name),
-    h('button', { class: 'btn primary', title: 'all commands', onclick: ev => cmdMenu(ev, p) }, h('span', { class: 'caret' }, '▾'))) : (p.commands.length ? h('button', { class: 'btn', onclick: ev => cmdMenu(ev, p) }, '▶ Run ', h('span', { class: 'caret' }, '▾')) : null);
-  const stopAll = r.sessions.length ? h('button', { class: 'btn danger', title: 'stop all sessions of this project', onclick: async () => { for (const s of r.sessions) await act('Stop ' + s.label, api('stop', { session: s.name })); } }, '■ Stop') : null;
-  const rebuild = p.commands.find(c => c.name === 'rebuild');
-  const bundle = S.settings.projects?.[p.id]?.bundle || [];
-  const bundleBtn = bundle.length > 1 ? h('button', { class: 'btn', title: 'start everything you last started here: ' + bundle.map(b => b.kind === 'claude' ? 'Claude (' + b.name + ')' : b.name).join(', '), onclick: () => startBundle(p) }, '▶▶ Start all') : null;
-  return h('div', { class: 'card' + (live ? ' live' : '') + (p.parent ? ' sub' : ''), style: `--org:${orgColor(p.org)}`, 'data-id': p.id },
-    h('div', { class: 'head' }, h('div', null, h('div', { class: 'name', onclick: () => openDrawer(p.id, 'overview') }, p.parent ? h('span', { class: 'crumb' }, p.parentName) : null, p.name), h('div', { class: 'badges' }, badges(p))),
-      h('div', { class: 'right' }, h('button', { class: 'btn sm claude' + (runtimeFor(p.id).sessions.some(s => s.name.startsWith('claude-')) ? ' on' : ''), title: 'Claude Code session (personal / company) — opens web terminal', onclick: ev => claudeMenu(ev, p) }, '✦ Claude ', h('span', { class: 'caret' }, '▾')), h('a', { class: 'btn sm icon vsc', href: vscodeUrl(p.path), title: 'Open in VS Code (Remote-SSH)' }, vscIcon()), h('button', { class: 'btn sm icon', title: 'more', onclick: ev => moreMenu(ev, p) }, '⋯'))),
-    gitRow(p), runRows(p),
-    h('div', { class: 'actions' }, startBtn, bundleBtn, stopAll, rebuild ? h('button', { class: 'btn', title: rebuild.cmd, onclick: () => act(`${p.name}: rebuild`, api('run', { id: p.id, name: 'rebuild' })) }, '⟳ Rebuild') : null,
-      gitOf(p) && !gitOf(p).error ? h('button', { class: 'btn', title: 'git pull --rebase --autostash', onclick: () => act(`${p.name}: pull`, api('git', { id: p.isGit ? p.id : p.parent, action: 'pull' })) }, '↓ Pull') : null,
-      h('span', { class: 'sp' }), h('button', { class: 'btn ghost sm', onclick: () => openDrawer(p.id, 'logs') }, 'Logs')));
+    h('button', { class: 'btn sm', disabled: running.has(pc.name), title: pc.cmd, onclick: () => { noteBundle(p, { kind: 'cmd', name: pc.name }); act(`${p.name}: ${pc.name}`, api('run', { id: p.id, name: pc.name })); } }, '▶ ', pc.name),
+    h('button', { class: 'btn sm', title: 'all commands', onclick: ev => cmdMenu(ev, p) }, h('span', { class: 'caret' }, '▾'))) : (p.commands.length ? h('button', { class: 'btn sm', onclick: ev => cmdMenu(ev, p) }, '▶ Run ', h('span', { class: 'caret' }, '▾')) : null);
+  return h('div', { class: 'card' + (live ? ' live' : '') + (p.parent ? ' sub' : ''), style: `--org:${orgColor(p.org)};--pc:${projColor(p)}`, 'data-id': p.id },
+    h('div', { class: 'head' }, avatar(p.id, 'lg'),
+      h('div', { class: 'hd' },
+        h('div', { class: 'name', onclick: () => openDrawer(p.id, 'overview') }, p.parent ? h('span', { class: 'crumb' }, p.parentName) : null, h('span', { class: 'nm' }, p.name)),
+        h('div', { class: 'kind' }, h('span', { class: 'badge ' + p.primary }, p.primary), p.framework ? h('span', { class: 'fw' }, p.framework) : null, p.pm ? h('span', { class: 'fw dim' }, p.pm) : null)),
+      h('button', { class: 'btn sm icon ghost', title: 'more', onclick: ev => moreMenu(ev, p) }, '⋯')),
+    gitLine, liveRow,
+    h('div', { class: 'actions' },
+      h('button', { class: 'btn sm claude' + (claudes.length ? ' on' : ''), title: 'Claude Code session (personal / company)', onclick: ev => claudeMenu(ev, p) }, ico('chat', 14), 'Claude', h('span', { class: 'caret' }, '▾')),
+      startBtn, h('span', { class: 'sp' }),
+      h('button', { class: 'btn sm open', title: 'project details — changes, files, logs, branches, docker', onclick: () => openDrawer(p.id, 'overview') }, 'Open', ico('back', 13))));
 }
 function vscIcon() { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 24 24'); s.innerHTML = '<path fill="#3ea7f2" d="M17.6 2.2 9.4 9.7 4.7 6.1 3 7l4.2 5L3 17l1.7.9 4.7-3.6 8.2 7.5L21 20V4zM17.4 7.4v9.2L11.6 12z"/>'; return s; }
 const KIND_RANK = { backend: 0, infra: 1, monorepo: 2, frontend: 3, mobile: 4, lib: 5, node: 6, repo: 7 };
@@ -636,6 +786,7 @@ function moreMenu(ev, p) {
   const g = gitOf(p);
   openMenu(ev, [
     { label: 'Details / logs', icon: '☰', onclick: () => openDrawer(p.id, 'overview') },
+    { label: 'New task for this project', sub: 'prompt-style, hand it to Claude later', icon: '☑', onclick: () => taskModal(null, p.id) },
     { label: 'Open in VS Code', icon: '⌨', onclick: () => location.href = vscodeUrl(p.path) },
     { label: 'Copy path', icon: '⎘', sub: p.path, onclick: () => navigator.clipboard.writeText(p.path).then(() => toast('copied')) },
     { label: 'Copy ssh + cd', icon: '⎘', sub: `ssh ${S.settings.sshHost} -t "cd ${p.path}; exec bash -l"`, onclick: () => navigator.clipboard.writeText(`ssh ${S.settings.sshHost} -t "cd '${p.path}'; exec bash -l"`).then(() => toast('copied')) },
@@ -667,7 +818,7 @@ async function renderSessionDrawer(full = true) {
   }
   const P = byId(); const pr = s && P[s.project];
   const title = cl.label || (pr ? pr.name : name);
-  const head = h('div', { class: 'dh' }, h('div', { class: 'row1' }, h('h2', null, h('span', { class: 'sicon' }, '✦'), title, cl.title ? h('span', { class: 'dim', style: 'font-size:13px;font-weight:500' }, cl.title) : null, stateBadge(cl)),
+  const head = h('div', { class: 'dh' }, h('div', { class: 'row1' }, h('h2', null, avatar(s && s.project, 'sm'), title, cl.title ? h('span', { class: 'dim', style: 'font-size:13px;font-weight:500' }, cl.title) : null, stateBadge(cl)),
       h('button', { class: 'btn sm', onclick: () => { closeDrawer(); openTerm(name); } }, '⌨ Terminal'), h('button', { class: 'btn ghost close', onclick: closeDrawer }, '✕ Esc')),
     h('div', { class: 'path' }, name, ' · ', cl.cwd || s?.cwd || '', cl.usage ? ` · ${usd(cl.usage.cost)} · ${cl.usage.requests} requests` : ''),
     h('div', { class: 'tabs' }, [['transcript', 'Conversation'], ['touched', `Files edited${cl.touched ? ' (' + cl.touched + ')' : ''}`]].map(([k, l]) => h('div', { class: 'tab' + (SESS.tab === k ? ' on' : ''), onclick: () => { SESS.tab = k; renderSessionDrawer(); } }, l))));
@@ -733,17 +884,17 @@ function renderConversation(box, name, t, o) {
     setTimeout(o.refresh, 700); setTimeout(o.refresh, 2500); };
   ta.addEventListener('input', grow);
   ta.addEventListener('keydown', ev => { ev.stopPropagation(); if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); send(); } });
-  const sendBtn = h('button', { class: 'btn primary csend', title: 'send (Enter)', onclick: send }, '↑');
-  // 📷 attach: photo / screenshot -> downscaled -> uploaded to ~/dev/.pasted -> its path goes into the message (Claude reads it)
-  const fileIn = h('input', { type: 'file', accept: 'image/*', style: 'display:none' });
-  fileIn.addEventListener('change', async () => { const f = fileIn.files[0]; fileIn.value = ''; if (!f) return; try { const p = await uploadImage(f); ta.value = (ta.value ? ta.value.replace(/\s*$/, ' ') : '') + p + ' '; grow(); ta.focus(); toast('attached — describe what to do with it and send', 'ok'); } catch (e) { toast('upload failed: ' + e.message, 'err'); } });
-  const attach = h('button', { class: 'btn sm ghost qk', title: 'attach a photo / screenshot', onclick: () => fileIn.click() }, '📷');
+  const sendBtn = h('button', { class: 'btn primary csend', title: 'send (Enter)', onclick: send }, ico('send', 16));
+  // 📎 attach: any file (photo / screenshot downscaled, everything else as-is) -> <devRoot>/.pasted -> its path goes into the message (Claude reads it)
+  const fileIn = h('input', { type: 'file', style: 'display:none' });
+  fileIn.addEventListener('change', async () => { const f = fileIn.files[0]; fileIn.value = ''; if (!f) return; try { const p = await uploadFile(f); ta.value = (ta.value ? ta.value.replace(/\s*$/, ' ') : '') + p + ' '; grow(); ta.focus(); toast('attached — describe what to do with it and send', 'ok'); } catch (e) { toast('upload failed: ' + e.message, 'err'); } });
+  const attach = h('button', { class: 'btn sm ghost qk', title: 'attach a file — photo, screenshot, CSV, PDF, anything up to 100 MB', onclick: () => fileIn.click() }, ico('clip', 15));
   // 🎤 hold to talk (Web Speech API; Safari + Chrome): release sends
-  const mic = voiceButton(ta, grow, send);
-  const clock = h('button', { class: 'btn sm ghost qk', title: 'schedule this message for later (or a chain of messages)', onclick: () => scheduleDialog(name, ta.value) }, '⏰');
+  const mic = voiceButton(ta, grow);
+  const clock = h('button', { class: 'btn sm ghost qk', title: 'schedule this message for later (or a chain of messages)', onclick: () => scheduleDialog(name, ta.value) }, ico('clock', 15));
   const jobs = (S.claude?.schedule || []).filter(j => j.session === name && j.state !== 'done' && j.state !== 'failed');
   const keys = h('div', { class: 'ckeys' }, attach, mic, clock, fileIn,
-    jobs.length ? h('span', { class: 'sjobs' }, jobs.map(j => h('span', { class: 'sjob', title: j.prompts.join('\n\n') }, '⏰ ', new Date(j.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), j.prompts.length > 1 ? ` ×${j.prompts.length}` : '', j.state === 'running' || j.state === 'sent' ? ' · ' + j.state : '', h('button', { class: 'x', title: 'remove', onclick: () => api('schedule-remove', { id: j.id }) }, '✕')))) : null,
+    jobs.length ? h('span', { class: 'sjobs' }, jobs.map(j => h('span', { class: 'sjob', title: j.prompts.join('\n\n') }, ico('clock', 12), ' ', new Date(j.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), j.prompts.length > 1 ? ` ×${j.prompts.length}` : '', j.state === 'running' || j.state === 'sent' ? ' · ' + j.state : '', h('button', { class: 'x', title: 'remove', onclick: () => api('schedule-remove', { id: j.id }) }, ico('x', 11))))) : null,
     cl.state === 'working' || cl.state === 'background' ? h('button', { class: 'btn sm ghost qk', title: 'interrupt Claude (Escape)', onclick: () => api('key', { session: name, key: 'esc' }).then(() => toast('Esc sent')) }, 'Esc') : null,
     cl.state === 'permission' ? ['y', 'n'].map(k => h('button', { class: 'btn sm qk ' + (k === 'y' ? 'yes' : 'no'), onclick: () => api('send', { session: name, text: k, enter: false }) }, k)) : null,
     h('button', { class: 'btn sm ghost qk', title: 'send Ctrl-C', onclick: () => { if (confirm('Send Ctrl-C?')) api('key', { session: name, key: 'c-c' }); } }, '^C'));
@@ -762,37 +913,84 @@ function toolsBlock(turn) {
       x.cmd ? h('pre', { class: 'mcode small' }, '$ ' + x.cmd) : null,
       x.diff ? h('div', { class: 'tdiff' }, x.diff.old ? h('pre', { class: 'del' }, x.diff.old) : null, x.diff.new ? h('pre', { class: 'add' }, x.diff.new) : null) : null))));
 }
-// downscale to 1568px on the long edge (what Claude uses anyway) and upload; returns the server path
-async function uploadImage(file) {
+const UPLOAD_MAX_MB = 100;   // same as the server
+// images: downscaled to 1568px on the long edge (what Claude uses anyway); anything else raw, keeping its name. Returns the server path.
+async function uploadFile(file, keep = false) {
+  if (file.size > UPLOAD_MAX_MB * 1e6) throw new Error(`${file.name} is ${(file.size / 1e6).toFixed(0)} MB — max ${UPLOAD_MAX_MB} MB`);
+  if (/^image\/(png|jpeg|webp)$/.test(file.type)) return uploadImage(file, keep);
+  const ext = (file.name.split('.').pop() || 'bin').toLowerCase();
+  const r = await fetch(`/api/paste-image?ext=${encodeURIComponent(ext)}&name=${encodeURIComponent(file.name)}${keep ? '&keep=1' : ''}`, { method: 'POST', body: file }); const j = await r.json(); if (!j.ok) throw new Error(j.error || 'upload failed'); return j.path;
+}
+async function uploadImage(file, keep = false) {
   const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = URL.createObjectURL(file); });
   const max = 1568; const k = Math.min(1, max / Math.max(img.width, img.height)); const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
   c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(img.src);
   const blob = await new Promise(res => c.toBlob(res, 'image/jpeg', 0.88));
-  const r = await fetch('/api/paste-image?ext=jpg', { method: 'POST', body: blob }); const j = await r.json(); if (!j.ok) throw new Error(j.error || 'upload failed'); return j.path;
+  const r = await fetch('/api/paste-image?ext=jpg' + (keep ? '&keep=1' : ''), { method: 'POST', body: blob }); const j = await r.json(); if (!j.ok) throw new Error(j.error || 'upload failed'); return j.path;
 }
-function voiceButton(ta, grow, send) {
+function voiceButton(ta, grow) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) return null;
-  const b = h('button', { class: 'btn sm ghost qk mic', title: 'hold to talk — release to send' }, '🎤');
+  // Hold to talk. Pointer capture keeps the recording alive while the finger drifts off the button; releasing
+  // only fills the textarea (never sends) so the transcript can be fixed before it goes out.
+  const b = h('button', { class: 'btn sm ghost qk mic', title: 'hold to talk — release to fill the message (you send it)' }, ico('mic', 16), h('span', { class: 'mlbl' }, 'hold'));
   let rec = null, base = '', final = '', active = false;
-  const start = ev => { ev.preventDefault(); if (active) return; active = true; base = ta.value ? ta.value.replace(/\s*$/, ' ') : ''; final = ''; b.classList.add('rec');
+  const start = ev => { ev.preventDefault(); if (active) return; active = true; try { b.setPointerCapture(ev.pointerId); } catch {} base = ta.value ? ta.value.replace(/\s*$/, ' ') : ''; final = ''; b.classList.add('rec'); document.body.classList.add('recording');
     rec = new SR(); rec.lang = navigator.language || 'en-US'; rec.interimResults = true; rec.continuous = true;
     rec.onresult = e => { let interim = ''; for (let i = e.resultIndex; i < e.results.length; i++) { const r = e.results[i]; if (r.isFinal) final += r[0].transcript + ' '; else interim += r[0].transcript; } ta.value = base + final + interim; grow(); };
     rec.onerror = e => { toast('voice: ' + e.error, 'err'); stop(null, false); };
     try { rec.start(); } catch (e) { toast('voice unavailable', 'err'); active = false; b.classList.remove('rec'); } };
-  const stop = (ev, doSend = true) => { if (ev) ev.preventDefault(); if (!active) return; active = false; b.classList.remove('rec'); try { rec && rec.stop(); } catch {}
-    setTimeout(() => { ta.value = (base + final).trim() ? base + final : ta.value; grow(); if (doSend && ta.value.trim()) send(); }, 350); };
-  b.addEventListener('pointerdown', start); b.addEventListener('pointerup', stop); b.addEventListener('pointercancel', ev => stop(ev, false)); b.addEventListener('pointerleave', ev => { if (active) stop(ev); });
+  const stop = ev => { if (ev) ev.preventDefault(); if (!active) return; active = false; b.classList.remove('rec'); document.body.classList.remove('recording'); try { rec && rec.stop(); } catch {}
+    // the last final result lands a moment after stop(): settle, then leave the text in the box for review — no auto-send
+    setTimeout(() => { ta.value = (base + final).trim() ? base + final : ta.value; grow(); ta.focus({ preventScroll: true }); ta.setSelectionRange(ta.value.length, ta.value.length); if (ta.value.trim()) toast('check the text, then send', 'ok'); }, 400); };
+  b.addEventListener('pointerdown', start); b.addEventListener('pointerup', stop); b.addEventListener('pointercancel', stop); b.addEventListener('lostpointercapture', () => { if (active) stop(null); });
   b.addEventListener('contextmenu', ev => ev.preventDefault());
   return b;
 }
+// Schedule a prompt (or a chain) for a session: modal with quick time chips + a date/time picker + one textarea per message.
 function scheduleDialog(name, draft) {
-  const when = prompt('When? "23:30" (today, or tomorrow if past), "+45" (minutes from now), or "now"', '+30'); if (when == null) return;
-  let at = Date.now(); const w = when.trim();
-  if (/^\+\d+$/.test(w)) at += +w.slice(1) * 60e3; else if (/^\d{1,2}:\d{2}$/.test(w)) { const [hh, mm] = w.split(':').map(Number); const d = new Date(); d.setHours(hh, mm, 0, 0); if (d.getTime() < Date.now()) d.setDate(d.getDate() + 1); at = d.getTime(); } else if (w !== 'now') { toast('unknown time format', 'err'); return; }
-  const text = prompt('Message(s). Separate a chain of messages with a line containing only "---" — each next one waits until Claude finishes the previous.', draft || ''); if (!text || !text.trim()) return;
-  const prompts = text.split(/\n\s*---\s*\n/).map(x => x.trim()).filter(Boolean);
-  act('Scheduled ' + new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), api('schedule', { session: name, at, prompts }));
+  const m = $('#modal'); m.classList.remove('hidden');
+  const sess = S.runtime.sessions.find(x => x.name === name); const cl = sess?.claude || {};
+  const pad = n => String(n).padStart(2, '0'); const local = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  let at = Date.now() + 30 * 60e3;
+  const when = h('input', { class: 'txt', type: 'datetime-local', value: local(new Date(at)) });
+  const inStr = () => { const d = at - Date.now(); return d < 0 ? 'now' : d < 3600e3 ? 'in ' + Math.round(d / 60e3) + ' min' : d < 86400e3 ? 'in ' + (d / 3600e3).toFixed(1).replace('.0', '') + ' h' : 'in ' + Math.round(d / 86400e3) + ' d'; };
+  const rel = h('span', { class: 'dim', style: 'font-size:12px' }, inStr());
+  const setAt = v => { at = v; when.value = local(new Date(at)); rel.textContent = inStr(); for (const c of chips.children) c.classList.toggle('on', +c.dataset.at === Math.round(at / 60e3)); };
+  when.addEventListener('input', () => { const t = Date.parse(when.value); if (t) { at = t; rel.textContent = inStr(); for (const c of chips.children) c.classList.remove('on'); } });
+  const tonight = new Date(); tonight.setHours(23, 0, 0, 0); if (tonight.getTime() < Date.now()) tonight.setDate(tonight.getDate() + 1);
+  const morning = new Date(); morning.setDate(morning.getDate() + 1); morning.setHours(9, 0, 0, 0);
+  const presets = [['+15 min', 15 * 60e3], ['+30 min', 30 * 60e3], ['+1 h', 3600e3], ['+2 h', 7200e3], ['+4 h', 4 * 3600e3], ['23:00', tonight.getTime() - Date.now()], ['tomorrow 09:00', morning.getTime() - Date.now()]];
+  const chips = h('div', { class: 'chips' }, presets.map(([l, d]) => { const t = Date.now() + d; return h('button', { class: 'chip', 'data-at': Math.round(t / 60e3), onclick: () => setAt(t) }, l); }));
+  const msgs = h('div', { class: 'smsgs' });
+  const addMsg = text => { const ta = h('textarea', { class: 'creply', rows: 3, placeholder: msgs.children.length ? 'next message — sent once Claude finishes the previous one' : 'message for Claude…' }); ta.value = text || '';
+    const w = h('div', { class: 'smsg' }, h('div', { class: 'smsg-n' }, h('span', { class: 'n' }, String(msgs.children.length + 1)), msgs.children.length ? h('button', { class: 'x', title: 'remove this message', onclick: () => { w.remove(); renum(); } }, ico('x', 13)) : null), ta); msgs.append(w); ta.addEventListener('keydown', ev => ev.stopPropagation()); return ta; };
+  const renum = () => { [...msgs.children].forEach((w, i) => { w.querySelector('.n').textContent = String(i + 1); }); };
+  const first = addMsg(draft);
+  const box = h('div', { class: 'box settings sched' },
+    h('div', { class: 'sh' }, h('h3', null, 'Schedule a message'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost icon', onclick: () => m.classList.add('hidden') }, ico('x', 15))),
+    h('div', { class: 'sbody' },
+      h('div', { class: 'sto' }, avatar(sess?.project, 'sm'), h('b', null, cl.label || (sess?.project && byId()[sess.project]?.name) || name), h('span', { class: 'badge tag acc ' + (cl.account || '') }, cl.account || ''), cl.state ? h('span', { class: 'cst mini ' + cl.state }, STATE_ICON[cl.state], ' ', STATE_LABEL[cl.state]) : null),
+      h('div', { class: 'sg' }, h('div', { class: 'sg-t' }, 'When'), chips, h('div', { class: 'swhen' }, when, rel)),
+      h('div', { class: 'sg' }, h('div', { class: 'sg-t' }, 'Message'), msgs, h('button', { class: 'btn sm ghost', onclick: () => addMsg('').focus() }, ico('plus', 13), 'Add a follow-up message'), h('div', { class: 'hint' }, 'Follow-ups go out one by one, each after Claude finishes the previous one. If the session is busy at the time, the message waits for it to become idle.'))),
+    h('div', { class: 'foot' }, h('button', { class: 'btn ghost', onclick: () => m.classList.add('hidden') }, 'Cancel'),
+      h('button', { class: 'btn primary', onclick: async () => { const prompts = [...msgs.querySelectorAll('textarea')].map(t => t.value.trim()).filter(Boolean); if (!prompts.length) { first.focus(); return; }
+        if (at < Date.now() - 60e3) { toast('that time is in the past', 'err'); return; }
+        await act('Scheduled ' + new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), api('schedule', { session: name, at, prompts })); m.classList.add('hidden'); }, }, ico('clock', 15), 'Schedule')));
+  m.replaceChildren(box); m.onclick = e => { if (e.target === m) m.classList.add('hidden'); };
+  setAt(at); setTimeout(() => first.focus(), 50);
+}
+// Pending scheduled messages (home, under the agents header): who, when, what, cancel.
+function scheduledStrip() {
+  const jobs = (S.claude?.schedule || []).filter(j => j.state !== 'done' && j.state !== 'failed').sort((a, b) => a.at - b.at);
+  if (!jobs.length) return null;
+  return h('div', { class: 'sched' }, h('div', { class: 'sched-h' }, ico('clock', 14), 'Scheduled', h('span', { class: 'n' }, jobs.length)),
+    h('div', { class: 'sched-l' }, jobs.map(j => { const sess = S.runtime.sessions.find(x => x.name === j.session); const cl = sess?.claude || {}; const d = j.at - Date.now();
+      const whenTxt = j.state === 'running' || j.state === 'sent' ? `sending ${j.idx}/${j.prompts.length}` : d < 0 ? 'waiting for the session to go idle' : (d < 86400e3 ? new Date(j.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : new Date(j.at).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })) + ' · in ' + inStr(j.at);
+      return h('div', { class: 'sjrow' + (sess ? '' : ' gone'), title: j.prompts.join('\n\n') },
+        avatar(sess?.project, 'sm'), h('div', { class: 'sj-who' }, h('b', null, cl.label || (sess?.project && byId()[sess.project]?.name) || j.session.replace(/^claude-/, '')), h('span', { class: 'sj-when' }, whenTxt)),
+        h('div', { class: 'sj-txt' }, j.prompts[0], j.prompts.length > 1 ? h('span', { class: 'grp' }, ` +${j.prompts.length - 1} more`) : null),
+        h('button', { class: 'x', title: 'cancel', onclick: ev => { ev.stopPropagation(); if (confirm('Cancel this scheduled message?')) api('schedule-remove', { id: j.id }); } }, ico('x', 14))); })));
 }
 // tiny markdown: code fences, inline code, bold, bullets, line breaks — enough for Claude's replies
 function mdLite(t) {
@@ -877,7 +1075,7 @@ async function saveCustom(p, commands) { await act('Commands saved', api('projec
 // logs
 function stopLog() { if (UI.logSrc) { UI.logSrc.close(); UI.logSrc = null; } }
 function tabLogs(el, p, r) {
-  const opts = [...r.sessions.map(s => ({ v: s.name, l: `▶ ${s.label} (live)` })), ...r.containers.map(c => ({ v: 'docker:' + c.id, l: `🐳 ${c.name} ${c.state === 'running' ? '(live)' : '(' + c.state + ')'}` })), ...S.runtime.recent.filter(x => x.project === p.id).slice(0, 15).map(x => ({ v: x.name, l: `○ ${x.name.split('__')[1]} — exited ${x.exitCode ?? '?'} ${ago(x.endedAt)} ago` }))];
+  const opts = [...r.sessions.map(s => ({ v: s.name, l: `▶ ${s.label} (live)` })), ...r.external.map(e => ({ v: 'ext:' + e.pid, l: `● ${e.label || e.comm}${e.unit ? ' · ' + e.unit : ''} (live, outside)` })), ...r.containers.map(c => ({ v: 'docker:' + c.id, l: `🐳 ${c.name} ${c.state === 'running' ? '(live)' : '(' + c.state + ')'}` })), ...S.runtime.recent.filter(x => x.project === p.id).slice(0, 15).map(x => ({ v: x.name, l: `○ ${x.name.split('__')[1]} — exited ${x.exitCode ?? '?'} ${ago(x.endedAt)} ago` }))];
   if (!opts.length) { el.append(h('div', { class: 'dim' }, 'No sessions or containers for this project yet. Start something with ▶.')); return; }
   if (!UI.logTarget || !opts.find(o => o.v === UI.logTarget)) UI.logTarget = opts[0].v;
   const sel = h('select', { onchange: e => { UI.logTarget = e.target.value; renderDrawer(true); } }, opts.map(o => h('option', { value: o.v, selected: o.v === UI.logTarget }, o.l)));
@@ -892,7 +1090,7 @@ function tabLogs(el, p, r) {
   const jumpErr = () => { const errs = [...box.querySelectorAll('.lerr:not(.hidden)')]; const last = errs[errs.length - 1]; if (!last) { toast('no errors in the log'); return; } UI.follow = false; follow.querySelector('input').checked = false; last.scrollIntoView({ block: 'center' }); last.classList.add('flash'); setTimeout(() => last.classList.remove('flash'), 1200); };
   el.append(h('div', { class: 'logbar' }, sel, follow, filt, cnt, h('button', { class: 'btn sm', title: 'jump to the last error line', onclick: jumpErr }, '⚠ last error'), h('span', { style: 'flex:1' }), sess ? h('button', { class: 'btn sm primary', onclick: () => openTerm(sess.name) }, '⌨ Terminal') : null, sess ? h('button', { class: 'btn sm', onclick: () => navigator.clipboard.writeText(`ssh ${S.settings.sshHost} -t tmux attach -t ${sess.name}`).then(() => toast('copied — paste in terminal to attach to tmux')) }, '⎘ tmux attach') : null, sess ? h('button', { class: 'btn sm', onclick: () => act('Restart', api('restart', { session: sess.name })) }, '↻ restart') : null, sess ? h('button', { class: 'btn sm danger', onclick: () => act('Stop', api('stop', { session: sess.name })) }, '■ stop') : null, h('button', { class: 'btn sm ghost', onclick: () => box.innerHTML = '' }, 'clear')), box);
   stopLog();
-  const url = UI.logTarget.startsWith('docker:') ? `/api/docker/logs/${UI.logTarget.slice(7)}` : `/api/logs/${encodeURIComponent(UI.logTarget)}/stream`;
+  const url = UI.logTarget.startsWith('docker:') ? `/api/docker/logs/${UI.logTarget.slice(7)}` : UI.logTarget.startsWith('ext:') ? `/api/extlogs/${UI.logTarget.slice(4)}` : `/api/logs/${encodeURIComponent(UI.logTarget)}/stream`;
   const src = new EventSource(url); UI.logSrc = src;
   let carry = '';
   src.addEventListener('log', e => { const text = carry + JSON.parse(e.data); const lines = text.split('\n'); carry = lines.pop(); appendLog(box, lines); if (carry) { /* partial line rendered on next chunk */ } });
@@ -997,7 +1195,7 @@ async function tabChanges(el, p) {
     ...sec('Staged — goes into the next commit', d.staged, 'staged', 'ok'),
     ...sec('Modified — not staged yet', d.unstaged, 'unstaged', 'warn'),
     ...sec('Untracked — new files', d.untracked, 'untracked', 'new'));
-  // commits: prvih `ahead` je samo lokalno; "me" = moj email iz git configa
+  // commits: the first `ahead` exist only locally; "me" = my email from the git config
   if (d.commits?.length) {
     const me = (d.me || '').toLowerCase();
     box.append(h('h4', { class: 'chsec' }, 'Commits on ', d.branch || '?', ' ', h('span', { class: 'n' }, d.commits.length)));
@@ -1175,50 +1373,126 @@ function tabRecent(el, p) {
 // ---------- settings ----------
 function settingsModal() {
   const s = S.settings; const m = $('#modal'); m.classList.remove('hidden');
-  const f = (k, label, hint, type = 'text') => { const i = h('input', { class: 'txt', value: s[k] ?? '', type }); i.dataset.k = k; return [h('label', null, label), i, hint ? h('div', { class: 'hint' }, hint) : null]; };
+  // iOS-style grouped settings: a titled group of rows, label + hint on the left, the control on the right
+  const sect = (title, ...rows) => h('section', { class: 'sg' }, h('div', { class: 'sg-t' }, title), h('div', { class: 'sg-b' }, ...rows.filter(Boolean)));
+  const row = (label, hint, ctl, cls = '') => h('div', { class: 'sr ' + cls }, h('div', { class: 'sr-l' }, h('div', { class: 'sr-k' }, label), hint ? h('div', { class: 'sr-h' }, hint) : null), h('div', { class: 'sr-c' }, ctl));
+  const sw = (checked, attrs = {}) => h('label', { class: 'sw' }, h('input', { type: 'checkbox', checked, ...attrs }), h('i'));
+  const txt = (k, extra = {}) => { const i = h('input', { class: 'txt', value: s[k] ?? '', ...extra }); i.dataset.k = k; return i; };
   const auto = h('input', { type: 'checkbox', checked: s.autoExpose });
   const hidden = Object.entries(s.projects || {}).filter(([, v]) => v.hidden).map(([k]) => k);
-  const box = h('div', { class: 'box' }, h('h3', null, '⚙ Settings'),
-    f('sshHost', 'SSH host alias (as in your Mac ~/.ssh/config)', 'Used for VS Code links: vscode://vscode-remote/ssh-remote+HOST/path'),
-    f('sshUser', 'SSH user (optional)', 'Leave empty if the alias already sets User.'),
-    f('publicHost', 'Public host for port links', `Empty = tailscale IP (${S.host.tsIp}). You can use "${(S.host.tsName || 'beast')}" if MagicDNS works on the Mac.`),
-    f('devRoot', 'Dev root', 'Folder scanned for projects.'), f('scanDepth', 'Scan depth', '', 'number'),
-    h('div', { class: 'sw-row' }, auto, h('span', null, 'Auto-expose loopback-bound project ports on the tailscale IP (socat)')),
-    (() => { const n = s.notify || {}; const cb = (k, l) => h('label', { class: 'sw-row', style: 'margin:2px 0;font-size:12.5px' }, h('input', { type: 'checkbox', checked: n[k] !== false && (k !== 'digest' || n.digest), 'data-n': k }), l);
-      const qf = h('input', { class: 'txt', type: 'time', value: n.quietFrom || '', 'data-q': 'quietFrom', style: 'width:110px' }); const qt = h('input', { class: 'txt', type: 'time', value: n.quietTo || '', 'data-q': 'quietTo', style: 'width:110px' });
-      return h('div', { style: 'margin-top:14px' }, h('label', null, 'Notify me when…'), h('div', { class: 'ngrid' }, cb('done', '✓ a session finishes'), cb('permission', '⚠ a session needs permission'), cb('error', '✗ a session errors'), cb('limit', '⏳ an account hits its usage limit'), cb('crash', '▶ a dev server dies'), cb('digest', '📊 Monday weekly digest')),
-        h('div', { style: 'display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap' }, h('span', { class: 'dim', style: 'font-size:12px' }, 'Quiet hours'), qf, h('span', { class: 'dim' }, '→'), qt, h('span', { class: 'hint', style: 'margin:0' }, 'no push between these times (empty = never quiet)')),
-        (s.muted || []).length ? h('div', { class: 'hint' }, 'Muted sessions: ' + s.muted.join(', ') + ' (🔔 on the card to unmute)') : null); })(),
-    h('div', { style: 'margin-top:12px' }, h('label', { class: 'sw-row' }, h('input', { type: 'checkbox', checked: !!s.autoRestore, id: 'set-autorestore' }), h('span', null, 'Auto-restore Claude sessions after a reboot (claude --resume in the same folders as soon as the dashboard starts)'))),
-    h('div', { style: 'margin-top:8px' }, h('label', { class: 'sw-row' }, h('input', { type: 'checkbox', checked: SOUND.on, onchange: e => { SOUND.on = e.target.checked; localStorage.setItem('bd.sound', SOUND.on ? '1' : '0'); if (SOUND.on) ding('done'); } }), h('span', null, 'Sound on this device when a session needs you'))),
-    h('div', { style: 'margin-top:8px;font-size:12px' }, h('a', { href: '/api/backup', class: 'btn sm' }, '⇩ latest state backup'), h('span', { class: 'hint', style: 'display:inline;margin-left:8px' }, 'nightly tar of sessions, labels, push subscriptions, settings, schedule (14 kept in ~/beast-dash/state-backups)')),
-    h('div', { style: 'margin-top:14px' }, h('label', null, 'Push notifications (Claude finished / needs permission / error)'),
-      PUSH.supported ? h('div', { style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap' },
-        PUSH.sub ? h('span', { class: 'dim' }, '● enabled on this device') : h('span', { class: 'dim' }, '○ not enabled on this device'),
-        PUSH.sub ? h('button', { class: 'btn sm', onclick: () => disablePush().then(() => { m.classList.add('hidden'); }) }, 'Disable here') : h('button', { class: 'btn sm primary', onclick: () => enablePush().then(() => { m.classList.add('hidden'); }) }, 'Enable on this device'),
-        h('button', { class: 'btn sm ghost', onclick: () => api('push-test', {}).then(r => toast(`test sent to ${r.sent || 0} device(s)`)) }, 'Send test'),
-        h('span', { class: 'dim', style: 'font-size:12px' }, `${S.host.pushSubs || 0} device(s) subscribed`))
-      : h('div', { class: 'hint' }, 'Needs HTTPS (service worker). Open the dashboard via https://' + (S.host.tsName || 'beast') + ' — see README "HTTPS" (tailscale serve).')),
-    hidden.length ? h('div', { style: 'margin-top:12px' }, h('label', null, 'Hidden projects'), hidden.map(id => h('button', { class: 'btn sm', style: 'margin:2px', onclick: () => api('project', { id, hidden: false }).then(() => { m.classList.add('hidden'); toast('unhidden'); }) }, id + ' ✕'))) : null,
+  const n = s.notify || {};
+  const ncb = (k, l, hint) => row(l, hint, sw(n[k] !== false && (k !== 'digest' || n.digest), { 'data-n': k }));
+  const qf = h('input', { class: 'txt sm', type: 'time', value: n.quietFrom || '', 'data-q': 'quietFrom' }); const qt = h('input', { class: 'txt sm', type: 'time', value: n.quietTo || '', 'data-q': 'quietTo' });
+  const box = h('div', { class: 'box settings' },
+    h('div', { class: 'sh' }, h('h3', null, 'Settings'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', onclick: () => m.classList.add('hidden') }, ico('x', 15))),
+    h('div', { class: 'sbody' },
+      sect('Tools',
+        row('Tunnels', `${S.runtime.exposures.length} loopback ports forwarded onto ${S.host.tsIp || 'the tailscale IP'} (socat) so your laptop reaches them without ssh -L`, h('button', { class: 'btn sm', onclick: () => { m.classList.add('hidden'); UI.showTunnels = true; renderTunnels(); window.scrollTo(0, 0); } }, 'Open')),
+        row('Auto-expose', 'forward every loopback-bound project port automatically', h('label', { class: 'sw' }, auto, h('i'))),
+        row('Projects', `rescan ${home(S.host.devRoot || '~')} for new folders`, h('button', { class: 'btn sm', onclick: () => act('Rescan', api('rescan', {})) }, 'Rescan')),
+        row('State backup', 'nightly tar of sessions, labels, push subscriptions, settings, schedule — 14 kept', h('a', { href: '/api/backup', class: 'btn sm' }, 'Download'))),
+      sect('Notifications',
+        ncb('done', 'Session finished'), ncb('permission', 'Needs permission'), ncb('error', 'Session error'), ncb('limit', 'Usage limit hit'), ncb('crash', 'Dev server died'), ncb('digest', 'Monday weekly digest'),
+        row('Quiet hours', 'no push between these times', h('span', { class: 'qh' }, qf, h('span', { class: 'dim' }, '–'), qt)),
+        row('Sound', 'ding on this device when a session needs you', sw(SOUND.on, { onchange: e => { SOUND.on = e.target.checked; localStorage.setItem('bd.sound', SOUND.on ? '1' : '0'); if (SOUND.on) ding('done'); } })),
+        row('Push', PUSH.supported ? `${S.host.pushSubs || 0} device(s) subscribed · ` + (PUSH.sub ? 'enabled here' : 'not enabled on this device') : 'needs HTTPS (service worker) — open via https://' + (S.host.tsName || '<magicdns-name>'),
+          PUSH.supported ? h('span', { class: 'qh' }, PUSH.sub ? h('button', { class: 'btn sm', onclick: () => disablePush().then(() => m.classList.add('hidden')) }, 'Disable') : h('button', { class: 'btn sm primary', onclick: () => enablePush().then(() => m.classList.add('hidden')) }, 'Enable'), h('button', { class: 'btn sm ghost', onclick: () => api('push-test', {}).then(r => toast(`test sent to ${r.sent || 0} device(s)`)) }, 'Test')) : null),
+        (s.muted || []).length ? row('Muted sessions', s.muted.join(', '), h('span', { class: 'dim', style: 'font-size:11.5px' }, 'bell in the terminal bar')) : null),
+      sect('Sessions',
+        row('Auto-restore after reboot', 'claude --resume in the same folders as soon as the dashboard starts', sw(!!s.autoRestore, { id: 'set-autorestore' }))),
+      sect('Connection',
+        row('SSH host alias', 'as in ~/.ssh/config on your laptop · used for VS Code links and copied ssh commands', txt('sshHost', { placeholder: 'myserver' })),
+        row('SSH user', 'empty if the alias sets it', txt('sshUser')),
+        row('Public host for port links', `empty = ${S.host.tsIp || 'tailscale IP'}${S.host.tsName ? ' · "' + S.host.tsName + '" if MagicDNS works' : ''}`, txt('publicHost', { placeholder: S.host.tsIp || '' })),
+        row('Dev root', 'folder scanned for projects', txt('devRoot')),
+        row('Scan depth', '', txt('scanDepth', { type: 'number', class: 'txt sm' }))),
+      hidden.length ? sect('Hidden projects', ...hidden.map(id => row(id, '', h('button', { class: 'btn sm', onclick: () => api('project', { id, hidden: false }).then(() => { m.classList.add('hidden'); toast('unhidden'); }) }, 'Unhide')))) : null),
     h('div', { class: 'foot' }, h('button', { class: 'btn ghost', onclick: () => m.classList.add('hidden') }, 'Cancel'), h('button', { class: 'btn primary', onclick: async () => { const patch = { autoExpose: auto.checked, autoRestore: !!box.querySelector('#set-autorestore')?.checked, notify: { ...(s.notify || {}) } }; for (const i of box.querySelectorAll('input[data-n]')) patch.notify[i.dataset.n] = i.checked; for (const i of box.querySelectorAll('input[data-q]')) patch.notify[i.dataset.q] = i.value; for (const i of box.querySelectorAll('input[data-k]')) patch[i.dataset.k] = i.type === 'number' ? +i.value : i.value.trim(); await act('Settings saved', api('settings', patch)); m.classList.add('hidden'); } }, 'Save')));
   m.replaceChildren(box);
   m.onclick = e => { if (e.target === m) m.classList.add('hidden'); };
 }
 
+// ---------- tasks: personal backlog, prompt-style, linked to projects; "Run" hands one to Claude ----------
+const TASKS_UI = { showDone: false };
+function renderTasks() {
+  const el = $('#tasks'); if (!el) return; el.innerHTML = '';
+  const all = S.claude?.tasks || []; const open = all.filter(t => t.status !== 'done'); const done = all.filter(t => t.status === 'done');
+  el.append(h('div', { class: 'tshead' }, h('span', { class: 'tstitle' }, 'Tasks', h('span', { class: 'n' }, open.length)), h('span', { class: 'sp' }),
+    h('button', { class: 'btn sm ghost', onclick: () => { TASKS_UI.showDone = !TASKS_UI.showDone; renderTasks(); } }, TASKS_UI.showDone ? 'hide done' : `done (${done.length})`),
+    h('button', { class: 'btn sm primary', onclick: () => taskModal(null) }, ico('plus', 14), 'New task')));
+  if (!open.length && !TASKS_UI.showDone) el.append(h('div', { class: 'tsempty' }, 'No open tasks. Write yourself one — as detailed as a prompt, with screenshots — and hand it to Claude when you are ready.'));
+  const groups = [['doing', 'In progress'], ['todo', 'To do']];
+  for (const [st, label] of groups) { const ts = open.filter(t => t.status === st); if (!ts.length) continue; el.append(h('div', { class: 'tksec' }, label, h('span', { class: 'n' }, ts.length)), h('div', { class: 'tklist' }, ts.map(taskCard))); }
+  if (TASKS_UI.showDone && done.length) el.append(h('div', { class: 'tksec' }, 'Done', h('span', { class: 'n' }, done.length)), h('div', { class: 'tklist done' }, done.sort((a, b) => b.doneAt - a.doneAt).map(taskCard)));
+}
+function taskCard(t) {
+  const p = t.project && byId()[t.project]; const live = p ? S.runtime.sessions.filter(s => s.claude && s.project === p.id) : [];
+  const lastRun = t.runs[t.runs.length - 1]; const runSess = lastRun && S.runtime.sessions.find(s => s.name === lastRun.session);
+  const imgs = t.files.filter(f => /\.(png|jpe?g|gif|webp)$/i.test(f)); const others = t.files.filter(f => !imgs.includes(f));
+  return h('div', { class: 'tk st-' + t.status, 'data-id': t.id },
+    h('div', { class: 'tk-head' }, avatar(p ? p.id : null), h('div', { class: 'tk-hd' }, h('div', { class: 'tk-title', onclick: () => taskModal(t) }, t.title), h('div', { class: 'tk-sub' }, p ? p.name : h('span', { class: 'dim' }, 'no project'), ' · ', ago(t.createdAt) + ' ago', lastRun ? [' · ', h('span', { class: 'tk-run' + (runSess ? ' on' : '') }, 'sent to ', runSess ? h('a', { href: '#', onclick: ev => { ev.preventDefault(); openTerm(lastRun.session); } }, lastRun.session.replace(/^claude-/, '')) : lastRun.session.replace(/^claude-/, ''), ' ', ago(lastRun.at) + ' ago')] : null)),
+      h('div', { class: 'tk-acts' },
+        t.status !== 'done' ? h('button', { class: 'btn sm primary', title: 'hand this task to Claude on ' + (p ? p.name : 'its project'), onclick: ev => runTaskMenu(ev, t) }, '▶ Run', h('span', { class: 'caret' }, '▾')) : null,
+        t.status !== 'done' ? h('button', { class: 'btn sm', title: 'mark done', onclick: () => api('task-update', { id: t.id, status: 'done' }).then(() => toast('done ✓', 'ok')) }, '✓ Done') : h('button', { class: 'btn sm', title: 'reopen', onclick: () => api('task-update', { id: t.id, status: 'todo' }) }, '↺ Reopen'),
+        h('button', { class: 'btn sm icon ghost', title: 'edit', onclick: () => taskModal(t) }, '✎'),
+        h('button', { class: 'btn sm icon ghost', title: 'delete', onclick: () => { if (confirm('Delete this task?')) api('task-remove', { id: t.id }); } }, ico('x', 13)))),
+    t.body ? h('div', { class: 'tk-body', onclick: () => taskModal(t) }, t.body) : null,
+    imgs.length || others.length ? h('div', { class: 'tk-files' }, imgs.map(f => h('a', { href: '/api/file?p=' + encodeURIComponent(f), target: '_blank', title: f.split('/').pop() }, h('img', { src: '/api/file?p=' + encodeURIComponent(f), loading: 'lazy' }))), others.map(f => h('a', { class: 'tk-file', href: '/api/file?p=' + encodeURIComponent(f), target: '_blank', title: f }, ico('clip', 12), f.split('/').pop()))) : null);
+}
+function runTaskMenu(ev, t) {
+  const p = t.project && byId()[t.project]; if (!p) { toast('pick a project for this task first', 'err'); return taskModal(t); }
+  const live = S.runtime.sessions.filter(s => s.claude && s.project === p.id);
+  const go = (account, session) => act('Task → ' + p.name, api('task-run', { id: t.id, account, session })).then(r => { if (r && r.session) setTimeout(() => openTerm(r.session), 1200); });
+  openMenu(ev, [
+    { header: 'Send the task as a prompt to…' },
+    ...live.map(s => ({ label: (s.claude.label || p.name) + (instOf(s).n ? ' #' + instOf(s).n : ''), sub: `${s.name} · ${STATE_LABEL[s.claude.state] || ''}${s.claude.state === 'working' ? ' — queued until it is idle' : ''}`, icon: '●', cur: true, onclick: () => go(s.claude.account, s.name) })),
+    live.length ? 'sep' : null,
+    { label: 'New personal session', sub: 'starts claude in ' + home(p.path), icon: '＋', onclick: () => go('personal') },
+    { label: 'New company session', sub: 'starts claude (company account)', icon: '＋', onclick: () => go('company') },
+  ].filter(Boolean));
+}
+// New / edit task: project picker, title, prompt-style body (paste or drop screenshots straight in), attachments kept forever
+function taskModal(t, projectId) {
+  const m = $('#modal'); m.classList.remove('hidden');
+  const files = [...(t?.files || [])];
+  const projs = S.projects.filter(p => !p.hidden).sort((a, b) => (a.org + a.name).localeCompare(b.org + b.name));
+  const sel = h('select', { class: 'txt' }, h('option', { value: '' }, '— no project —'), projs.map(p => h('option', { value: p.id, selected: p.id === (t?.project || projectId) }, `${p.org} / ${p.name}`)));
+  const title = h('input', { class: 'txt', placeholder: 'What needs to happen (one line)', value: t?.title || '' });
+  const body = h('textarea', { class: 'creply tkbody', rows: 10, placeholder: 'Write it like a prompt: context, what to change, where, how to verify, what not to touch. Paste screenshots here (Cmd+V) or drop files.' }); body.value = t?.body || '';
+  const flist = h('div', { class: 'tk-files edit' });
+  const drawFiles = () => { flist.replaceChildren(...files.map((f, i) => h('span', { class: 'tk-file' }, /\.(png|jpe?g|gif|webp)$/i.test(f) ? h('img', { src: '/api/file?p=' + encodeURIComponent(f) }) : ico('clip', 12), f.split('/').pop(), h('button', { class: 'x', title: 'remove', onclick: () => { files.splice(i, 1); drawFiles(); } }, ico('x', 11))))); };
+  const upload = async f => { try { toast('uploading ' + f.name + '…'); const pth = await uploadFile(f, true); files.push(pth); drawFiles(); } catch (e) { toast(e.message, 'err'); } };
+  const fileIn = h('input', { type: 'file', multiple: true, style: 'display:none', onchange: () => { for (const f of fileIn.files) upload(f); fileIn.value = ''; } });
+  body.addEventListener('paste', ev => { const fs = [...(ev.clipboardData?.files || [])]; if (fs.length) { ev.preventDefault(); fs.forEach(upload); } });
+  body.addEventListener('dragover', ev => ev.preventDefault()); body.addEventListener('drop', ev => { ev.preventDefault(); [...(ev.dataTransfer?.files || [])].forEach(upload); });
+  for (const i of [title, body]) i.addEventListener('keydown', ev => { ev.stopPropagation(); if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) saveBtn.click(); });
+  drawFiles();
+  const saveBtn = h('button', { class: 'btn primary', onclick: async () => { if (!title.value.trim()) { title.focus(); return; } const data = { title: title.value, body: body.value, project: sel.value, files }; await act(t ? 'Task updated' : 'Task added', t ? api('task-update', { id: t.id, ...data }) : api('task', data)); m.classList.add('hidden'); if (UI.view !== 'tasks') setView('tasks'); } }, t ? 'Save' : 'Add task');
+  const box = h('div', { class: 'box settings task' },
+    h('div', { class: 'sh' }, h('h3', null, t ? 'Edit task' : 'New task'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost icon', onclick: () => m.classList.add('hidden') }, ico('x', 15))),
+    h('div', { class: 'sbody' },
+      h('div', { class: 'sg' }, h('div', { class: 'sg-t' }, 'Project'), sel),
+      h('div', { class: 'sg' }, h('div', { class: 'sg-t' }, 'Title'), title),
+      h('div', { class: 'sg' }, h('div', { class: 'sg-t' }, 'Details — this is what Claude gets'), body,
+        h('div', { class: 'tk-attach' }, h('button', { class: 'btn sm ghost', onclick: () => fileIn.click() }, ico('clip', 14), 'Attach files'), fileIn, h('span', { class: 'hint', style: 'margin:0' }, 'screenshots, CSVs, anything — kept until you delete the task')), flist)),
+    h('div', { class: 'foot' }, h('span', { class: 'hint', style: 'margin:0 auto 0 0' }, '⌘↵ to save'), h('button', { class: 'btn ghost', onclick: () => m.classList.add('hidden') }, 'Cancel'), saveBtn));
+  m.replaceChildren(box); m.onclick = e => { if (e.target === m) m.classList.add('hidden'); };
+  setTimeout(() => (t ? body : title).focus(), 50);
+}
 // ---------- views: home (stats · agents · running) / projects (cards + search) ----------
 function setView(v, keepQuery) {
   UI.view = v; localStorage.setItem('bd.view', v);
-  $('#view-home').classList.toggle('hidden', v !== 'home'); $('#view-projects').classList.toggle('hidden', v !== 'projects');
+  $('#view-home').classList.toggle('hidden', v !== 'home'); $('#view-projects').classList.toggle('hidden', v !== 'projects'); $('#view-tasks').classList.toggle('hidden', v !== 'tasks');
   for (const b of document.querySelectorAll('#nav .navb')) b.classList.toggle('on', b.dataset.view === v);
   if (v === 'home' && !keepQuery) { $('#search').value = ''; UI.q = ''; }
   render();
 }
 function render() {
   if (UI.menuOpen) return; // don't yank menus from under the cursor
-  $('#view-home').classList.toggle('hidden', UI.view !== 'home'); $('#view-projects').classList.toggle('hidden', UI.view !== 'projects');
+  $('#view-home').classList.toggle('hidden', UI.view !== 'home'); $('#view-projects').classList.toggle('hidden', UI.view !== 'projects'); $('#view-tasks').classList.toggle('hidden', UI.view !== 'tasks');
   for (const b of document.querySelectorAll('#nav .navb')) b.classList.toggle('on', b.dataset.view === UI.view);
   renderHeader(); renderBanner(); renderTunnels(); 
-  if (UI.view === 'home') { renderStats(); renderTermStrip(); renderRunning(); } else renderMain();
+  if (UI.view === 'home') { renderStats(); renderTermStrip(); renderRunning(); } else if (UI.view === 'tasks') renderTasks(); else renderMain();
   if (UI.drawer) renderDrawer(false);
   if (TERM.open) { renderTermPanel(); renderChatPane(false); } else $('#term-count').textContent = S.runtime.sessions.length;
   gcFrames();
@@ -1252,9 +1526,7 @@ function ding(state) {
 }
 $('#search').addEventListener('input', e => { UI.q = e.target.value.trim(); if (UI.q && UI.view !== 'projects') setView('projects', true); else renderMain(); });
 for (const b of document.querySelectorAll('#nav .navb')) b.onclick = () => setView(b.dataset.view);
-$('#btn-tunnels').onclick = () => { UI.showTunnels = !UI.showTunnels; renderTunnels(); };
 $('#btn-shell').onclick = () => { if (TERM.open) return closeTermPanel(); pushLayer('term'); TERM.open = true; if (!TERM.active) { const c = S.runtime.sessions.find(x => x.name.startsWith('claude-')) || S.runtime.sessions[0]; if (c) { ensureFrame(c.name); TERM.active = c.name; } } renderTermPanel(); };
-$('#btn-rescan').onclick = () => act('Rescan', api('rescan', {}));
 $('#btn-settings').onclick = settingsModal;
 $('#scrim').onclick = closeDrawer;
 document.addEventListener('keydown', e => {
@@ -1262,7 +1534,7 @@ document.addEventListener('keydown', e => {
   if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); PAL.open ? closePalette() : openPalette(); return; }
   if (PAL.open) return;   // the palette handles its own keys
   if (e.key === '/' && !typing) { e.preventDefault(); $('#search').focus(); }
-  if (e.key === 'Escape') { if (!$('#modal').classList.contains('hidden')) $('#modal').classList.add('hidden'); else if (UI.menuOpen) closeMenu(); else if (UI.drawer) closeDrawer(); else if (TERM.open) closeTermPanel(); else if (UI.q) { $('#search').value = ''; UI.q = ''; renderMain(); } else if (UI.view === 'projects') setView('home'); } // drawer before term: the Changes drawer can sit on top of the terminal
+  if (e.key === 'Escape') { if (!$('#modal').classList.contains('hidden')) $('#modal').classList.add('hidden'); else if (UI.menuOpen) closeMenu(); else if (UI.drawer) closeDrawer(); else if (TERM.open) closeTermPanel(); else if (UI.q) { $('#search').value = ''; UI.q = ''; renderMain(); } else if (UI.view === 'projects' || UI.view === 'tasks') setView('home'); } // drawer before term: the Changes drawer can sit on top of the terminal
   // dashboard-level shortcuts (not while typing): t = terminals, n = next session that needs you, s = new shell
   if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.key === 't') { e.preventDefault(); $('#btn-shell').click(); }
@@ -1283,9 +1555,11 @@ function paletteItems() {
   for (const it of S3.dev) items.push({ kind: 'dev', label: it.project + ' · ' + it.label, sub: it.ports.map(p => ':' + p.port).join(' ') || it.name, icon: '▶', hay: [it.project, it.label, it.name].join(' '), run: () => openTerm(it.name), rank: 10 });
   for (const it of S3.other) items.push({ kind: 'other', label: it.name, sub: it.cwd, icon: '⌨', hay: it.name + ' ' + it.cwd, run: () => openTerm(it.name), rank: 11 });
   for (const p of S.projects.filter(p => !p.hidden)) items.push({ kind: 'project', label: p.name, sub: [p.org, p.group, p.framework].filter(Boolean).join(' · '), icon: '▤', hay: [p.name, p.rel, p.org, p.framework].join(' '), run: () => openDrawer(p.id, 'overview'), rank: 20, more: [{ l: '✦', t: 'Claude (personal)', f: () => startClaude(p, 'personal') }, { l: '✦c', t: 'Claude (company)', f: () => startClaude(p, 'company') }, { l: '±', t: 'changes', f: () => openDrawer(p.id, 'changes') }] });
-  items.push({ kind: 'action', label: 'New shell', sub: 'bash in ~/dev (tmux sh-N)', icon: '$', hay: 'shell bash terminal new', run: newShell, rank: 30 },
+  items.push({ kind: 'action', label: 'New shell', sub: 'bash in the dev folder (tmux sh-N)', icon: '$', hay: 'shell bash terminal new', run: newShell, rank: 30 },
     { kind: 'action', label: 'Terminals panel', sub: 'full-screen terminal view', icon: '⛶', hay: 'terminals panel', run: () => $('#btn-shell').click(), rank: 31 },
     { kind: 'action', label: 'Tunnels', sub: 'exposed ports', icon: '⇄', hay: 'tunnels ports expose socat', run: () => { UI.showTunnels = true; renderTunnels(); }, rank: 32 },
+    { kind: 'action', label: 'Tasks', sub: `${(S.claude?.tasks || []).filter(t => t.status !== 'done').length} open`, icon: '☑', hay: 'tasks todo backlog', run: () => setView('tasks'), rank: 30 },
+    { kind: 'action', label: 'New task', sub: 'write yourself a prompt-style task', icon: '＋', hay: 'new task add todo', run: () => taskModal(null), rank: 30 },
     { kind: 'action', label: 'Settings', sub: '', icon: '⚙', hay: 'settings config push notifications', run: settingsModal, rank: 33 },
     { kind: 'action', label: 'Rescan projects', sub: '', icon: '↻', hay: 'rescan projects', run: () => act('Rescan', api('rescan', {})), rank: 34 },
     { kind: 'action', label: 'Search conversations', sub: 'type ? followed by words — every session, both accounts', icon: '🔍', hay: 'search conversations transcripts find', run: () => setTimeout(() => openPalette('search'), 0), rank: 27 },
@@ -1355,8 +1629,12 @@ let firstDone = false;
 function firstState() {
   if (firstDone) return; firstDone = true;
   const q = new URLSearchParams(location.search); const t = q.get('term'); const sess = q.get('session');
-  if (t) { history.replaceState(null, '', location.pathname); if (q.get('mode') === 'chat') TERM.chat.add(t); openTerm(t); }
+  if (t) { history.replaceState(null, '', location.pathname); if (q.get('mode') === 'chat') { TERM.mode = 'chat'; localStorage.setItem('bd.mode', 'chat'); } openTerm(t); }
   else if (sess) { history.replaceState(null, '', location.pathname); openSession(sess, q.get('tab') || 'transcript'); }
+  else if (['projects', 'home', 'tasks'].includes(q.get('view'))) { history.replaceState(null, '', location.pathname); setView(q.get('view')); }
+  else if (q.get('newtask')) { history.replaceState(null, '', location.pathname); setView('tasks'); taskModal(null, q.get('newtask') === '1' ? null : q.get('newtask')); }
+  else if (q.get('settings')) { history.replaceState(null, '', location.pathname); settingsModal(); }
+  else if (q.get('schedule')) { history.replaceState(null, '', location.pathname); scheduleDialog(q.get('schedule'), ''); }
   pushStatus();
 }
 connect();

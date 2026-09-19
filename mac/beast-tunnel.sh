@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# beast-tunnel.sh — OPTIONAL Mac-side SSH tunnel helper.
+# beast-tunnel.sh — OPTIONAL laptop-side SSH tunnel helper (macOS / Linux).
 #
 # Normally you don't need this: Tailscale gives you direct access and Beast Dash
 # exposes loopback-only ports on the tailscale IP via socat. Use this only when a
-# service must appear as "localhost" on the Mac (cookies, CORS, OAuth redirects…).
+# service must appear as "localhost" on the laptop (cookies, CORS, OAuth redirects…).
 #
-# Usage:  beast-tunnel.sh            # forwards every port currently in use by ~/dev projects
+# Usage:  beast-tunnel.sh            # forwards every port currently in use by your projects
 #         beast-tunnel.sh 5173 3001  # forwards only these ports
 #         beast-tunnel.sh --watch    # re-syncs the port list every 20s, auto-reconnects on wifi change
-# Env:    BEAST_HOST (ssh alias, default "beast")  BEAST_DASH_PORT (default 8787)
+# Env:    BEAST_HOST (ssh alias of the server, default "myserver")  BEAST_DASH_PORT (default 8787)
 set -uo pipefail
-HOST="${BEAST_HOST:-beast}"; DASH="${BEAST_DASH_PORT:-8787}"
+HOST="${BEAST_HOST:-myserver}"; DASH="${BEAST_DASH_PORT:-8787}"
 WATCH=0; PORTS=()
 for a in "$@"; do case "$a" in --watch) WATCH=1;; *) PORTS+=("$a");; esac; done
 

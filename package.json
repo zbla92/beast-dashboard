@@ -2,8 +2,9 @@
   "name": "beast-dash",
   "version": "1.0.0",
   "private": true,
-  "description": "Dev dashboard for the beast server — projects, processes, docker, git, tunnels.",
+  "description": "Self-hosted dashboard for a dev server: projects, processes, docker, git, tunnels and live Claude Code sessions — from your laptop or phone.",
   "main": "server.js",
-  "scripts": { "start": "node server.js" },
+  "scripts": { "start": "node server.js", "check": "node --check server.js && for f in lib/*.js bin/*.js public/*.js; do node --check $f || exit 1; done && echo ok" },
+  "engines": { "node": ">=18" },
   "license": "MIT"
 }

@@ -1,46 +1,45 @@
 #!/usr/bin/env bash
-# build-term-index.sh — sklapa index.html koji ttyd servira.
+# build-term-index.sh — assembles the index.html that ttyd serves.
 #
-#   term/ttyd-base.html   netaknut ttyd index (700KB, xterm ugradjen unutra)
-# + term/mobile.html      nas sloj: Esc/Tab/strelice + skrol prstom
-# = term/index.html       ono sto ide u `ttyd --index`
+#   term/ttyd-base.html   untouched ttyd index (700 KB, xterm bundled inside)
+# + term/mobile.html      our layer: Esc/Tab/arrows key bar, finger scroll, paste/upload
+# = term/index.html       what goes into `ttyd --index`
 #
-# Odvojeno da nadogradnja ttyd-a ne pojede izmjene:
+# Kept separate so a ttyd upgrade never eats the customisations:
 #
 #   systemctl --user stop beast-term
-#   /usr/bin/ttyd -p 7681 ... &            # bez --index, da servira svoj
+#   /usr/bin/ttyd -p 7681 ... &            # without --index, so it serves its own page
 #   curl -s localhost:7681/ > term/ttyd-base.html
 #   kill %1 && ./bin/build-term-index.sh && systemctl --user start beast-term
 #
-# Za povratak na goli ttyd dovoljno je skinuti `--index` iz beast-term.service.
+# To go back to plain ttyd, drop `--index` from beast-term.service.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-osnova="term/ttyd-base.html"
-sloj="term/mobile.html"
-izlaz="term/index.html"
+base="term/ttyd-base.html"
+layer="term/mobile.html"
+out="term/index.html"
 
-[ -f "$osnova" ] || { echo "nema $osnova — skini ga sa golog ttyd-a"; exit 1; }
-[ -f "$sloj" ]   || { echo "nema $sloj"; exit 1; }
+[ -f "$base" ]  || { echo "missing $base — download it from a plain ttyd (see the header of this script)"; exit 1; }
+[ -f "$layer" ] || { echo "missing $layer"; exit 1; }
 
-grep -q "window.term" "$osnova" || {
-  echo "UPOZORENJE: $osnova ne izlaze 'window.term' — slanje tipki nece raditi."
-  echo "Provjeri je li ttyd nadogradjen i je li se to promijenilo."
+grep -q "window.term" "$base" || {
+  echo "WARNING: $base does not expose 'window.term' — sending keys will not work."
+  echo "Check whether ttyd was upgraded and that changed."
   exit 1
 }
 
-# Sloj ide PRIJE </body>, dakle poslije ttyd-ove skripte — `window.term`
-# tada vec postoji.
-python3 - "$osnova" "$sloj" "$izlaz" <<'PY'
+# The layer goes right BEFORE </body>, i.e. after ttyd's own script — `window.term` exists by then.
+python3 - "$base" "$layer" "$out" <<'PY'
 import sys
-osnova, sloj, izlaz = sys.argv[1:4]
-b = open(osnova, encoding="utf-8").read()
-m = open(sloj, encoding="utf-8").read()
-kraj = b.rfind("</body>")
-if kraj == -1:
-    sys.exit("u osnovi nema </body>")
-open(izlaz, "w", encoding="utf-8").write(b[:kraj] + "\n" + m + "\n" + b[kraj:])
+base, layer, out = sys.argv[1:4]
+b = open(base, encoding="utf-8").read()
+m = open(layer, encoding="utf-8").read()
+end = b.rfind("</body>")
+if end == -1:
+    sys.exit("no </body> in the base file")
+open(out, "w", encoding="utf-8").write(b[:end] + "\n" + m + "\n" + b[end:])
 PY
 
-echo "napravljen $izlaz ($(wc -c < "$izlaz") bajta)"
+echo "built $out ($(wc -c < "$out") bytes)"

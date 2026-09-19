@@ -1,50 +1,48 @@
 <!--
-  beast-dash — sloj za telefon povrh ttyd-a.
+  Beast Dash — phone layer on top of ttyd.
 
-  Lijepi se na kraj ttyd-ovog index.html (vidi bin/build-term-index.sh). Ne
-  dira se sam ttyd: kad se nadogradi, `ttyd-base.html` se ponovo skine i
-  ovo se zalijepi na novu osnovu.
+  Appended to the end of ttyd's own index.html (see bin/build-term-index.sh). ttyd itself is
+  never edited: after a ttyd upgrade, re-download `ttyd-base.html` and rebuild — this layer is
+  glued onto the new base.
 
-  Blokovi, redom:
+  Blocks, in order:
 
-  1. ZAJEDNICKO (window.bd): slanje teksta u terminal, obavijest, upload
-     slike na beast-dash. Koriste ga i telefonski i desktop sloj.
+  1. SHARED (window.bd): send text to the terminal, toast, upload a file to the dashboard.
+     Used by both the phone layer and the desktop helpers.
 
-  2. TELEFON (samo `pointer: coarse`, ili `?touch=1` za probu na Macu):
-     - traka: esc/tab/strelice/^C + ⎘ paste, ⋯ meni, ⌨ tastatura
-     - ⋯ list (sheet): Fit, slika, enter/newline/shift-tab/home/end/pgup/
-       pgdn/del, tmux copy-mode, ctrl+a..z
-     - ⎘: na HTTPS-u cita clipboard direktno; na HTTP-u (tailnet IP —
-       nema navigator.clipboard) otvori polje za kucanje/lijepljenje:
-       drzi prst → Paste → ode u terminal kao JEDAN paste (bracketed, pa
-       Claude vidi "[Pasted text]" i ne salje svaki red posebno).
-     - skrol prstom → wheel → tmux copy-mode (tmux je na alt-ekranu, xterm
-       nema sta da skrola sam).
-     - tastatura na iOS-u ne mijenja layout viewport: traka i terminal se
-       vode iz visualViewport. U IFRAME-u (dashboard) iframe to NE VIDI —
-       tamo panel smanjuje dashboard (app.js, fitTermPanel) pa iframe dobije
-       obican resize. ⤢ Fit uz to javi i roditelju (postMessage) i
-       "prodrma" tmux: resize na rows-1 pa nazad, da SIGWINCH sigurno ode.
+  2. PHONE (only on `pointer: coarse`, or `?touch=1` to try it on a desktop):
+     - key bar: esc/tab/arrows/^C + ⎘ paste, ⋯ menu, ⌨ keyboard
+     - ⋯ sheet: Fit, file, enter/newline/shift-tab/home/end/pgup/pgdn/del, tmux copy-mode, ctrl+a..z
+     - ⎘: on HTTPS reads the clipboard directly; on plain HTTP (tailnet IP — there is no
+       navigator.clipboard) it opens a compose box: long-press → Paste → goes to the terminal as
+       ONE paste (bracketed, so Claude Code sees "[Pasted text]" instead of one line per Enter).
+     - finger scroll → wheel events → tmux copy-mode (tmux runs on the alternate screen, xterm has
+       nothing of its own to scroll).
+     - the iOS keyboard does not change the layout viewport: the bar and the terminal follow
+       visualViewport. Inside an IFRAME (the dashboard) the iframe cannot see the keyboard — there
+       the dashboard shrinks its panel (app.js, fitTermPanel) and the iframe gets a plain resize.
+       ⤢ Fit additionally tells the parent (postMessage) and "shakes" tmux: resize to rows-1 and
+       back, so a SIGWINCH definitely goes out.
 
-  3. AUTO-RECONNECT na "Press ⏎ to Reconnect" (i na Macu).
+  3. AUTO-RECONNECT on "Press ⏎ to Reconnect" (desktop too).
 
-  4. CLIPBOARD/SLIKE (i na Macu): copy fallback na HTTP-u, OSC 52 iz tmuxa,
-     paste/drop slike → upload → putanja u prompt.
+  4. CLIPBOARD / FILES (desktop too): copy fallback on HTTP, OSC 52 from tmux,
+     paste/drop a file → upload → its path typed into the prompt.
 -->
 <style>
   :root { --bd-bar: 46px; }
 
   body.bd-touch #terminal-container {
     height: calc(100% - var(--bd-bar) - env(safe-area-inset-bottom, 0px));
-    /* Prevlacenje obradjujemo sami — bez ovoga iOS krene svoj gest prije
-       nego stigne `preventDefault` i ekran poskoci. */
+    /* We handle swipes ourselves — without this iOS starts its own gesture before
+       `preventDefault` runs and the page jumps. */
     touch-action: none;
   }
 
   /*
-   Dok (traka + list iznad nje). `bottom: 0` na iOS-u zavrsi ISPOD
-   tastature jer se tastatura ne odbija od layout viewporta; skripta ga
-   podigne kroz translateY prema visualViewport-u.
+   Dock (key bar + the sheet above it). `bottom: 0` on iOS ends up BELOW the keyboard because the
+   keyboard is not subtracted from the layout viewport; the script lifts it with translateY
+   following visualViewport.
   */
   #bd-dock {
     position: fixed;
@@ -82,7 +80,7 @@
   #bd-keys button { flex: 1 1 0; min-width: 0; padding: 0; }
   #bd-keys button.bd-kb { flex: 0 0 40px; }
 
-  /* list: lezi PREKO terminala, ne mijenja mu visinu (svaki fit = resize do tmuxa) */
+  /* sheet: lies OVER the terminal, never changes its height (every fit = a resize all the way to tmux) */
   #bd-sheet {
     position: absolute;
     left: 0; right: 0; bottom: 100%;
@@ -110,7 +108,7 @@
     min-height: 88px;
     margin-bottom: 6px;
     padding: 8px 10px;
-    font: 16px/1.4 ui-monospace, "JetBrains Mono", Menlo, monospace; /* 16px: iOS inace zumira polje */
+    font: 16px/1.4 ui-monospace, "JetBrains Mono", Menlo, monospace; /* 16px: iOS zooms the field otherwise */
     background: #0a0d13;
     color: #e6edf3;
     border: 1px solid #2b3646;
@@ -125,15 +123,15 @@
 </style>
 
 <script>
-/* 1. ZAJEDNICKO — window.bd */
+/* 1. SHARED — window.bd */
 (function () {
   'use strict';
 
   function term() { return window.term; }
 
-  // Isti kanal kojim ide i prava tipka sa tastature (ttyd 1.7.4 / xterm 5.1
-  // nema javni `term.input()`). Imena nisu skracena minifikacijom.
-  function posaljiTekst(txt) {
+  // Same channel a real keystroke takes (ttyd 1.7.4 / xterm 5.1 has no public `term.input()`).
+  // These names survive minification.
+  function sendText(txt) {
     var t = term(); if (!t || !txt) return false;
     try {
       var cs = t._core && t._core.coreService;
@@ -142,55 +140,52 @@
     return false;
   }
 
-  // Paste: xtermov `paste()` sam sredi \n→\r i bracketed-paste ogradu kad ju je
-  // program upalio (Claude Code jeste) — tako visereda poruka stigne kao JEDAN
-  // paste, a ne kao niz Entera.
-  function zalijepi(txt) {
+  // Paste: xterm's `paste()` handles \n→\r and the bracketed-paste wrapper when the program has
+  // enabled it (Claude Code does) — a multi-line message arrives as ONE paste, not a series of Enters.
+  function pasteText(txt) {
     var t = term(); if (!t || !txt) return false;
     try { if (typeof t.paste === 'function') { t.paste(txt); return true; } } catch (e) {}
-    return posaljiTekst(txt.replace(/\r?\n/g, '\r'));
+    return sendText(txt.replace(/\r?\n/g, '\r'));
   }
 
-  /* mala obavijest (opciono klikabilna) */
-  var obavijest = null, obTajmer = null;
-  function javi(msg, lose, naKlik) {
-    if (!obavijest) {
-      obavijest = document.createElement('div');
-      obavijest.style.cssText = 'position:fixed;top:10px;right:10px;z-index:99;padding:8px 14px;border-radius:9px;font:12.5px ui-monospace,Menlo,monospace;background:#11161f;border:1px solid #2b3646;color:#cbd5e1;pointer-events:none;transition:opacity .3s;max-width:70vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
-      document.body.appendChild(obavijest);
+  /* small toast (optionally clickable) */
+  var toastEl = null, toastTimer = null;
+  function toast(msg, isError, onClick) {
+    if (!toastEl) {
+      toastEl = document.createElement('div');
+      toastEl.style.cssText = 'position:fixed;top:10px;right:10px;z-index:99;padding:8px 14px;border-radius:9px;font:12.5px ui-monospace,Menlo,monospace;background:#11161f;border:1px solid #2b3646;color:#cbd5e1;pointer-events:none;transition:opacity .3s;max-width:70vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+      document.body.appendChild(toastEl);
     }
-    obavijest.textContent = msg;
-    obavijest.style.borderColor = lose ? '#b91c1c' : (naKlik ? '#5eead4' : '#2b3646');
-    obavijest.style.opacity = '1';
-    obavijest.style.pointerEvents = naKlik ? 'auto' : 'none';
-    obavijest.style.cursor = naKlik ? 'pointer' : '';
-    obavijest.onclick = naKlik ? function (e) { e.preventDefault(); e.stopPropagation(); naKlik(); } : null;
-    clearTimeout(obTajmer);
-    obTajmer = setTimeout(function () { obavijest.style.opacity = '0'; obavijest.style.pointerEvents = 'none'; }, naKlik ? 10000 : 2500);
+    toastEl.textContent = msg;
+    toastEl.style.borderColor = isError ? '#b91c1c' : (onClick ? '#5eead4' : '#2b3646');
+    toastEl.style.opacity = '1';
+    toastEl.style.pointerEvents = onClick ? 'auto' : 'none';
+    toastEl.style.cursor = onClick ? 'pointer' : '';
+    toastEl.onclick = onClick ? function (e) { e.preventDefault(); e.stopPropagation(); onClick(); } : null;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toastEl.style.opacity = '0'; toastEl.style.pointerEvents = 'none'; }, onClick ? 10000 : 2500);
   }
 
-  /* upload slike na beast-dash (:8787, CORS) → putanja u prompt */
-  // preko HTTPS-a (tailscale serve) terminal i dashboard su isti origin -> relativna putanja, bez CORS-a
+  /* file upload to the dashboard (:8787, CORS) → path into the prompt */
+  // Over HTTPS (tailscale serve) the terminal and the dashboard share an origin -> relative path, no CORS.
   var API = location.protocol === 'https:' ? '/api/paste-image' : location.protocol + '//' + location.hostname + ':8787/api/paste-image';
 
   /*
-   Prije uploada slika se smanji na max 1568px po duzoj ivici, u browseru
-   (canvas, bez icega na beastu). Zasto bas 1568: Claude slike gleda u
-   28x28 patchevima — tokeni = (w/28)*(h/28), FORMAT NE IGRA NIKAKVU ULOGU
-   (png = webp = jpeg u tokenima). Retina screenshot (~3000px) bi na
-   novijim modelima kostao do 4784 tokena; na 1568px ispadne <=1568, a
-   tekst ostane citljiv jer je to otprilike logicka (1x) rezolucija Maca.
-   Ostaje PNG: lossy kompresija (jpeg/webp) unosi artefakte koji po
-   Anthropic docs smetaju bas citanju teksta sa screenshota.
-   PDF i GIF idu netaknuti.
+   Before upload, images are downscaled to at most 1568px on the long edge, in the browser
+   (canvas, nothing on the server). Why 1568: Claude reads images in 28×28 patches — tokens =
+   (w/28)*(h/28), and the FORMAT DOES NOT MATTER (png = webp = jpeg in tokens). A retina screenshot
+   (~3000px) would cost up to 4784 tokens on newer models; at 1568px it is <=1568 and text stays
+   readable because that is roughly a laptop's logical (1x) resolution.
+   PNG is kept: lossy compression (jpeg/webp) adds artefacts that, per Anthropic's docs, hurt
+   exactly the reading of text in screenshots. PDF and GIF pass through untouched.
   */
-  var MAX_IVICA = 1568;
-  function smanji(file, cb) {
+  var MAX_EDGE = 1568;
+  function downscale(file, cb) {
     if (!/^image\/(png|jpeg|webp)$/.test(file.type) || typeof createImageBitmap !== 'function') return cb(file, null);
     createImageBitmap(file).then(function (bm) {
-      var dug = Math.max(bm.width, bm.height);
-      if (dug <= MAX_IVICA) { bm.close(); return cb(file, null); }
-      var k = MAX_IVICA / dug;
+      var longEdge = Math.max(bm.width, bm.height);
+      if (longEdge <= MAX_EDGE) { bm.close(); return cb(file, null); }
+      var k = MAX_EDGE / longEdge;
       var c = document.createElement('canvas');
       c.width = Math.round(bm.width * k); c.height = Math.round(bm.height * k);
       c.getContext('2d').drawImage(bm, 0, 0, c.width, c.height);
@@ -200,46 +195,51 @@
     }).catch(function () { cb(file, null); });
   }
 
+  var MAX_MB = 100;   // same as the server (UPLOAD_MAX)
   function upload(orig) {
-    javi('⇧ uploading ' + (orig.name || 'image') + '…');
-    smanji(orig, function (file, info) {
+    if (orig.size > MAX_MB * 1e6) { toast((orig.name || 'file') + ' is ' + (orig.size / 1e6).toFixed(0) + ' MB — max ' + MAX_MB + ' MB', true); return; }
+    toast('⇧ uploading ' + (orig.name || 'image') + (orig.size > 2e6 ? ' (' + (orig.size / 1e6).toFixed(1) + ' MB)' : '') + '…');
+    downscale(orig, function (file, info) {
       var ext = ((file.type.split('/')[1] || 'png').replace('jpeg', 'jpg').replace('svg+xml', 'svg'));
-      fetch(API + '?ext=' + encodeURIComponent(ext), { method: 'POST', body: file })
+      // Keep the original name for everything except downscaled screenshots (those are paste.png anyway)
+      // — Claude then sees that it is a csv/json/log.
+      var name = (file === orig && orig.name && orig.name !== 'image.png') ? orig.name : '';
+      fetch(API + '?ext=' + encodeURIComponent(ext) + (name ? '&name=' + encodeURIComponent(name) : ''), { method: 'POST', body: file })
         .then(function (r) { return r.json(); })
         .then(function (j) {
           if (!j.path) throw new Error(j.error || 'no path');
-          posaljiTekst(j.path + ' ');
-          javi('✓ ' + j.path.split('/').pop() + (info ? ' (' + info + ')' : '') + ' — putanja ukucana u prompt');
+          sendText(j.path + ' ');
+          toast('✓ ' + j.path.split('/').pop() + (info ? ' (' + info + ')' : '') + ' — path typed into the prompt');
         })
-        .catch(function (e) { javi('upload failed: ' + e.message, true); });
+        .catch(function (e) { toast('upload failed: ' + e.message, true); });
     });
   }
 
-  function fajlovi(dt) {
+  function filesOf(dt) {
     var out = [];
     if (!dt) return out;
-    var uzmi = function (f) { if (f && (/^image\//.test(f.type) || f.type === 'application/pdf')) out.push(f); };
-    if (dt.files && dt.files.length) for (var i = 0; i < dt.files.length; i++) uzmi(dt.files[i]);
-    else if (dt.items) for (var j = 0; j < dt.items.length; j++) if (dt.items[j].kind === 'file') uzmi(dt.items[j].getAsFile());
+    var take = function (f) { if (f) out.push(f); };   // any file (csv, json, log, zip …), not only images
+    if (dt.files && dt.files.length) for (var i = 0; i < dt.files.length; i++) take(dt.files[i]);
+    else if (dt.items) for (var j = 0; j < dt.items.length; j++) if (dt.items[j].kind === 'file') take(dt.items[j].getAsFile());
     return out;
   }
 
-  window.bd = { term: term, posaljiTekst: posaljiTekst, zalijepi: zalijepi, javi: javi, upload: upload, fajlovi: fajlovi };
+  window.bd = { term: term, sendText: sendText, pasteText: pasteText, toast: toast, upload: upload, filesOf: filesOf };
 })();
 </script>
 
 <script>
-/* 2. TELEFON */
+/* 2. PHONE */
 (function () {
   'use strict';
 
   var bd = window.bd;
-  // Samo telefon/tablet. `?touch=1` pali sloj i na Macu, za probu.
+  // Phones/tablets only. `?touch=1` enables the layer on a desktop for testing.
   var coarse = (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) || /[?&]touch=1/.test(location.search);
   if (!coarse) return;
 
-  // ttyd-ova stranica nema viewport meta; u iframe-u je svejedno, ali u
-  // zasebnom tabu (↗) bi iOS bez ovoga renderovao 980px sirinu.
+  // ttyd's page has no viewport meta; irrelevant inside the iframe, but in a separate tab (↗)
+  // iOS would render a 980px-wide page without it.
   if (!document.querySelector('meta[name="viewport"]')) {
     var mv = document.createElement('meta'); mv.name = 'viewport';
     mv.content = 'width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content';
@@ -248,17 +248,16 @@
 
   function term() { return bd.term(); }
 
-  /* ---------- slanje tipki ---------- */
+  /* ---------- sending keys ---------- */
 
   /*
-   Dva puta, oba provjerena u ovom buildu:
-     1. `_core.coreService.triggerDataEvent` — kanal prave tipke (bd.posaljiTekst)
-     2. sinteticki `keydown` na xtermovu skrivenu textarea. xterm ovdje
-        nigdje ne gleda `isTrusted`, pa prolazi i ovo, a sekvencu tada
-        racuna sam.
-   Ako oba padnu, dugme bljesne crveno — bolje nego tiho nista.
+   Two paths, both verified against this ttyd build:
+     1. `_core.coreService.triggerDataEvent` — the real-keystroke channel (bd.sendText)
+     2. a synthetic `keydown` on xterm's hidden textarea. xterm never checks `isTrusted` there,
+        so this passes too, and xterm then computes the escape sequence itself.
+   If both fail the button flashes red — better than silently nothing.
   */
-  function tipkom(ke) {
+  function viaKeydown(ke) {
     if (!ke) return false;
     try {
       var ta = document.querySelector('.xterm-helper-textarea');
@@ -274,167 +273,164 @@
   }
 
   /*
-   Strelice/home/end imaju DVA oblika: `ESC [ A` i `ESC O A`. Koji vazi
-   zavisi od toga je li program upalio "application cursor keys" — a to
-   rade bas TUI-jevi kroz koje se ovdje krece.
+   Arrows/home/end have TWO forms: `ESC [ A` and `ESC O A`. Which one applies depends on whether the
+   program enabled "application cursor keys" — and that is exactly what the TUIs driven from here do.
   */
-  function kurzorSeq(slovo) {
+  function cursorSeq(letter) {
     var app = false;
     try { app = !!(term().modes && term().modes.applicationCursorKeysMode); } catch (e) {}
-    return '\x1b' + (app ? 'O' : '[') + slovo;
+    return '\x1b' + (app ? 'O' : '[') + letter;
   }
 
-  function posalji(k) {
-    var seq = k.kurzor ? kurzorSeq(k.kurzor) : k.seq;
-    return bd.posaljiTekst(seq) || tipkom(k.ke);
+  function send(k) {
+    var seq = k.cursor ? cursorSeq(k.cursor) : k.seq;
+    return bd.sendText(seq) || viaKeydown(k.ke);
   }
 
-  function bljesni(b) { b.style.borderColor = '#b91c1c'; setTimeout(function () { b.style.borderColor = ''; }, 400); }
-  function tipka(k) { return function (b) { if (!posalji(k)) bljesni(b); }; }
+  function flash(b) { b.style.borderColor = '#b91c1c'; setTimeout(function () { b.style.borderColor = ''; }, 400); }
+  function key(k) { return function (b) { if (!send(k)) flash(b); }; }
 
-  var TIPKE = [
+  var KEYS = [
     { t: 'esc', seq: '\x1b', ke: { key: 'Escape', keyCode: 27 } },
     { t: 'tab', seq: '\t',   ke: { key: 'Tab', keyCode: 9 } },
-    { t: '↑',   kurzor: 'A',  ke: { key: 'ArrowUp', keyCode: 38 } },
-    { t: '↓',   kurzor: 'B',  ke: { key: 'ArrowDown', keyCode: 40 } },
-    { t: '←',   kurzor: 'D',  ke: { key: 'ArrowLeft', keyCode: 37 } },
-    { t: '→',   kurzor: 'C',  ke: { key: 'ArrowRight', keyCode: 39 } },
-    { t: '^C',  seq: '\x03', ke: { key: 'c', code: 'KeyC', keyCode: 67, ctrlKey: true }, klasa: 'bd-warn' }
+    { t: '↑',   cursor: 'A',  ke: { key: 'ArrowUp', keyCode: 38 } },
+    { t: '↓',   cursor: 'B',  ke: { key: 'ArrowDown', keyCode: 40 } },
+    { t: '←',   cursor: 'D',  ke: { key: 'ArrowLeft', keyCode: 37 } },
+    { t: '→',   cursor: 'C',  ke: { key: 'ArrowRight', keyCode: 39 } },
+    { t: '^C',  seq: '\x03', ke: { key: 'c', code: 'KeyC', keyCode: 67, ctrlKey: true }, cls: 'bd-warn' }
   ];
 
-  var TIPKE2 = [
+  var KEYS2 = [
     { t: '↵ enter',    seq: '\r',      ke: { key: 'Enter', keyCode: 13 } },
-    { t: '⌥↵ newline', seq: '\x1b\r',  ke: { key: 'Enter', keyCode: 13, altKey: true } },   // Claude Code: novi red u promptu (meta+enter)
-    { t: '⇧tab',       seq: '\x1b[Z',  ke: { key: 'Tab', keyCode: 9, shiftKey: true } },    // Claude Code: mijenja mode (plan / auto-accept)
-    { t: 'home',       kurzor: 'H',    ke: { key: 'Home', keyCode: 36 } },
-    { t: 'end',        kurzor: 'F',    ke: { key: 'End', keyCode: 35 } },
+    { t: '⌥↵ newline', seq: '\x1b\r',  ke: { key: 'Enter', keyCode: 13, altKey: true } },   // Claude Code: new line in the prompt (meta+enter)
+    { t: '⇧tab',       seq: '\x1b[Z',  ke: { key: 'Tab', keyCode: 9, shiftKey: true } },    // Claude Code: cycles the mode (plan / auto-accept)
+    { t: 'home',       cursor: 'H',    ke: { key: 'Home', keyCode: 36 } },
+    { t: 'end',        cursor: 'F',    ke: { key: 'End', keyCode: 35 } },
     { t: 'pgup',       seq: '\x1b[5~', ke: { key: 'PageUp', keyCode: 33 } },
     { t: 'pgdn',       seq: '\x1b[6~', ke: { key: 'PageDown', keyCode: 34 } },
     { t: 'del',        seq: '\x1b[3~', ke: { key: 'Delete', keyCode: 46 } },
-    { t: '^D', seq: '\x04', ke: { key: 'd', code: 'KeyD', keyCode: 68, ctrlKey: true }, klasa: 'bd-warn' },
-    { t: '^Z', seq: '\x1a', ke: { key: 'z', code: 'KeyZ', keyCode: 90, ctrlKey: true }, klasa: 'bd-warn' },
+    { t: '^D', seq: '\x04', ke: { key: 'd', code: 'KeyD', keyCode: 68, ctrlKey: true }, cls: 'bd-warn' },
+    { t: '^Z', seq: '\x1a', ke: { key: 'z', code: 'KeyZ', keyCode: 90, ctrlKey: true }, cls: 'bd-warn' },
     { t: '^L', seq: '\x0c', ke: { key: 'l', code: 'KeyL', keyCode: 76, ctrlKey: true } },
     { t: '^U', seq: '\x15', ke: { key: 'u', code: 'KeyU', keyCode: 85, ctrlKey: true } }
   ];
 
-  // tmux: ^B [ = copy-mode (skrol/oznacavanje), q = izlaz; ^B d = detach ovog klijenta
+  // tmux: ^B [ = copy-mode (scroll/select), q = leave it; ^B d = detach this client
   var TMUX = [
     { t: '^B prefix',    seq: '\x02' },
     { t: '[ copy-mode',  seq: '\x02[' },
     { t: 'q exit copy',  seq: 'q' }
   ];
 
-  /* ---------- dugmad ---------- */
+  /* ---------- buttons ---------- */
 
   /*
-   `dugme`: hvata se `touchstart`, ne `click`.
+   `button`: listens to `touchstart`, not `click`.
 
-   Dodir na dugme inace oduzme fokus terminalu, tastatura se sklopi i
-   sljedeca tipka nema gdje. Na iOS-u je `touchstart` + `preventDefault`
-   jedino sto to pouzdano zaustavlja. `pointerdown` stoji uz njega zbog
-   misa i olovke; za prst se preskace (pointerType) da Esc ne ode dvaput.
+   A tap on a button otherwise steals focus from the terminal, the keyboard collapses and the next
+   key has nowhere to go. On iOS `touchstart` + `preventDefault` is the only reliable way to stop
+   that. `pointerdown` sits next to it for mouse and pen; for a finger it is skipped (pointerType)
+   so Esc is not sent twice.
 
-   `dugmeGest`: `touchend`/`click` — za radnje koje SMIJU (ili moraju)
-   pomjeriti fokus ili traze "pravi" gest: focus() na polje za kucanje,
-   otvaranje birača fajlova, citanje clipboarda.
+   `gestureButton`: `touchend`/`click` — for actions that MAY (or must) move focus or need a
+   "real" user gesture: focus() on the compose box, opening the file picker, reading the clipboard.
   */
-  function dugme(nat, radnja, klasa, title) {
+  function button(label, action, cls, title) {
     var b = document.createElement('button');
-    b.type = 'button'; b.textContent = nat;
-    if (klasa) b.className = klasa;
+    b.type = 'button'; b.textContent = label;
+    if (cls) b.className = cls;
     if (title) b.title = title;
-    function okini(e) { e.preventDefault(); e.stopPropagation(); radnja(b, e); }
-    b.addEventListener('touchstart', okini, { passive: false });
-    b.addEventListener('pointerdown', function (e) { if (e.pointerType === 'touch') return; okini(e); });
+    function fire(e) { e.preventDefault(); e.stopPropagation(); action(b, e); }
+    b.addEventListener('touchstart', fire, { passive: false });
+    b.addEventListener('pointerdown', function (e) { if (e.pointerType === 'touch') return; fire(e); });
     b.addEventListener('click', function (e) { e.preventDefault(); });
     return b;
   }
-  function dugmeGest(nat, radnja, klasa, title) {
+  function gestureButton(label, action, cls, title) {
     var b = document.createElement('button');
-    b.type = 'button'; b.textContent = nat;
-    if (klasa) b.className = klasa;
+    b.type = 'button'; b.textContent = label;
+    if (cls) b.className = cls;
     if (title) b.title = title;
-    var zadnji = 0;
-    function okini(e) {
+    var last = 0;
+    function fire(e) {
       e.preventDefault(); e.stopPropagation();
-      var sad = Date.now(); if (sad - zadnji < 350) return; zadnji = sad;
-      radnja(b, e);
+      var now = Date.now(); if (now - last < 350) return; last = now;
+      action(b, e);
     }
-    b.addEventListener('touchend', okini, { passive: false });
-    b.addEventListener('click', okini);
+    b.addEventListener('touchend', fire, { passive: false });
+    b.addEventListener('click', fire);
     return b;
   }
 
-  /* ---------- dok: list + traka ---------- */
+  /* ---------- dock: sheet + key bar ---------- */
 
   var dock = document.createElement('div'); dock.id = 'bd-dock';
   var sheet = document.createElement('div'); sheet.id = 'bd-sheet'; sheet.hidden = true;
-  var traka = document.createElement('div'); traka.id = 'bd-keys';
-  dock.appendChild(sheet); dock.appendChild(traka);
+  var bar = document.createElement('div'); bar.id = 'bd-keys';
+  dock.appendChild(sheet); dock.appendChild(bar);
 
-  function el(tag, klasa, txt) { var e = document.createElement(tag); if (klasa) e.className = klasa; if (txt != null) e.textContent = txt; return e; }
-  function sekcija(naslov) { var s = el('div', 'bd-sec'); if (naslov) s.appendChild(el('div', 'bd-lbl', naslov)); return s; }
+  function el(tag, cls, txt) { var e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; }
+  function section(title) { var s = el('div', 'bd-sec'); if (title) s.appendChild(el('div', 'bd-lbl', title)); return s; }
 
   var paneKeys = el('div'), paneCompose = el('div'); paneCompose.id = 'bd-compose';
   sheet.appendChild(paneKeys); sheet.appendChild(paneCompose);
 
-  var otvoren = null;   // null | 'keys' | 'compose'
+  var open = null;   // null | 'keys' | 'compose'
   var btnMenu, btnPaste;
-  function otvori(koji) {
-    otvoren = koji;
-    sheet.hidden = !koji;
-    paneKeys.hidden = koji !== 'keys';
-    paneCompose.hidden = koji !== 'compose';
-    if (btnMenu) btnMenu.classList.toggle('bd-on', koji === 'keys');
-    if (btnPaste) btnPaste.classList.toggle('bd-on', koji === 'compose');
+  function openPane(which) {
+    open = which;
+    sheet.hidden = !which;
+    paneKeys.hidden = which !== 'keys';
+    paneCompose.hidden = which !== 'compose';
+    if (btnMenu) btnMenu.classList.toggle('bd-on', which === 'keys');
+    if (btnPaste) btnPaste.classList.toggle('bd-on', which === 'compose');
   }
-  function zatvori() { otvori(null); }
-  function fokusTerm() { try { term().focus(); } catch (e) {} }
+  function closePane() { openPane(null); }
+  function focusTerm() { try { term().focus(); } catch (e) {} }
 
-  /* ---------- Fit: kad se tmux ne prilagodi tastaturi ---------- */
+  /* ---------- Fit: when tmux does not follow the keyboard ---------- */
 
   /*
-   Redoslijed:
-     1. roditelju (dashboard) javi da ponovo izmjeri visualViewport i smanji
-        panel — iframe iz svog visualViewport-a NE VIDI tastaturu;
-     2. sam izmjeri visinu i premjeri;
-     3. "prodrma" tmux: resize na rows-1 pa fit nazad. Kad je velicina ista
-        kao prije, xterm ne okida onResize i ttyd nista ne salje — a bas to
-        je slucaj kad se tmux "zaglavi" na tudjoj velicini (drugi klijent).
-        Dva resize-a = dva SIGWINCH-a, tmux (window-size latest) uzme ovaj
-        klijent kao mjerodavan i precrta.
+   Order:
+     1. tell the parent (dashboard) to re-measure its visualViewport and shrink the panel — the
+        iframe cannot see the keyboard from its own visualViewport;
+     2. measure our own height and refit;
+     3. "shake" tmux: resize to rows-1, then fit back. When the size is the same as before, xterm
+        does not fire onResize and ttyd sends nothing — and that is exactly the case when tmux is
+        "stuck" on another client's size. Two resizes = two SIGWINCHs; tmux (window-size latest)
+        takes this client as authoritative and redraws.
   */
-  function fitJako(b) {
+  function fitHard(b) {
     try { if (window.parent !== window) window.parent.postMessage({ bd: 'fit' }, '*'); } catch (e) {}
-    namjesti();
+    layout();
     var t = term();
-    if (!t) { if (b) bljesni(b); return; }
+    if (!t) { if (b) flash(b); return; }
     try { t.resize(Math.max(2, t.cols), Math.max(2, t.rows - 1)); } catch (e) {}
     setTimeout(function () {
-      namjesti();
+      layout();
       try { if (t.fit) t.fit(); else window.dispatchEvent(new Event('resize')); } catch (e) {}
-      setTimeout(function () { bd.javi('⤢ fit ' + t.cols + '×' + t.rows); }, 300);   // tek kad se ttyd/tmux slegnu
+      setTimeout(function () { bd.toast('⤢ fit ' + t.cols + '×' + t.rows); }, 300);   // once ttyd/tmux have settled
     }, 90);
   }
 
-  /* ---------- slika sa telefona ---------- */
+  /* ---------- file from the phone ---------- */
 
   var inpFile = document.createElement('input');
-  inpFile.type = 'file'; inpFile.accept = 'image/*,application/pdf,.pdf'; inpFile.multiple = true;
+  inpFile.type = 'file'; inpFile.multiple = true;   // any file
   inpFile.style.display = 'none';
   inpFile.addEventListener('change', function () {
-    var fs = bd.fajlovi({ files: inpFile.files });
-    if (!fs.length) { bd.javi('samo slike i PDF', true); return; }
+    var fs = bd.filesOf({ files: inpFile.files });
+    if (!fs.length) return;
     fs.forEach(bd.upload);
     inpFile.value = '';
-    zatvori();
+    closePane();
   });
   dock.appendChild(inpFile);
 
   /* ---------- paste / compose ---------- */
 
   var ta = document.createElement('textarea');
-  ta.placeholder = 'Drži prst ovdje → Paste.  Ili kucaj (autocorrect radi).';
+  ta.placeholder = 'Long-press here → Paste.  Or type (autocorrect works).';
   ta.setAttribute('autocapitalize', 'off'); ta.setAttribute('autocomplete', 'off'); ta.setAttribute('spellcheck', 'false');
   ta.rows = 3;
 
@@ -443,104 +439,103 @@
   try { autoSend.checked = localStorage.getItem(AUTO_KEY) !== '0'; } catch (e) { autoSend.checked = true; }
   autoSend.addEventListener('change', function () { try { localStorage.setItem(AUTO_KEY, autoSend.checked ? '1' : '0'); } catch (e) {} });
 
-  function posaljiCompose(txt, enter) {
+  function sendCompose(txt, enter) {
     txt = txt == null ? ta.value : txt;
-    if (!txt) { bljesni(btnPaste); return; }
-    if (!bd.zalijepi(txt)) { bd.javi('terminal nije spreman', true); return; }
-    if (enter) setTimeout(function () { bd.posaljiTekst('\r'); }, 150);
+    if (!txt) { flash(btnPaste); return; }
+    if (!bd.pasteText(txt)) { bd.toast('terminal not ready', true); return; }
+    if (enter) setTimeout(function () { bd.sendText('\r'); }, 150);
     ta.value = '';
-    zatvori();
-    bd.javi('⎘ pasted ' + txt.length + ' chars' + (enter ? ' + ↵' : ''));
-    fokusTerm();
+    closePane();
+    bd.toast('⎘ pasted ' + txt.length + ' chars' + (enter ? ' + ↵' : ''));
+    focusTerm();
   }
 
-  // Paste u polje: sa slikom u clipboardu globalni handler (blok 4) uploaduje;
-  // sa tekstom i upaljenim "send on paste" tekst odmah ode u terminal — to je
-  // ono "dugme koje zalijepi clipboard" na HTTP-u: ⎘ → drzi → Paste → gotovo.
+  // Paste into the box: with an image in the clipboard the global handler (block 4) uploads it;
+  // with text and "send on paste" on, the text goes straight to the terminal — that is the
+  // "button that pastes the clipboard" on HTTP: ⎘ → long-press → Paste → done.
   ta.addEventListener('paste', function (e) {
     var dt = e.clipboardData; var txt = dt && dt.getData ? dt.getData('text/plain') : '';
     if (!txt) return;
-    if (autoSend.checked && !ta.value) { e.preventDefault(); posaljiCompose(txt, false); }
+    if (autoSend.checked && !ta.value) { e.preventDefault(); sendCompose(txt, false); }
   });
 
-  function otvoriCompose() {
-    otvori('compose');
+  function openCompose() {
+    openPane('compose');
     ta.focus();
     try { ta.setSelectionRange(ta.value.length, ta.value.length); } catch (e) {}
   }
 
   /*
-   ⎘ na traci. Na HTTPS-u (ili localhost) `navigator.clipboard` postoji:
-   slika → upload, tekst → paste, bez ikakvog polja (iOS pita "Paste?"
-   jednim tapom). Na HTTP-u tailneta ga NEMA — otvori se polje.
+   ⎘ on the bar. On HTTPS (or localhost) `navigator.clipboard` exists: image → upload, text →
+   paste, no box at all (iOS asks "Paste?" with one tap). On the tailnet's plain HTTP it does
+   NOT exist — the compose box opens instead.
   */
-  function zalijepiIzClipboarda() {
+  function pasteFromClipboard() {
     var nc = navigator.clipboard;
-    if (!nc || !nc.readText) { otvoriCompose(); return; }
+    if (!nc || !nc.readText) { openCompose(); return; }
     var p = nc.read ? nc.read().then(function (items) {
-      var slika = null, tekstTip = false;
+      var image = null, hasText = false;
       (items || []).forEach(function (it) {
-        (it.types || []).forEach(function (ty) { if (ty === 'text/plain') tekstTip = true; else if (/^image\//.test(ty) && !slika) slika = { it: it, ty: ty }; });
+        (it.types || []).forEach(function (ty) { if (ty === 'text/plain') hasText = true; else if (/^image\//.test(ty) && !image) image = { it: it, ty: ty }; });
       });
-      if (!tekstTip && slika) return slika.it.getType(slika.ty).then(function (blob) { bd.upload(new File([blob], 'clip.' + slika.ty.split('/')[1], { type: slika.ty })); return true; });
+      if (!hasText && image) return image.it.getType(image.ty).then(function (blob) { bd.upload(new File([blob], 'clip.' + image.ty.split('/')[1], { type: image.ty })); return true; });
       return nc.readText();
     }) : nc.readText();
     p.then(function (txt) {
       if (txt === true) return;
-      if (txt) { bd.zalijepi(txt); bd.javi('⎘ pasted ' + txt.length + ' chars'); fokusTerm(); }
-      else otvoriCompose();
-    }).catch(function () { otvoriCompose(); });
+      if (txt) { bd.pasteText(txt); bd.toast('⎘ pasted ' + txt.length + ' chars'); focusTerm(); }
+      else openCompose();
+    }).catch(function () { openCompose(); });
   }
 
-  /* ---------- gradnja lista ---------- */
+  /* ---------- building the sheet ---------- */
 
-  var sAkcije = sekcija(null), rAkcije = el('div', 'bd-row');
-  rAkcije.appendChild(dugme('⤢ fit', fitJako, 'bd-acc', 'premjeri terminal (kad se tmux ne prilagodi tastaturi)'));
-  rAkcije.appendChild(dugmeGest('🖼 image', function () { inpFile.click(); }, null, 'slika/screenshot/PDF sa telefona → upload → putanja u prompt'));
-  rAkcije.appendChild(dugmeGest('⎘ paste', zalijepiIzClipboarda, null, 'zalijepi clipboard'));
-  rAkcije.appendChild(dugme('✕', zatvori, 'bd-x'));
-  sAkcije.appendChild(rAkcije); paneKeys.appendChild(sAkcije);
+  var sActions = section(null), rActions = el('div', 'bd-row');
+  rActions.appendChild(button('⤢ fit', fitHard, 'bd-acc', 'refit the terminal (when tmux does not follow the keyboard)'));
+  rActions.appendChild(gestureButton('📎 file', function () { inpFile.click(); }, null, 'image/PDF/CSV/any file (up to 100 MB) → upload → path into the prompt'));
+  rActions.appendChild(gestureButton('⎘ paste', pasteFromClipboard, null, 'paste the clipboard'));
+  rActions.appendChild(button('✕', closePane, 'bd-x'));
+  sActions.appendChild(rActions); paneKeys.appendChild(sActions);
 
-  var sTipke = sekcija('keys'), rTipke = el('div', 'bd-row');
-  TIPKE2.forEach(function (k) { rTipke.appendChild(dugme(k.t, tipka(k), k.klasa)); });
-  sTipke.appendChild(rTipke); paneKeys.appendChild(sTipke);
+  var sKeys = section('keys'), rKeys = el('div', 'bd-row');
+  KEYS2.forEach(function (k) { rKeys.appendChild(button(k.t, key(k), k.cls)); });
+  sKeys.appendChild(rKeys); paneKeys.appendChild(sKeys);
 
-  var sTmux = sekcija('tmux'), rTmux = el('div', 'bd-row');
-  TMUX.forEach(function (k) { rTmux.appendChild(dugme(k.t, tipka(k))); });
+  var sTmux = section('tmux'), rTmux = el('div', 'bd-row');
+  TMUX.forEach(function (k) { rTmux.appendChild(button(k.t, key(k))); });
   sTmux.appendChild(rTmux); paneKeys.appendChild(sTmux);
 
-  var sCtrl = sekcija('ctrl +'), gCtrl = el('div', 'bd-grid');
+  var sCtrl = section('ctrl +'), gCtrl = el('div', 'bd-grid');
   'abcdefghijklmnopqrstuvwxyz'.split('').forEach(function (c) {
     var code = c.charCodeAt(0) - 96;
-    gCtrl.appendChild(dugme('^' + c.toUpperCase(), tipka({ seq: String.fromCharCode(code), ke: { key: c, code: 'Key' + c.toUpperCase(), keyCode: c.charCodeAt(0) - 32, ctrlKey: true } }), c === 'c' || c === 'd' || c === 'z' ? 'bd-warn' : null));
+    gCtrl.appendChild(button('^' + c.toUpperCase(), key({ seq: String.fromCharCode(code), ke: { key: c, code: 'Key' + c.toUpperCase(), keyCode: c.charCodeAt(0) - 32, ctrlKey: true } }), c === 'c' || c === 'd' || c === 'z' ? 'bd-warn' : null));
   });
   sCtrl.appendChild(gCtrl); paneKeys.appendChild(sCtrl);
 
   // compose
-  var hint = el('div', 'bd-hint', 'Tailnet je HTTP pa browser ne da direktan pristup clipboardu. Drži prst u polju → Paste; tekst ide u terminal kao jedan paste.');
-  if (navigator.clipboard && navigator.clipboard.readText) hint.textContent = 'Clipboard nije dao tekst. Drži prst u polju → Paste, ili kucaj.';
+  var hint = el('div', 'bd-hint', 'This is plain HTTP, so the browser refuses direct clipboard access. Long-press the box → Paste; the text goes to the terminal as one paste.');
+  if (navigator.clipboard && navigator.clipboard.readText) hint.textContent = 'The clipboard had no text. Long-press the box → Paste, or type.';
   paneCompose.appendChild(hint);
   paneCompose.appendChild(ta);
   var rC = el('div', 'bd-row');
-  rC.appendChild(dugmeGest('send', function () { posaljiCompose(null, false); }, 'bd-acc', 'zalijepi u terminal'));
-  rC.appendChild(dugmeGest('send + ↵', function () { posaljiCompose(null, true); }, 'bd-acc', 'zalijepi i pošalji Enter'));
-  rC.appendChild(dugmeGest('🖼', function () { inpFile.click(); }, 'bd-x', 'slika'));
+  rC.appendChild(gestureButton('send', function () { sendCompose(null, false); }, 'bd-acc', 'paste into the terminal'));
+  rC.appendChild(gestureButton('send + ↵', function () { sendCompose(null, true); }, 'bd-acc', 'paste and press Enter'));
+  rC.appendChild(gestureButton('🖼', function () { inpFile.click(); }, 'bd-x', 'file'));
   var opt = el('label', 'bd-opt'); opt.appendChild(autoSend); opt.appendChild(document.createTextNode('send on paste'));
   rC.appendChild(opt);
-  rC.appendChild(dugmeGest('✕', function () { ta.blur(); zatvori(); fokusTerm(); }, 'bd-x'));
+  rC.appendChild(gestureButton('✕', function () { ta.blur(); closePane(); focusTerm(); }, 'bd-x'));
   paneCompose.appendChild(rC);
-  otvori(null);
+  openPane(null);
 
-  /* ---------- traka ---------- */
+  /* ---------- key bar ---------- */
 
-  TIPKE.forEach(function (k) { traka.appendChild(dugme(k.t, tipka(k), k.klasa)); });
-  btnPaste = dugmeGest('⎘', function () { if (otvoren === 'compose') { ta.blur(); zatvori(); fokusTerm(); } else zalijepiIzClipboarda(); }, 'bd-acc', 'paste');
-  traka.appendChild(btnPaste);
-  btnMenu = dugme('⋯', function () { otvori(otvoren === 'keys' ? null : 'keys'); }, null, 'više tipki, fit, slika');
-  traka.appendChild(btnMenu);
-  // Poziv i sklapanje tastature — na telefonu se do nje inace dolazi
-  // pogadjanjem gdje tacno treba tapnuti.
-  traka.appendChild(dugme('⌨', function () {
+  KEYS.forEach(function (k) { bar.appendChild(button(k.t, key(k), k.cls)); });
+  btnPaste = gestureButton('⎘', function () { if (open === 'compose') { ta.blur(); closePane(); focusTerm(); } else pasteFromClipboard(); }, 'bd-acc', 'paste');
+  bar.appendChild(btnPaste);
+  btnMenu = button('⋯', function () { openPane(open === 'keys' ? null : 'keys'); }, null, 'more keys, fit, file');
+  bar.appendChild(btnMenu);
+  // Summon / dismiss the keyboard — on a phone you otherwise have to guess where exactly to tap.
+  bar.appendChild(button('⌨', function () {
     var x = document.querySelector('.xterm-helper-textarea');
     if (!x) return;
     if (document.activeElement === x) { x.blur(); } else { x.focus(); }
@@ -549,34 +544,31 @@
   document.body.appendChild(dock);
   document.body.classList.add('bd-touch');
 
-  /* ---------- tastatura: dok i terminal ---------- */
+  /* ---------- keyboard: dock and terminal ---------- */
 
   /*
-   iOS pri otvaranju tastature NE mijenja layout viewport, nego samo
-   vizuelni:
-     dok      `position: fixed; bottom: 0` racuna se prema layout viewportu,
-              pa zavrsi ispod tastature.
-     terminal ostaje visok kao i prije, pa red u koji se kuca padne iza
-              tastature.
-   Zato se iz `visualViewport` vodi OBOJE: dok se digne za onoliko koliko
-   je pojedeno, a terminalu se visina postavi na ono sto se stvarno vidi,
-   pa se premjeri. U iframe-u je visualViewport == prozor iframe-a (tastaturu
-   ne vidi) — tamo prozor smanjuje dashboard, a ovo onda samo isprati resize.
+   When the iOS keyboard opens, the layout viewport does NOT change, only the visual one:
+     dock      `position: fixed; bottom: 0` is computed against the layout viewport, so it ends
+               up under the keyboard.
+     terminal  keeps its height, so the line being typed falls behind the keyboard.
+   So BOTH are driven from `visualViewport`: the dock is lifted by the amount eaten, and the
+   terminal's height is set to what is actually visible, then refit. Inside an iframe the
+   visualViewport == the iframe's window (it cannot see the keyboard) — there the parent shrinks
+   the dashboard and this only follows the resize.
 
-   Ne ceka se dogadjaj: poslije fokusa se kratko vrti po kadrovima dok
-   tastatura klizi.
+   No single event is waited for: after focus we poll per frame for a short while as the
+   keyboard slides in.
   */
   var vv = window.visualViewport;
 
-  function visinaTrake() { return traka.offsetHeight || 46; }
+  function barHeight() { return bar.offsetHeight || 46; }
 
-  // Premjeravanje je skupo — svaki `fit` salje novu velicinu kroz ttyd sve
-  // do tmuxa. Tokom animacije visina se mijenja svaki kadar, pa se fit
-  // pusti tek kad se smiri.
-  var fitTajmer = null;
-  function zakaziFit() {
-    clearTimeout(fitTajmer);
-    fitTajmer = setTimeout(function () {
+  // Refitting is expensive — every `fit` sends a new size through ttyd all the way to tmux.
+  // During the animation the height changes every frame, so the fit runs once it settles.
+  var fitTimer = null;
+  function scheduleFit() {
+    clearTimeout(fitTimer);
+    fitTimer = setTimeout(function () {
       try {
         var t = term();
         if (t && t.fit) t.fit(); else window.dispatchEvent(new Event('resize'));
@@ -584,119 +576,119 @@
     }, 120);
   }
 
-  function namjesti() {
-    var visVid = vv ? vv.height : window.innerHeight;
-    var odmak  = vv ? vv.offsetTop : 0;
-    if (!(visVid > 0)) return;
+  function layout() {
+    var visible = vv ? vv.height : window.innerHeight;
+    var offset  = vv ? vv.offsetTop : 0;
+    if (!(visible > 0)) return;
 
-    var pojedeno = Math.max(0, Math.round(window.innerHeight - visVid - odmak));
-    dock.style.transform = 'translateY(' + (-pojedeno) + 'px)';
+    var eaten = Math.max(0, Math.round(window.innerHeight - visible - offset));
+    dock.style.transform = 'translateY(' + (-eaten) + 'px)';
 
-    var kont = document.getElementById('terminal-container');
-    if (!kont) return;
-    var zeljena = Math.max(60, Math.round(visVid - visinaTrake()));
-    if (kont.style.height !== zeljena + 'px') {
-      kont.style.height = zeljena + 'px';
-      zakaziFit();
+    var cont = document.getElementById('terminal-container');
+    if (!cont) return;
+    var wanted = Math.max(60, Math.round(visible - barHeight()));
+    if (cont.style.height !== wanted + 'px') {
+      cont.style.height = wanted + 'px';
+      scheduleFit();
     }
   }
 
-  function prati(ms) {
-    var kraj = Date.now() + ms;
-    (function tik() {
-      namjesti();
-      if (Date.now() < kraj) requestAnimationFrame(tik);
+  function follow(ms) {
+    var end = Date.now() + ms;
+    (function tick() {
+      layout();
+      if (Date.now() < end) requestAnimationFrame(tick);
     })();
   }
 
   if (vv) {
-    vv.addEventListener('resize', namjesti);
-    vv.addEventListener('scroll', namjesti);
+    vv.addEventListener('resize', layout);
+    vv.addEventListener('scroll', layout);
   }
-  window.addEventListener('resize', function () { prati(250); });
-  document.addEventListener('focusin', function () { prati(700); }, true);
-  document.addEventListener('focusout', function () { prati(700); }, true);
-  window.addEventListener('orientationchange', function () { prati(900); });
-  namjesti();
+  window.addEventListener('resize', function () { follow(250); });
+  document.addEventListener('focusin', function () { follow(700); }, true);
+  document.addEventListener('focusout', function () { follow(700); }, true);
+  window.addEventListener('orientationchange', function () { follow(900); });
+  layout();
 
-  /* ---------- skrol prstom ---------- */
+  /* ---------- finger scroll ---------- */
 
   /*
-   Prevlacenje se pretvara u `wheel`, a ne u `term.scrollLines()`.
+   A swipe becomes a `wheel` event, not `term.scrollLines()`.
 
-   `scrollLines` pomjera xtermov vlastiti bafer, kojeg pod tmuxom nema —
-   tmux je na alternativnom ekranu. `wheel` xterm prevede u escape-kodove
-   misa, a tmux (`mouse on`) na to udje u copy-mode i skrola stvarno.
-   Koordinate se salju stvarne: tmux po njima bira OKNO kojem tocak pripada.
+   `scrollLines` moves xterm's own buffer, which does not exist under tmux — tmux is on the
+   alternate screen. `wheel` is translated by xterm into mouse escape codes, and tmux
+   (`mouse on`) enters copy-mode and really scrolls. Real coordinates are sent: tmux uses
+   them to pick the PANE the wheel belongs to.
   */
-  var PRAG = 6;          // ispod ovoga je tap, ne prevlacenje
-  var vuce = false, zadnjiY = 0, zbir = 0, presao = false, x = 0, y = 0;
+  var THRESHOLD = 6;          // below this it is a tap, not a swipe
+  var dragging = false, lastY = 0, acc = 0, passed = false, x = 0, y = 0;
 
-  function visinaReda() {
+  function rowHeight() {
     try {
-      var ekran = document.querySelector('.xterm-screen');
+      var screen = document.querySelector('.xterm-screen');
       var r = term().rows;
-      if (ekran && r) return Math.max(8, ekran.clientHeight / r);
+      if (screen && r) return Math.max(8, screen.clientHeight / r);
     } catch (e) {}
     return 18;
   }
 
-  function tocak(redova, cx, cy) {
-    var cilj = document.querySelector('.xterm-screen')
+  function wheel(rows, cx, cy) {
+    var target = document.querySelector('.xterm-screen')
             || document.querySelector('.xterm-viewport')
             || document.querySelector('.xterm');
-    if (!cilj) return;
-    cilj.dispatchEvent(new WheelEvent('wheel', {
-      deltaY: redova * visinaReda(), deltaMode: 0,
+    if (!target) return;
+    target.dispatchEvent(new WheelEvent('wheel', {
+      deltaY: rows * rowHeight(), deltaMode: 0,
       clientX: cx, clientY: cy,
       bubbles: true, cancelable: true, view: window
     }));
   }
 
-  // Slusa se `document`: ttyd pravi terminal tek kad se WebSocket spoji.
-  function naDoku(e) { return !!(e.target && e.target.closest && e.target.closest('#bd-dock')); }
+  // Listening on `document`: ttyd creates the terminal only once the WebSocket connects.
+  function onDock(e) { return !!(e.target && e.target.closest && e.target.closest('#bd-dock')); }
 
   document.addEventListener('touchstart', function (e) {
-    if (naDoku(e)) return;
-    if (otvoren === 'keys') zatvori();     // tap po terminalu sklapa list s tipkama (compose ostaje)
+    if (onDock(e)) return;
+    if (open === 'keys') closePane();     // a tap on the terminal folds the key sheet (compose stays)
     if (e.touches.length !== 1) return;
-    vuce = true; presao = false; zbir = 0;
-    zadnjiY = e.touches[0].clientY;
-    x = e.touches[0].clientX; y = zadnjiY;
+    dragging = true; passed = false; acc = 0;
+    lastY = e.touches[0].clientY;
+    x = e.touches[0].clientX; y = lastY;
   }, { passive: true });
 
   document.addEventListener('touchmove', function (e) {
-    if (!vuce || e.touches.length !== 1) return;
+    if (!dragging || e.touches.length !== 1) return;
     var t = e.touches[0];
-    var d = zadnjiY - t.clientY;   // prst gore = sadrzaj ide gore
-    zadnjiY = t.clientY;
+    var d = lastY - t.clientY;   // finger up = content moves up
+    lastY = t.clientY;
     x = t.clientX; y = t.clientY;
-    zbir += d;
+    acc += d;
 
-    if (!presao && Math.abs(zbir) < PRAG) return;   // tap prolazi netaknut
-    presao = true;
-    e.preventDefault();                              // stranica se ne mice
+    if (!passed && Math.abs(acc) < THRESHOLD) return;   // a tap passes through untouched
+    passed = true;
+    e.preventDefault();                                 // the page itself must not move
 
-    var red = visinaReda(), redova = 0;
-    while (zbir >= red) { redova++; zbir -= red; }
-    while (zbir <= -red) { redova--; zbir += red; }
-    if (redova) tocak(redova, x, y);
+    var row = rowHeight(), rows = 0;
+    while (acc >= row) { rows++; acc -= row; }
+    while (acc <= -row) { rows--; acc += row; }
+    if (rows) wheel(rows, x, y);
   }, { passive: false });
 
-  document.addEventListener('touchend', function () { vuce = false; }, { passive: true });
-  document.addEventListener('touchcancel', function () { vuce = false; }, { passive: true });
+  document.addEventListener('touchend', function () { dragging = false; }, { passive: true });
+  document.addEventListener('touchcancel', function () { dragging = false; }, { passive: true });
 
-  /* ---------- terminal je nizi za traku ---------- */
+  /* ---------- the terminal is shorter by the bar ---------- */
 
-  // Ceka se `window.term`: ttyd ga postavi tek kad otvori terminal.
-  var pokusaja = 0;
-  var cekaj = setInterval(function () {
+  // Wait for `window.term`: ttyd sets it only once the terminal is open.
+  var attempts = 0;
+  var waiting = setInterval(function () {
     if (term() && document.getElementById('terminal-container')) {
-      clearInterval(cekaj);
-      namjesti();
-      zakaziFit();
-    } else if (++pokusaja > 200) {          // ~20s pa dizemo ruke
-      clearInterval(cekaj);
+      clearInterval(waiting);
+      layout();
+      scheduleFit();
+    } else if (++attempts > 200) {          // ~20 s, then give up
+      clearInterval(waiting);
     }
   }, 100);
 })();
@@ -704,37 +696,35 @@
 
 <script>
 /*
- 3. Auto-reconnect: ttyd na "cisto" zatvoren WebSocket (code 1000, npr. kad
- telefon uspava karticu ili iframe u dashboardu odstoji) ispise
- "Press ⏎ to Reconnect" i ceka Enter. Njegov handler tada samo ponovo
- otvori konekciju — nista se ne salje procesu — pa taj Enter mozemo
- stisnuti i sami. Vazi i na Macu.
+ 3. Auto-reconnect: on a "cleanly" closed WebSocket (code 1000, e.g. the phone suspends the tab
+ or the iframe sits idle in the dashboard) ttyd prints "Press ⏎ to Reconnect" and waits for
+ Enter. Its handler only reopens the connection — nothing is sent to the process — so we can
+ press that Enter ourselves. Applies on desktop too.
 
- Oprez: Enter se salje sintetickim keydown na xtermovu textarea, a to bi
- u ZIVOJ sesiji otislo shellu/Claudeu kao pravi Enter. Zato se u trenutku
- slanja ponovo provjeri da overlay s tacno tom porukom jos stoji u DOM-u
- (cim krene reconnect, ttyd tekst promijeni u "Reconnecting..."), i
- poruka se trazi po sadrzaju + inline stilu overlay cvora, ne po tekstu
- terminala.
+ Care: the Enter goes as a synthetic keydown to xterm's textarea, which in a LIVE session would
+ reach the shell/Claude as a real Enter. So, right before sending, we re-check that the overlay
+ with exactly that message is still in the DOM (as soon as the reconnect starts ttyd changes the
+ text to "Reconnecting..."), and the message is looked up by the overlay node's content + inline
+ style, not by terminal text.
 */
 (function () {
   'use strict';
-  var PORUKA = 'Press ⏎ to Reconnect';
-  var pokusaji = 0;
+  var MESSAGE = 'Press ⏎ to Reconnect';
+  var attempts = 0;
 
   function overlay() {
     var el = document.querySelector('.xterm');
     if (!el) return null;
     for (var i = 0; i < el.children.length; i++) {
       var d = el.children[i];
-      if (d.tagName === 'DIV' && d.textContent === PORUKA && d.style && d.style.position === 'absolute') return d;
+      if (d.tagName === 'DIV' && d.textContent === MESSAGE && d.style && d.style.position === 'absolute') return d;
     }
     return null;
   }
 
-  function stisni() {
+  function press() {
     var ov = overlay();
-    if (!ov || !ov.isConnected) return;   // vec reconnectovan ili je korisnik bio brzi
+    if (!ov || !ov.isConnected) return;   // already reconnected, or the user was faster
     var ta = document.querySelector('.xterm-helper-textarea');
     if (!ta) return;
     ta.dispatchEvent(new KeyboardEvent('keydown', {
@@ -743,11 +733,11 @@
     }));
   }
 
-  var zakazano = false;
+  var scheduled = false;
   var mo = new MutationObserver(function () {
-    if (zakazano || pokusaji > 60 || !overlay()) return;
-    zakazano = true; pokusaji++;
-    setTimeout(function () { zakazano = false; stisni(); }, 350);
+    if (scheduled || attempts > 60 || !overlay()) return;
+    scheduled = true; attempts++;
+    setTimeout(function () { scheduled = false; press(); }, 350);
   });
   mo.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
 })();
@@ -755,50 +745,48 @@
 
 <script>
 /*
- 4. Clipboard i slike (i na Macu) — dashboard se koristi preko cistog HTTP-a
- (tailnet IP), a to za browser NIJE "secure context", pa `navigator.clipboard`
- ne postoji i ttyd-ov auto-copy selekcije (ono ✂) tiho padne.
+ 4. Clipboard and files (desktop too) — the dashboard is often used over plain HTTP (tailnet IP),
+ which is NOT a "secure context" for the browser: `navigator.clipboard` does not exist and ttyd's
+ auto-copy of the selection (the ✂) silently fails.
 
- 1. COPY FALLBACK (samo kad nema navigator.clipboard): na mouseup se uzme
-    xtermova selekcija i kopira starim `document.execCommand('copy')`, koji
-    radi i na HTTP-u jer se desava unutar korisnikovog klika. Napomena:
-    zbog tmux `mouse on` selekcija se pravi uz drzani SHIFT.
+ 1. COPY FALLBACK (only when there is no navigator.clipboard): on mouseup take xterm's selection
+    and copy it with the old `document.execCommand('copy')`, which works on HTTP because it runs
+    inside the user's click. Note: with tmux `mouse on` the selection is made with SHIFT held.
 
- 2. SLIKE U TERMINAL: paste (Cmd+V) ili drag&drop slike/PDF-a na terminal.
-    Clipboard sa slikom je na Macu, a Claude cita clipboard beasta (koji ne
-    postoji) — zato se fajl UPLOADUJE na beast-dash (:8787, CORS), snimi u
-    ~/dev/.pasted/, a putanja se ukuca u prompt. Claude Code slike cita sa
-    diska po putanji.
+ 2. FILES INTO THE TERMINAL: paste (Cmd+V) an image or drag & drop any file (up to 100 MB) onto
+    the terminal. The clipboard with the image is on the laptop, while Claude reads the server's
+    clipboard (which does not exist) — so the file is UPLOADED to the dashboard (:8787, CORS),
+    saved under `<devRoot>/.pasted/`, and its path is typed into the prompt. Claude Code reads
+    files from disk by path.
 */
 (function () {
   'use strict';
-  var bd = window.bd, javi = bd.javi;
+  var bd = window.bd, toast = bd.toast;
 
-  /* ---------- copy u SISTEMSKI clipboard (Maca), radi i na HTTP-u ---------- */
+  /* ---------- copy to the SYSTEM clipboard (laptop), works on HTTP too ---------- */
 
   /*
-   Redoslijed pokusaja:
-     1. navigator.clipboard (samo https/localhost)
-     2. execCommand odmah — u Chromeu prolazi jer je mouseup gest svjez;
-        Safari ga van sinhronog gesta odbije
-     3. ako oba padnu, tekst se ZADRZI (STASH) i pokaze se klikabilna
-        obavijest — klik je nov, pravi gest pa execCommand tada prolazi u
-        svakom browseru. Uz to, Cmd+C hvata 'copy' dogadjaj i upise
-        zadrzani tekst (native copy komanda smije pisati u clipboard i na
-        HTTP-u). Zadnja linija odbrane: prompt() sa preselektovanim
-        tekstom, odakle Cmd+C uvijek radi.
+   Order of attempts:
+     1. navigator.clipboard (https/localhost only)
+     2. execCommand right away — passes in Chrome because the mouseup gesture is fresh;
+        Safari refuses it outside a synchronous gesture
+     3. if both fail, the text is KEPT (STASH) and a clickable toast is shown — the click is a
+        new, real gesture, so execCommand passes in every browser. On top of that, Cmd+C is
+        caught via the 'copy' event and writes the stashed text (the native copy command may
+        write to the clipboard even on HTTP). Last line of defence: prompt() with the text
+        preselected, where Cmd+C always works.
   */
   var STASH = { txt: '', t: 0 };
-  function kopiraj(text) {
+  function copy(text) {
     if (!text) return;
     STASH.txt = text; STASH.t = Date.now();
     if (navigator.clipboard) {
-      navigator.clipboard.writeText(text).then(function () { javi('✂ copied'); }, function () { probajStaro(text); });
+      navigator.clipboard.writeText(text).then(function () { toast('✂ copied'); }, function () { tryLegacy(text); });
       return;
     }
-    probajStaro(text);
+    tryLegacy(text);
   }
-  function tihoStaro(text) {
+  function legacyCopy(text) {
     var ta = document.createElement('textarea');
     ta.value = text;
     ta.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0';
@@ -810,79 +798,78 @@
     try { window.term && window.term.focus(); } catch (e) {}
     return ok;
   }
-  function probajStaro(text) {
-    if (tihoStaro(text)) { javi('✂ copied'); return; }
-    var kratko = text.replace(/\s+/g, ' ').slice(0, 40);
-    javi('✂ KLIKNI OVDJE da kopiras: "' + kratko + '…"', false, function () {
-      if (tihoStaro(text)) javi('✂ copied');
-      else window.prompt('Cmd+C pa Enter:', text); // nikad ne moze omanuti
+  function tryLegacy(text) {
+    if (legacyCopy(text)) { toast('✂ copied'); return; }
+    var short = text.replace(/\s+/g, ' ').slice(0, 40);
+    toast('✂ CLICK HERE to copy: "' + short + '…"', false, function () {
+      if (legacyCopy(text)) toast('✂ copied');
+      else window.prompt('Cmd+C, then Enter:', text); // can never fail
     });
   }
-  // Cmd+C poslije tmux selekcije: 'copy' dogadjaj smije upisati u clipboard
-  // i na HTTP-u. Xtermova vlastita selekcija (Shift-drag) ima prednost.
+  // Cmd+C after a tmux selection: the 'copy' event may write to the clipboard even on HTTP.
+  // xterm's own selection (Shift-drag) takes precedence.
   document.addEventListener('copy', function (e) {
     var t = window.term;
-    if (t && t.getSelection && t.getSelection()) return; // xterm to vec rjesava
+    if (t && t.getSelection && t.getSelection()) return; // xterm handles that itself
     if (STASH.txt && Date.now() - STASH.t < 120000 && e.clipboardData) {
       e.clipboardData.setData('text/plain', STASH.txt);
       e.preventDefault();
-      javi('✂ copied');
+      toast('✂ copied');
     }
   });
 
   /*
-   OSC 52: kad u tmuxu (mouse on) prevuces misem, tmux na otpustanje kopira
-   u SVOJ buffer i — jer je `set-clipboard external` a terminfo ima Ms —
-   posalje OSC 52 sekvencu sa base64 teksta ka vanjskom terminalu. xterm.js
-   je bez handlera samo baci. Ovdje je uhvatimo i prospijemo u pravi
-   clipboard: to je ono "kopirao sam a nista se nije kopiralo".
+   OSC 52: when you drag-select in tmux (mouse on), tmux copies to ITS buffer on release and —
+   because of `set-clipboard external` and a terminfo with Ms — sends an OSC 52 sequence with the
+   base64 text to the outer terminal. xterm.js drops it without a handler. We catch it here and
+   pour it into the real clipboard: that is the "I copied but nothing got copied" case.
   */
   function b64utf8(b64) {
     try { return decodeURIComponent(escape(atob(b64))); } catch (e) { try { return atob(b64); } catch (e2) { return ''; } }
   }
-  var oscZakacen = false;
-  var cekajTerm = setInterval(function () {
+  var oscHooked = false;
+  var waitTerm = setInterval(function () {
     var t = window.term;
-    if (!t || !t.parser || oscZakacen) { if (oscZakacen) clearInterval(cekajTerm); return; }
+    if (!t || !t.parser || oscHooked) { if (oscHooked) clearInterval(waitTerm); return; }
     try {
       t.parser.registerOscHandler(52, function (data) {
         var i = data.indexOf(';');
         var b64 = i >= 0 ? data.slice(i + 1) : data;
-        if (b64 !== '?') { var txt = b64utf8(b64); if (txt) kopiraj(txt); }
+        if (b64 !== '?') { var txt = b64utf8(b64); if (txt) copy(txt); }
         return true;
       });
-      oscZakacen = true; clearInterval(cekajTerm);
-    } catch (e) { oscZakacen = true; clearInterval(cekajTerm); }
+      oscHooked = true; clearInterval(waitTerm);
+    } catch (e) { oscHooked = true; clearInterval(waitTerm); }
   }, 200);
 
-  /* ---------- slike: paste / drop ---------- */
+  /* ---------- files: paste / drop ---------- */
 
-  // capture=true: presrece prije xterma, ali SAMO kad je u clipboardu
-  // iskljucivo slika. Ako ima IKAKAV tekst, prednost ima normalan paste —
-  // inace bi zaostali screenshot u clipboardu oteo paste teksta.
+  // capture=true: intercepts before xterm, but ONLY when the clipboard holds nothing but a file.
+  // If there is ANY text, the normal paste wins — otherwise a stale screenshot in the clipboard
+  // would hijack a text paste.
   document.addEventListener('paste', function (e) {
     var dt = e.clipboardData;
-    if (dt && dt.getData && dt.getData('text/plain')) return; // tekst → normalan paste
-    var imgs = bd.fajlovi(dt);
-    if (imgs.length) { e.preventDefault(); e.stopPropagation(); imgs.forEach(bd.upload); }
+    if (dt && dt.getData && dt.getData('text/plain')) return; // text → normal paste
+    var files = bd.filesOf(dt);
+    if (files.length) { e.preventDefault(); e.stopPropagation(); files.forEach(bd.upload); }
   }, true);
   document.addEventListener('dragover', function (e) { e.preventDefault(); });
   document.addEventListener('drop', function (e) {
     e.preventDefault(); e.stopPropagation();
-    var imgs = bd.fajlovi(e.dataTransfer);
-    if (imgs.length) imgs.forEach(bd.upload); else javi('samo slike i PDF', true);
+    var files = bd.filesOf(e.dataTransfer);
+    if (files.length) files.forEach(bd.upload);
   }, true);
 
-  /* ---------- copy Shift-selekcije na HTTP-u ---------- */
-  // Sinhrono u mouseup-u (bez setTimeout) — Safari execCommand priznaje samo
-  // unutar samog gesta. xterm do mouseup-a vec ima final selekciju.
-  // Na secure contextu ttyd to vec radi sam, pa se ne mijesamo.
+  /* ---------- copying a Shift-selection on HTTP ---------- */
+  // Synchronously inside mouseup (no setTimeout) — Safari honours execCommand only within the
+  // gesture itself. By mouseup xterm already has the final selection.
+  // On a secure context ttyd does this itself, so we stay out of the way.
   if (!navigator.clipboard) {
     document.addEventListener('mouseup', function () {
       var t = window.term;
       if (!t || !t.getSelection) return;
       var sel = t.getSelection();
-      if (sel) { STASH.txt = sel; STASH.t = Date.now(); if (tihoStaro(sel)) javi('✂ copied'); }
+      if (sel) { STASH.txt = sel; STASH.t = Date.now(); if (legacyCopy(sel)) toast('✂ copied'); }
     });
   }
 })();
@@ -890,18 +877,18 @@
 
 <script>
 /*
- 4. Precice ka dashboardu. Terminal (iframe) drzi fokus, pa roditelj ne vidi
- tipke — hvatamo ih ovdje u capture fazi, PRIJE xterma, i saljemo roditelju
- postMessage. Samo Ctrl+Shift kombinacije koje ni tmux ni Claude ne koriste:
-   Ctrl+Shift+←/→   prethodna / sljedeca sesija
-   Ctrl+Shift+1..9  skok na n-tu sesiju u listi
-   Ctrl+Shift+↑     nazad na dashboard
-   Ctrl+Shift+P     paleta (isto sto i ⌘K na dashboardu)
- Van iframe-a (otvoren tab) nema roditelja pa se nista ne desava.
+ 5. Shortcuts to the dashboard. The terminal (iframe) holds focus, so the parent never sees the
+ keys — we catch them here in the capture phase, BEFORE xterm, and postMessage them to the
+ parent. Only Ctrl+Shift combinations that neither tmux nor Claude use:
+   Ctrl+Shift+←/→   previous / next session
+   Ctrl+Shift+1..9  jump to the n-th session in the list
+   Ctrl+Shift+↑     back to the dashboard
+   Ctrl+Shift+P     palette (same as ⌘K on the dashboard)
+ Outside an iframe (own tab) there is no parent and nothing happens.
 */
 (function () {
   if (window.parent === window) return;
-  function posalji(m) { try { window.parent.postMessage(m, '*'); } catch (e) {} }
+  function post(m) { try { window.parent.postMessage(m, '*'); } catch (e) {} }
   document.addEventListener('keydown', function (e) {
     if (!(e.ctrlKey && e.shiftKey) || e.altKey || e.metaKey) return;
     var m = null;
@@ -912,7 +899,7 @@
     else if (/^[1-9]$/.test(e.key) || /^Digit[1-9]$/.test(e.code)) m = { bd: 'jump', n: +(e.code ? e.code.replace('Digit', '') : e.key) };
     if (!m) return;
     e.preventDefault(); e.stopImmediatePropagation();
-    posalji(m);
+    post(m);
   }, true);
 })();
 </script>

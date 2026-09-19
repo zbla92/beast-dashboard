@@ -67,7 +67,7 @@ check is the security model; the dashboard runs commands and opens shells, so it
 ## Install
 
 ```bash
-git clone <repo-url> ~/beast-dash      # any path works; the installer adapts
+git clone https://github.com/zbla92/beast-dashboard.git ~/beast-dash   # any path works; the installer adapts
 cd ~/beast-dash
 ./install.sh
 ```
@@ -76,7 +76,7 @@ cd ~/beast-dash
 
 1. writes `~/.config/systemd/user/beast-{dash,term}.service`, substituting the real node dir and the
    real repo path into the shipped unit templates;
-2. enables and starts both services;
+2. enables and starts both services (the terminal one only if `ttyd` is installed);
 3. registers the Claude Code hooks (`node bin/install-hooks.js`);
 4. `sudo loginctl enable-linger $USER` — **needed**, or the services die when the user logs out;
 5. adds the ufw rule if both `tailscale` and `ufw` are present, and skips it with a message if not;
@@ -128,24 +128,27 @@ and that the path exists.
 - [ ] A Claude session's card reflects its state.
 - [ ] Only if HTTPS is set up: Settings → Push → Enable on this device, then trigger a notification.
 
-## Machine-specific things still in the tree
+## Things worth knowing before the user asks
 
-Not bugs, just assumptions worth knowing before the user reports them:
+- Both services are `systemd --user` units. They need **linger** to survive logout; `install.sh`
+  enables it. Without it the user will report "it stops when I disconnect".
+- The unit templates contain `__NODE_DIR__` / `__REPO__` placeholders; `install.sh` fills them in.
+  Never copy the templates by hand — always go through the installer.
+- The terminal service (`beast-term`) is only enabled when `ttyd` exists. Without it the dashboard
+  works and the ⌨ buttons open a blank page — say so.
+- `bin/term.sh` and the file upload use `devRoot` from `state/settings.json`; uploads land in
+  `<devRoot>/.pasted` (swept after 7 days, `keep/` is not swept — task attachments live there).
+- The *Usage limits* tile reads the OAuth token from `~/.claude/.credentials.json` and calls
+  Anthropic's usage endpoint every 30 min. It shows "no credentials" until Claude Code has been
+  logged in on this machine. It never refreshes the token itself.
+- Two Claude accounts: `~/.claude` (personal) and optionally `~/.claude-company` (company,
+  `CLAUDE_CONFIG_DIR`). The hook installer only touches the second one if the folder exists.
+- The README uses placeholders for the tailnet (`100.x.y.z`, `<server>.<tailnet>.ts.net`);
+  substitute the user's real values when you report the URL.
 
-- `bin/term.sh` opens the plain "⌨ Shell" in `$HOME/dev` literally, not in the configured `devRoot`.
-- `server.js` saves pasted images under `~/dev/.pasted`, also independent of `devRoot`.
-- The unit templates hardcode node `v24.19.0` and `%h/beast-dash`; `install.sh` rewrites both, so edit
-  them only through the installer.
-- `term/index.html` and `term/mobile.html` — the phone layer over ttyd (keyboard handling, paste,
-  image upload) — are commented in Croatian, and some function and variable names are Croatian too.
-  The code works as-is; budget time if you need to modify it.
-- The README describes the author's Tailscale setup with placeholders (`100.x.y.z`,
-  `<host>.<tailnet>.ts.net`). Substitute the user's real values as you go.
+## What is in this repository
 
-## What is not in this copy
-
-This is a cleaned export of a personal setup. Removed: the author's tailnet address and hostname,
-their username, org and project names (org colours are now hashed from the folder name, so any
-layout gets stable colours), and all runtime state. There is no git history — one initial commit.
-`state/` and `state-backups/` are gitignored and must stay that way: the backups are tarballs of
-`state/`, which contains the **VAPID private key** and browser push subscriptions.
+A cleaned, general version of a personal setup: no hostnames, usernames, project names or runtime
+state. Org colours are hashed from the folder name, so any layout gets stable colours. `state/` and
+`state-backups/` are gitignored and must stay that way: `state/push.json` holds the **VAPID private
+key** and the browser push subscriptions, and the backups are tarballs of `state/`.
