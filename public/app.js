@@ -244,7 +244,7 @@ function whereTag(cl) {
   if (cl.branch) return h('span', { class: 'ag-tag br', title: 'branch ' + cl.branch }, '⎇ ', cl.branch);
   return null;
 }
-const nice = n => n.startsWith('claude-') ? '✦ ' + n.replace(/^claude-/, '').replace(/-company$/, ' (company)') : n.startsWith('bd_') ? '▶ ' + n.replace(/^bd_/, '').replace('__', ' · ') : n === 'shell' ? 'bash' : n.startsWith('sh-') ? '$ ' + n : n;
+const nice = n => n.startsWith('claude-') ? '✦ ' + n.replace(/^claude-/, '').replace(/-company$/, ' (' + acctL('company') + ')') : n.startsWith('bd_') ? '▶ ' + n.replace(/^bd_/, '').replace('__', ' · ') : n === 'shell' ? 'bash' : n.startsWith('sh-') ? '$ ' + n : n;
 function renderTermPanel(force) {
   const el = $('#termpanel'); const live = S.runtime.sessions.length; $('#term-count').textContent = live;
   el.classList.toggle('hidden', !TERM.open); document.body.classList.toggle('term-open', TERM.open);
@@ -272,7 +272,7 @@ function renderTermPanel(force) {
     const isActive = TERM.active === it.name; const opened = TERM.frames.has(it.name); const cl = it.claude; const i = kind === 'claude' ? instOf(it) : null;
     const where = i && (i.wt ? h('span', { class: 'grp wt', title: i.wt.path ? 'git worktree · ' + home(i.wt.path) : 'git worktree' }, '⎇ ' + i.wt.name + (i.branch && i.branch !== i.wt.name ? ' · ' + i.branch : '')) : i.branch ? h('span', { class: 'grp', title: 'branch' }, '⎇ ' + i.branch) : null);
     const name = kind === 'claude' ? (sub ? h('span', { class: 'inst' }, i.label) : (cl?.label || it.project)) : kind === 'dev' ? it.project : it.name.startsWith('sh-') ? it.name : it.name;
-    const tag = kind === 'claude' ? h('span', { class: 'badge tag acc ' + it.account }, it.account) : kind === 'dev' ? h('span', { class: 'grp' }, it.label) : it.name.startsWith('sh-') ? h('span', { class: 'grp' }, 'bash') : null;
+    const tag = kind === 'claude' ? h('span', { class: 'badge tag acc ' + it.account }, acct(it.account)) : kind === 'dev' ? h('span', { class: 'grp' }, it.label) : it.name.startsWith('sh-') ? h('span', { class: 'grp' }, 'bash') : null;
     const line2 = cl ? [h('span', { class: 'cst mini ' + cl.state }, STATE_ICON[cl.state] || '·', ' ', STATE_LABEL[cl.state] || cl.state), cl.model ? h('span', { class: 'mdl' }, modelName(cl.model)) : null, !sub && i && i.n ? h('span', { class: 'grp' }, '#' + i.n) : null]
       : [h('span', { class: 'grp' }, [it.group, it.org].filter(Boolean).join(' · ') || home(it.cwd)), h('span', { class: 'grp' }, `${ago(it.started)} · ${it.cpu.toFixed(0)}% · ${fmtB(it.mem)}`)];
     const line3 = cl ? [where, cl.title ? h('span', { class: 'ttl', title: cl.title }, cl.title) : cl.lastPrompt ? h('span', { class: 'ttl dim', title: cl.lastPrompt }, '❯ ' + cl.lastPrompt) : null] : null;
@@ -340,18 +340,18 @@ function claudeMenu(ev, p) {
   const wt = account => { const name = prompt('Worktree / branch name for the new Claude session (e.g. feat-login):'); if (name) startClaude(p, account, { worktree: name.trim() }); };
   openMenu(ev, [
     { header: 'Claude Code session (tmux, --dangerously-skip-permissions)' },
-    { label: 'Personal', sub: live.has(per) ? `${per} · running → attach` : `${per} · gmail account`, icon: live.has(per) ? '●' : '✦', cur: live.has(per), onclick: () => startClaude(p, 'personal') },
-    { label: 'Company', sub: live.has(co) ? `${co} · running → attach` : `${co} · company account`, icon: live.has(co) ? '●' : '✦', cur: live.has(co), onclick: () => startClaude(p, 'company') },
+    { label: acct('personal'), sub: live.has(per) ? `${per} · running → attach` : `${per} · ~/.claude`, icon: live.has(per) ? '●' : '✦', cur: live.has(per), onclick: () => startClaude(p, 'personal') },
+    { label: acct('company'), sub: live.has(co) ? `${co} · running → attach` : `${co} · ~/.claude-company`, icon: live.has(co) ? '●' : '✦', cur: live.has(co), onclick: () => startClaude(p, 'company') },
     ...mine.filter(s => s.name !== per && s.name !== co).map(s => ({ label: nice(s.name).replace(/^✦ /, ''), sub: (s.claude && (STATE_LABEL[s.claude.state] + (s.claude.title ? ' · ' + s.claude.title : ''))) || 'running → attach', icon: '●', cur: true, onclick: () => openTerm(s.name) })),
     'sep',
-    { label: 'Personal — resume last', sub: 'claude --continue', icon: '↺', disabled: live.has(per), onclick: () => startClaude(p, 'personal', { resume: true }) },
-    { label: 'Company — resume last', sub: 'claude --continue', icon: '↺', disabled: live.has(co), onclick: () => startClaude(p, 'company', { resume: true }) },
+    { label: acct('personal') + ' — resume last', sub: 'claude --continue', icon: '↺', disabled: live.has(per), onclick: () => startClaude(p, 'personal', { resume: true }) },
+    { label: acct('company') + ' — resume last', sub: 'claude --continue', icon: '↺', disabled: live.has(co), onclick: () => startClaude(p, 'company', { resume: true }) },
     'sep',
     { header: 'More Claudes on this project' },
-    { label: 'Another personal instance', sub: `${per}-2 · same working tree`, icon: '＋', onclick: () => startClaude(p, 'personal', { fresh: true }) },
-    { label: 'Another company instance', sub: `${co.replace(/-company$/, '')}-2-company · same working tree`, icon: '＋', onclick: () => startClaude(p, 'company', { fresh: true }) },
-    p.isGit ? { label: 'Personal in a git worktree…', sub: 'claude --worktree <name> · separate branch + directory', icon: '⎇', onclick: () => wt('personal') } : null,
-    p.isGit ? { label: 'Company in a git worktree…', sub: 'claude --worktree <name> · separate branch + directory', icon: '⎇', onclick: () => wt('company') } : null,
+    { label: `Another ${acctL('personal')} instance`, sub: `${per}-2 · same working tree`, icon: '＋', onclick: () => startClaude(p, 'personal', { fresh: true }) },
+    { label: `Another ${acctL('company')} instance`, sub: `${co.replace(/-company$/, '')}-2-company · same working tree`, icon: '＋', onclick: () => startClaude(p, 'company', { fresh: true }) },
+    p.isGit ? { label: acct('personal') + ' in a git worktree…', sub: 'claude --worktree <name> · separate branch + directory', icon: '⎇', onclick: () => wt('personal') } : null,
+    p.isGit ? { label: acct('company') + ' in a git worktree…', sub: 'claude --worktree <name> · separate branch + directory', icon: '⎇', onclick: () => wt('company') } : null,
     'sep',
     { label: 'Copy ssh command', sub: attachCmd(per), icon: '⎘', onclick: () => navigator.clipboard.writeText(attachCmd(per)).then(() => toast('copied — paste in a terminal on your laptop')) },
   ].filter(Boolean));
@@ -405,7 +405,7 @@ function limitRow(label, w, title) {
 }
 // one column of the "Claude usage limits" card: big 5 h number + reset, then the week / Fable / extra rows
 function limitCol(account, L) {
-  const badge = h('span', { class: 'badge tag acc ' + account, title: (L.plan || '') + (L.tier ? ' · ' + L.tier : '') + (L.fetchedAt ? ' · fetched ' + ago(L.fetchedAt) + ' ago' : '') + (L.error ? ' · last fetch failed: ' + L.error : '') }, account, L.plan ? ' · ' + L.plan : '');
+  const badge = h('span', { class: 'badge tag acc ' + account, title: (L.plan || '') + (L.tier ? ' · ' + L.tier : '') + (L.fetchedAt ? ' · fetched ' + ago(L.fetchedAt) + ' ago' : '') + (L.error ? ' · last fetch failed: ' + L.error : '') }, acct(account), L.plan ? ' · ' + L.plan : '');
   if (L.error && !L.session) return h('div', { class: 'limcol' }, h('div', { class: 'k' }, badge), h('div', { class: 'v' }, '–'), h('div', { class: 's' }, L.error));
   const se = L.session; const all = [se, L.weekly, ...(L.scoped || [])].map(limCls); const cls = all.includes('hot') ? 'hot' : all.includes('warn') ? 'warn' : '';
   return h('div', { class: 'limcol ' + cls },
@@ -445,7 +445,7 @@ function renderStats() {
   tiles.push(tile('net', 'Network', fmtRate(s.net.rxRate), '↓', `↑ ${fmtRate(s.net.txRate)} · ${Object.keys(s.net.ifaces).filter(i => i !== 'tailscale0').join(', ')} + tailscale0`, '', { right: tempChip(s.temps?.nic, 'ethernet controller') }));
   const d = s.disks?.[0]; if (d) { const pct = d.used / d.size * 100; tiles.push(tile('disk', 'Disk ' + d.mount, fmtB(d.used), '/ ' + fmtB(d.size), `${fmtB(d.avail)} free · ${d.fs}`, pct > 90 ? 'hot' : pct > 75 ? 'warn' : '', { right: tempChip(s.temps?.nvme, 'hottest NVMe drive'), body: ring(pct) })); }
   const u = S.claude?.usage;
-  if (u) tiles.push(tile('claude', 'Claude today', usd(u.total.today), 'API-equiv.', `personal ${usd(u.personal.today)} · company ${usd(u.company.today)} · yesterday ${usd(u.total.yesterday)} · 7d ${usd(u.total.week)}`, '', { right: h('span', { class: 'dim', style: 'font-size:10.5px', title: 'What these tokens would cost at API list price. On a subscription nothing is billed per token; this measures how much work the sessions did.' }, 'est.') }));
+  if (u) tiles.push(tile('claude', 'Claude today', usd(u.total.today), 'API-equiv.', `${acctL('personal')} ${usd(u.personal.today)} · ${acctL('company')} ${usd(u.company.today)} · yesterday ${usd(u.total.yesterday)} · 7d ${usd(u.total.week)}`, '', { right: h('span', { class: 'dim', style: 'font-size:10.5px', title: 'What these tokens would cost at API list price. On a subscription nothing is billed per token; this measures how much work the sessions did.' }, 'est.') }));
   const lt = limitsTile(S.claude?.limits || {}); if (lt) tiles.push(lt);
   tiles.push(tile('up', 'Uptime', fmtUp(s.uptime), '', `${S.runtime.sessions.length} sessions · ${S.runtime.external.length} procs · ${S.runtime.containers.filter(c => c.state === 'running').length}/${S.runtime.containers.length} containers`));
   el.replaceChildren(...tiles);
@@ -465,6 +465,9 @@ function killSession(name, label) {
 }
 const home = c => (c || '').replace(/^\/home\/[^/]+\//, '~/');
 // The command that attaches to a tmux session from another machine (needs the ssh alias from Settings).
+// Display name of a Claude account id ('personal' | 'company') — Settings → Accounts.
+const acct = a => (a && S.settings?.accountLabels?.[a]) || a || '';
+const acctL = a => acct(a).toLowerCase();
 const attachCmd = name => `ssh ${S.settings?.sshHost || S.host?.hostname || 'server'} -t tmux attach -t ${name}`;
 // health from the server probe: ok (2xx-4xx) · warn (5xx / no answer) · down (nothing accepts the connection) · tcp (up, not HTTP)
 function healthOf(port) { return (S.health || {})[port] || null; }
@@ -481,7 +484,7 @@ function agentCard(it) {
   if (st === 'working') line = ['work', h('span', { class: 'spin' }), cl.lastTool ? cl.lastTool : 'thinking…'];
   else if (st === 'background') line = ['work', '◐', 'waiting on a background task'];
   else if (st === 'permission') line = ['need', '⚠', 'Needs you — wants to run: ' + (cl.lastTool || '?')];
-  else if (st === 'limit') line = ['need', '⏳', 'Usage limit — ' + oneLine(cl.limitText || (it.account + ' account'))];
+  else if (st === 'limit') line = ['need', '⏳', 'Usage limit — ' + oneLine(cl.limitText || (acct(it.account) + ' account'))];
   else if (st === 'error') line = ['err', '✗', 'Error — ' + oneLine(cl.lastMessage || 'open the terminal')];
   else if (st === 'needs-you') line = ['need', '✓', 'Needs you — ' + oneLine(cl.lastMessage || 'finished')];
   else if (st === 'ended') line = ['dim', '■', 'claude exited'];
@@ -491,7 +494,7 @@ function agentCard(it) {
     h('div', { class: 'ag-head' },
       avatar(it.pid),
       h('div', { class: 'ag-id' },
-        h('div', { class: 'ag-name' }, h('span', { class: 'nm' }, cl.label || (it.name.startsWith('sh-') ? it.name : it.project)), i.n ? h('span', { class: 'ag-tag' }, '#' + i.n) : null, i.wt ? h('span', { class: 'ag-tag wt', title: i.wt.path ? 'git worktree · ' + home(i.wt.path) : 'git worktree' }, '⎇ ' + i.wt.name) : null, h('span', { class: 'badge tag acc ' + it.account }, it.account)),
+        h('div', { class: 'ag-name' }, h('span', { class: 'nm' }, cl.label || (it.name.startsWith('sh-') ? it.name : it.project)), i.n ? h('span', { class: 'ag-tag' }, '#' + i.n) : null, i.wt ? h('span', { class: 'ag-tag wt', title: i.wt.path ? 'git worktree · ' + home(i.wt.path) : 'git worktree' }, '⎇ ' + i.wt.name) : null, h('span', { class: 'badge tag acc ' + it.account }, acct(it.account))),
         h('div', { class: 'ag-sub mono', title: [i.wt ? 'worktree ' + i.wt.name : null, i.branch ? 'branch ' + i.branch : null, cl.model, cl.usage ? usd(cl.usage.cost) + ' API-equivalent' : null].filter(Boolean).join(' · ') }, [i.branch && !i.wt ? '⎇ ' + i.branch : i.wt && i.branch && i.branch !== i.wt.name ? '⎇ ' + i.branch : null, cl.model ? modelName(cl.model) : null, cl.usage ? usd(cl.usage.cost) : null, ago(it.started)].filter(Boolean).join(' · '))),
       stateBadge(cl)),
     h('div', { class: 'ag-line ' + line[0], title: typeof line[2] === 'string' ? line[2] : '' }, h('span', { class: 'ic' }, line[1]), h('span', { class: 'tx' }, line[2])));
@@ -503,7 +506,7 @@ function agentGroup(g) {
   const sel = g.items.find(x => x.name === GROUP_SEL[g.key]) || g.items[0];
   const tab = it => { const cl = it.claude || {}; const i = instOf(it); const st = cl.state || 'unknown';
     return h('button', { class: 'agtab st-' + st + (it.name === sel.name ? ' on' : ''), title: `${it.name} · ${STATE_LABEL[st] || st}` + (i.branch ? ' · ' + i.branch : '') + (cl.title ? '\n' + cl.title : ''), onclick: ev => { ev.stopPropagation(); selectTab(g.key, it.name); } },
-      h('i', { class: 'dot' }), i.label, h('span', { class: 'badge tag acc ' + it.account }, it.account), cl.needsYou ? h('b', { class: 'need' }, STATE_ICON[st]) : null); };
+      h('i', { class: 'dot' }), i.label, h('span', { class: 'badge tag acc ' + it.account }, acct(it.account)), cl.needsYou ? h('b', { class: 'need' }, STATE_ICON[st]) : null); };
   return h('div', { class: 'agroup st-' + (sel.claude?.state || 'unknown'), style: `--org:${orgColor(g.org)}` },
     h('div', { class: 'agtabs' }, h('span', { class: 'agproj', title: g.items.length + ' Claude sessions on ' + g.project }, avatar(g.pid, 'sm'), g.project), g.items.map(tab)),
     agentCard(sel));
@@ -623,7 +626,7 @@ function renderBanner() {
   if (rs.length) parts.push(h('div', { class: 'ban restore' },
     h('b', null, `✦ ${rs.length} Claude session${rs.length > 1 ? 's' : ''} from before the restart`), h('span', { class: 'dim' }, ' — same folder, same conversation (claude --resume):'),
     h('span', { class: 'rlist' }, rs.map(r => h('span', { class: 'rchip', title: (r.title || '') + '\n' + r.cwd + '\ngone ' + ago(r.gone) + ' ago' },
-      h('button', { class: 'btn sm', onclick: () => act('Restore ' + r.tmux, api('claude-restore', { tmux: r.tmux })).then(() => openTerm(r.tmux)) }, '↺ ', r.tmux.replace(/^claude-/, ''), r.account === 'company' ? h('span', { class: 'badge tag acc company' }, 'company') : null),
+      h('button', { class: 'btn sm', onclick: () => act('Restore ' + r.tmux, api('claude-restore', { tmux: r.tmux })).then(() => openTerm(r.tmux)) }, '↺ ', r.tmux.replace(/^claude-/, ''), r.account === 'company' ? h('span', { class: 'badge tag acc company' }, acct('company')) : null),
       h('button', { class: 'x', title: 'forget this one', onclick: () => api('claude-forget', { tmux: r.tmux }) }, '✕')))),
     h('span', { style: 'flex:1' }),
     h('button', { class: 'btn sm primary', onclick: () => act('Restore all', api('claude-restore', {})) }, '↺ Restore all'),
@@ -698,7 +701,7 @@ function card(p) {
       h('button', { class: 'btn sm icon ghost', title: 'more', onclick: ev => moreMenu(ev, p) }, '⋯')),
     gitLine, liveRow,
     h('div', { class: 'actions' },
-      h('button', { class: 'btn sm claude' + (claudes.length ? ' on' : ''), title: 'Claude Code session (personal / company)', onclick: ev => claudeMenu(ev, p) }, ico('chat', 14), 'Claude', h('span', { class: 'caret' }, '▾')),
+      h('button', { class: 'btn sm claude' + (claudes.length ? ' on' : ''), title: `Claude Code session (${acctL('personal')} / ${acctL('company')})`, onclick: ev => claudeMenu(ev, p) }, ico('chat', 14), 'Claude', h('span', { class: 'caret' }, '▾')),
       startBtn, h('span', { class: 'sp' }),
       h('button', { class: 'btn sm open', title: 'project details — changes, files, logs, branches, docker', onclick: () => openDrawer(p.id, 'overview') }, 'Open', ico('back', 13))));
 }
@@ -970,7 +973,7 @@ function scheduleDialog(name, draft) {
   const box = h('div', { class: 'box settings sched' },
     h('div', { class: 'sh' }, h('h3', null, 'Schedule a message'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost icon', onclick: () => m.classList.add('hidden') }, ico('x', 15))),
     h('div', { class: 'sbody' },
-      h('div', { class: 'sto' }, avatar(sess?.project, 'sm'), h('b', null, cl.label || (sess?.project && byId()[sess.project]?.name) || name), h('span', { class: 'badge tag acc ' + (cl.account || '') }, cl.account || ''), cl.state ? h('span', { class: 'cst mini ' + cl.state }, STATE_ICON[cl.state], ' ', STATE_LABEL[cl.state]) : null),
+      h('div', { class: 'sto' }, avatar(sess?.project, 'sm'), h('b', null, cl.label || (sess?.project && byId()[sess.project]?.name) || name), h('span', { class: 'badge tag acc ' + (cl.account || '') }, acct(cl.account)), cl.state ? h('span', { class: 'cst mini ' + cl.state }, STATE_ICON[cl.state], ' ', STATE_LABEL[cl.state]) : null),
       h('div', { class: 'sg' }, h('div', { class: 'sg-t' }, 'When'), chips, h('div', { class: 'swhen' }, when, rel)),
       h('div', { class: 'sg' }, h('div', { class: 'sg-t' }, 'Message'), msgs, h('button', { class: 'btn sm ghost', onclick: () => addMsg('').focus() }, ico('plus', 13), 'Add a follow-up message'), h('div', { class: 'hint' }, 'Follow-ups go out one by one, each after Claude finishes the previous one. If the session is busy at the time, the message waits for it to become idle.'))),
     h('div', { class: 'foot' }, h('button', { class: 'btn ghost', onclick: () => m.classList.add('hidden') }, 'Cancel'),
@@ -1010,7 +1013,7 @@ async function openTranscriptFile(hh) {
   const was = UI.drawer; UI.drawer = 'session:file'; SESS.name = null; SESS.tab = 'transcript';
   $('#drawer').classList.add('open'); $('#scrim').classList.remove('hidden'); if (!was) pushLayer('drawer');
   const d = $('#drawer'); const title = hh.title || (hh.cwd || '').split('/').pop() || hh.sessionId.slice(0, 8);
-  const head = h('div', { class: 'dh' }, h('div', { class: 'row1' }, h('h2', null, h('span', { class: 'sicon' }, '✦'), title, h('span', { class: 'badge tag acc ' + hh.account }, hh.account), h('span', { class: 'dim', style: 'font-size:12px;font-weight:500' }, 'past conversation · ' + ago(hh.mtime) + ' ago')),
+  const head = h('div', { class: 'dh' }, h('div', { class: 'row1' }, h('h2', null, h('span', { class: 'sicon' }, '✦'), title, h('span', { class: 'badge tag acc ' + hh.account }, acct(hh.account)), h('span', { class: 'dim', style: 'font-size:12px;font-weight:500' }, 'past conversation · ' + ago(hh.mtime) + ' ago')),
       h('button', { class: 'btn sm primary', title: 'start a new tmux session in that folder with claude --resume on this conversation', onclick: () => act('Resume ' + title, api('claude-resume', { sessionId: hh.sessionId, cwd: hh.cwd, account: hh.account })).then(r => { closeDrawer(); if (r?.name) setTimeout(() => openTerm(r.name), 1200); }) }, '↺ Resume here'),
       h('button', { class: 'btn ghost close', onclick: closeDrawer }, '✕ Esc')),
     h('div', { class: 'path' }, hh.cwd || '', ' · ', hh.sessionId));
@@ -1400,6 +1403,9 @@ function settingsModal() {
         (s.muted || []).length ? row('Muted sessions', s.muted.join(', '), h('span', { class: 'dim', style: 'font-size:11.5px' }, 'bell in the terminal bar')) : null),
       sect('Sessions',
         row('Auto-restore after reboot', 'claude --resume in the same folders as soon as the dashboard starts', sw(!!s.autoRestore, { id: 'set-autorestore' }))),
+      sect('Claude accounts',
+        row(acct('personal') + ' (~/.claude)', 'name shown on cards and badges', h('input', { class: 'txt', value: s.accountLabels?.personal ?? 'Personal', 'data-acct': 'personal' })),
+        row(acct('company') + ' (~/.claude-company)', 'second login via CLAUDE_CONFIG_DIR — leave as is if you only use one', h('input', { class: 'txt', value: s.accountLabels?.company ?? 'Company', 'data-acct': 'company' }))),
       sect('Connection',
         row('SSH host alias', 'as in ~/.ssh/config on your laptop · used for VS Code links and copied ssh commands', txt('sshHost', { placeholder: 'myserver' })),
         row('SSH user', 'empty if the alias sets it', txt('sshUser')),
@@ -1407,7 +1413,7 @@ function settingsModal() {
         row('Dev root', 'folder scanned for projects', txt('devRoot')),
         row('Scan depth', '', txt('scanDepth', { type: 'number', class: 'txt sm' }))),
       hidden.length ? sect('Hidden projects', ...hidden.map(id => row(id, '', h('button', { class: 'btn sm', onclick: () => api('project', { id, hidden: false }).then(() => { m.classList.add('hidden'); toast('unhidden'); }) }, 'Unhide')))) : null),
-    h('div', { class: 'foot' }, h('button', { class: 'btn ghost', onclick: () => m.classList.add('hidden') }, 'Cancel'), h('button', { class: 'btn primary', onclick: async () => { const patch = { autoExpose: auto.checked, autoRestore: !!box.querySelector('#set-autorestore')?.checked, notify: { ...(s.notify || {}) } }; for (const i of box.querySelectorAll('input[data-n]')) patch.notify[i.dataset.n] = i.checked; for (const i of box.querySelectorAll('input[data-q]')) patch.notify[i.dataset.q] = i.value; for (const i of box.querySelectorAll('input[data-k]')) patch[i.dataset.k] = i.type === 'number' ? +i.value : i.value.trim(); await act('Settings saved', api('settings', patch)); m.classList.add('hidden'); } }, 'Save')));
+    h('div', { class: 'foot' }, h('button', { class: 'btn ghost', onclick: () => m.classList.add('hidden') }, 'Cancel'), h('button', { class: 'btn primary', onclick: async () => { const patch = { autoExpose: auto.checked, autoRestore: !!box.querySelector('#set-autorestore')?.checked, notify: { ...(s.notify || {}) } }; for (const i of box.querySelectorAll('input[data-n]')) patch.notify[i.dataset.n] = i.checked; for (const i of box.querySelectorAll('input[data-q]')) patch.notify[i.dataset.q] = i.value; for (const i of box.querySelectorAll('input[data-k]')) patch[i.dataset.k] = i.type === 'number' ? +i.value : i.value.trim(); patch.accountLabels = { ...(s.accountLabels || {}) }; for (const i of box.querySelectorAll('input[data-acct]')) patch.accountLabels[i.dataset.acct] = i.value.trim() || i.dataset.acct; await act('Settings saved', api('settings', patch)); m.classList.add('hidden'); } }, 'Save')));
   m.replaceChildren(box);
   m.onclick = e => { if (e.target === m) m.classList.add('hidden'); };
 }
@@ -1447,8 +1453,8 @@ function runTaskMenu(ev, t) {
     { header: 'Send the task as a prompt to…' },
     ...live.map(s => ({ label: (s.claude.label || p.name) + (instOf(s).n ? ' #' + instOf(s).n : ''), sub: `${s.name} · ${STATE_LABEL[s.claude.state] || ''}${s.claude.state === 'working' ? ' — queued until it is idle' : ''}`, icon: '●', cur: true, onclick: () => go(s.claude.account, s.name) })),
     live.length ? 'sep' : null,
-    { label: 'New personal session', sub: 'starts claude in ' + home(p.path), icon: '＋', onclick: () => go('personal') },
-    { label: 'New company session', sub: 'starts claude (company account)', icon: '＋', onclick: () => go('company') },
+    { label: `New ${acctL('personal')} session`, sub: 'starts claude in ' + home(p.path), icon: '＋', onclick: () => go('personal') },
+    { label: `New ${acctL('company')} session`, sub: `starts claude (${acctL('company')} account)`, icon: '＋', onclick: () => go('company') },
   ].filter(Boolean));
 }
 // New / edit task: project picker, title, prompt-style body (paste or drop screenshots straight in), attachments kept forever
@@ -1554,7 +1560,7 @@ function paletteItems() {
   for (const it of S3.claude) items.push({ kind: 'claude', label: it.project + (it.name.match(/-wt-([^-]+)/) ? ' ⎇ ' + it.name.match(/-wt-([^-]+)/)[1] : '') + (it.name.match(/^claude-.*-(\d+)(-company)?$/) ? ' #' + it.name.match(/-(\d+)(-company)?$/)[1] : ''), sub: (it.claude ? (STATE_LABEL[it.claude.state] || '') + (it.claude.title ? ' · ' + it.claude.title : '') : '') || it.name, tag: it.account, icon: STATE_ICON[it.claude?.state] || '✦', cls: 'st-' + (it.claude?.state || 'unknown'), hay: [it.project, it.name, it.claude?.title, it.claude?.lastPrompt, it.account].join(' '), run: () => openTerm(it.name), rank: 1 });
   for (const it of S3.dev) items.push({ kind: 'dev', label: it.project + ' · ' + it.label, sub: it.ports.map(p => ':' + p.port).join(' ') || it.name, icon: '▶', hay: [it.project, it.label, it.name].join(' '), run: () => openTerm(it.name), rank: 10 });
   for (const it of S3.other) items.push({ kind: 'other', label: it.name, sub: it.cwd, icon: '⌨', hay: it.name + ' ' + it.cwd, run: () => openTerm(it.name), rank: 11 });
-  for (const p of S.projects.filter(p => !p.hidden)) items.push({ kind: 'project', label: p.name, sub: [p.org, p.group, p.framework].filter(Boolean).join(' · '), icon: '▤', hay: [p.name, p.rel, p.org, p.framework].join(' '), run: () => openDrawer(p.id, 'overview'), rank: 20, more: [{ l: '✦', t: 'Claude (personal)', f: () => startClaude(p, 'personal') }, { l: '✦c', t: 'Claude (company)', f: () => startClaude(p, 'company') }, { l: '±', t: 'changes', f: () => openDrawer(p.id, 'changes') }] });
+  for (const p of S.projects.filter(p => !p.hidden)) items.push({ kind: 'project', label: p.name, sub: [p.org, p.group, p.framework].filter(Boolean).join(' · '), icon: '▤', hay: [p.name, p.rel, p.org, p.framework].join(' '), run: () => openDrawer(p.id, 'overview'), rank: 20, more: [{ l: '✦', t: `Claude (${acctL('personal')})`, f: () => startClaude(p, 'personal') }, { l: '✦c', t: `Claude (${acctL('company')})`, f: () => startClaude(p, 'company') }, { l: '±', t: 'changes', f: () => openDrawer(p.id, 'changes') }] });
   items.push({ kind: 'action', label: 'New shell', sub: 'bash in the dev folder (tmux sh-N)', icon: '$', hay: 'shell bash terminal new', run: newShell, rank: 30 },
     { kind: 'action', label: 'Terminals panel', sub: 'full-screen terminal view', icon: '⛶', hay: 'terminals panel', run: () => $('#btn-shell').click(), rank: 31 },
     { kind: 'action', label: 'Tunnels', sub: 'exposed ports', icon: '⇄', hay: 'tunnels ports expose socat', run: () => { UI.showTunnels = true; renderTunnels(); }, rank: 32 },

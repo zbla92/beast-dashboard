@@ -22,9 +22,10 @@ configuration is done in the ⚙ Settings UI, which writes `state/settings.json`
    So `~/dev/acme/web` → org `acme`, project `web`. If their layout is flat, tell them the org
    grouping will be empty — that is fine, not a failure.
 2. **How will they reach it?** This matters most; see *Access* below.
-3. **Do they use Claude Code, and with one account or two?** The hook installer writes to both
-   `~/.claude/settings.json` (personal) and `~/.claude-company/settings.json` (company). If they only
-   use one, the other file simply isn't created.
+3. **Do they use Claude Code, and with one login or two?** The hook installer writes to
+   `~/.claude/settings.json` and, only if that folder exists, `~/.claude-company/settings.json`
+   (a second login started with `CLAUDE_CONFIG_DIR=~/.claude-company`). If they use two, ask what
+   to call them and set `accountLabels` in Settings.
 
 ## Requirements
 
@@ -141,8 +142,10 @@ and that the path exists.
 - The *Usage limits* tile reads the OAuth token from `~/.claude/.credentials.json` and calls
   Anthropic's usage endpoint every 30 min. It shows "no credentials" until Claude Code has been
   logged in on this machine. It never refreshes the token itself.
-- Two Claude accounts: `~/.claude` (personal) and optionally `~/.claude-company` (company,
-  `CLAUDE_CONFIG_DIR`). The hook installer only touches the second one if the folder exists.
+- Two Claude logins: `~/.claude` and optionally `~/.claude-company` (`CLAUDE_CONFIG_DIR`). The
+  hook installer only touches the second one if the folder exists. Their ids inside the code are
+  `personal` / `company` (they name the folders); the names shown in the UI come from
+  `accountLabels` in Settings → *Claude accounts* — ask the user what to call them.
 - The README uses placeholders for the tailnet (`100.x.y.z`, `<server>.<tailnet>.ts.net`);
   substitute the user's real values when you report the URL.
 

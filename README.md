@@ -143,11 +143,12 @@ app, notifications, and the terminal with a key bar above the keyboard.
 
 Beast Dash treats Claude Code sessions as first-class citizens.
 
-**Starting one.** On a project card, **✦ Claude ▾** → *Personal* or *Company* creates a tmux
-session `claude-<project>[-company]` in that folder running `claude --dangerously-skip-permissions`
-and opens it in the browser terminal. Two accounts are supported out of the box: the default
-`~/.claude`, and a second login kept in `~/.claude-company` (`CLAUDE_CONFIG_DIR`). The second one is
-optional — if the folder doesn't exist, nothing mentions it. More than one session per project:
+**Starting one.** On a project card, **✦ Claude ▾** creates a tmux session `claude-<project>`
+in that folder running `claude --dangerously-skip-permissions` and opens it in the browser
+terminal. Two Claude Code logins are supported: the default `~/.claude`, and a second one kept in
+`~/.claude-company` (started with `CLAUDE_CONFIG_DIR`, session `claude-<project>-company`). What
+they are called on the cards is yours — ⚙ Settings → *Claude accounts* (e.g. "Me" / "Work"). The
+second one is optional; if the folder doesn't exist, nothing mentions it. More than one session per project:
 *Another instance* or *in a git worktree…* (`claude --worktree`), so two agents never edit the same
 files.
 
@@ -216,6 +217,7 @@ Everything lives in `state/` (gitignored) and is edited through ⚙ Settings, wh
 | `allowedPrefixes` | `[]` | extra client IP prefixes to accept, e.g. `["10.8.0."]` |
 | `autoExpose` | `true` | forward loopback ports onto the tailnet with socat |
 | `autoRestore` | `false` | bring Claude sessions back automatically after a reboot |
+| `accountLabels` | `{personal: 'Personal', company: 'Company'}` | display names of the two Claude logins (`~/.claude`, `~/.claude-company`) |
 | `pushContact` | `mailto:admin@example.com` | VAPID contact sent to push services — set it to yours |
 | `notify` | all on | which events push, quiet hours |
 
