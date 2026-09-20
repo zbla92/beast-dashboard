@@ -20,6 +20,7 @@ const schedule = require('./lib/schedule');
 const usage = require('./lib/usage');
 const limits = require('./lib/limits');
 const tasks = require('./lib/tasks');
+const recap = require('./lib/recap');
 const UPLOAD_MAX = 100e6;   // /api/paste-image: any file up to this, into <devRoot>/.pasted
 const pastedDir = () => path.join(settings.get().devRoot, '.pasted');
 const push = require('./lib/push');
@@ -37,9 +38,13 @@ let lastStateJson = '';
 
 function stateObj() {
   const s = settings.get();
-  return { projects: projects.map(p => ({ ...p, git: gitStatus[p.id] || null })), runtime: { ...snapshot, manual: expose.manual() }, settings: s, host: { tsIp: TS_IP, tsName: expose.tailscaleName(), tailscale: TS_INFO, publicHost: s.publicHost || TS_IP || 'localhost', terminalPort: 7681, hostname: require('os').hostname(), devRoot: s.devRoot, user: process.env.USER || 'user', lastResume: LAST_RESUME, startedAt: STARTED_AT, pushSubs: push.subscriptions().length }, claude: { restorable: claude.restorable(), usage: usage.summary(), limits: limits.all(), installed: CLAUDE_VERSION, schedule: schedule.all(), tasks: tasks.all() }, health: health.all(), crashes: recentCrashes(), stats: sys.latest(), statsHistory: sys.history() };
+  return { projects: projects.map(p => ({ ...p, git: gitStatus[p.id] || null })), runtime: { ...snapshot, manual: expose.manual() }, settings: s, host: { tsIp: TS_IP, tsName: expose.tailscaleName(), tailscale: TS_INFO, publicHost: s.publicHost || TS_IP || 'localhost', terminalPort: 7681, hostname: require('os').hostname(), devRoot: s.devRoot, user: process.env.USER || 'user', lastResume: LAST_RESUME, startedAt: STARTED_AT, build: build(), pushSubs: push.subscriptions().length }, claude: { restorable: claude.restorable(), usage: usage.summary(), limits: limits.all(), installed: CLAUDE_VERSION, schedule: schedule.all(), tasks: tasks.all() }, health: health.all(), crashes: recentCrashes(), stats: sys.latest(), statsHistory: sys.history() };
 }
 let TS_IP = null, TS_INFO = null, LAST_RESUME = null, LAST_TICK = Date.now();
+// front-end build id = newest mtime of public/*: a client that sees it change reloads itself, so a PWA that sat open
+// on the phone for hours never runs yesterday's app.js against today's server
+let BUILD = 0, buildAt = 0;
+function build() { if (Date.now() - buildAt > 5000) { buildAt = Date.now(); try { BUILD = Math.max(...fs.readdirSync(path.join(__dirname, 'public')).map(f => fs.statSync(path.join(__dirname, 'public', f)).mtimeMs)); } catch {} } return Math.round(BUILD); }
 const STARTED_AT = Date.now();
 
 function broadcast(event, data) { const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`; for (const res of clients) res.write(msg); }
@@ -132,7 +137,10 @@ async function runSchedule() {
   const busy = name => { const st = claude.get(name)?.state; return st === 'working' || st === 'background' || st === 'permission'; };
   const exists = name => actions.sessionExists(name);
   const done = await schedule.run(busy, (name, text) => claude.send(name, text, true), exists);
-  for (const j of done) { const ok = j.state === 'done'; if (pushAllowed('done', j.session)) push.notify({ title: `${j.session.replace(/^claude-/, '').replace(/-company$/, '')} · scheduled ${ok ? 'done' : 'failed'}`, body: oneLine(ok ? j.prompts[0] : (j.error || ''), 80), url: `/?term=${encodeURIComponent(j.session)}&mode=chat`, tag: 'sched-' + j.id }).catch(() => {}); }
+  for (const j of done) {
+    // a task rode on this job: attach Claude's closing message and tell the phone about the TASK, not the job
+    const tk = tasks.noteResult(j.id, { ok: j.state === 'done', summary: claude.get(j.session)?.lastMessage, session: j.session, error: j.error });
+    if (tk) { if (pushAllowed('done', j.session)) push.notify({ title: `${tk.title.slice(0, 60)} · ${j.state === 'done' ? 'Claude finished' : 'failed'}`, body: oneLine(tk.result.summary || tk.result.error || 'review it on the Tasks screen', 80), url: '/?view=tasks', tag: 'task-' + tk.id }).catch(() => {}); pushState(true); continue; } const ok = j.state === 'done'; if (pushAllowed('done', j.session)) push.notify({ title: `${j.session.replace(/^claude-/, '').replace(/-company$/, '')} · scheduled ${ok ? 'done' : 'failed'}`, body: oneLine(ok ? j.prompts[0] : (j.error || ''), 80), url: `/?term=${encodeURIComponent(j.session)}&mode=chat`, tag: 'sched-' + j.id }).catch(() => {}); }
   if (done.length) setTimeout(tick, 200);
 }
 // Weekly digest (Monday 09:00 local): sessions, cost per account, commits by you across all repos in the last 7 days.
@@ -146,7 +154,20 @@ async function weeklyDigest() {
   const sessions = Object.values(claude.all()).filter(r => Date.now() - (r.lastEventAt || 0) < 7 * 86400e3).length;
   push.notify({ title: '📊 Beast weekly', body: `${sessions} Claude sessions · $${u.total.week.toFixed(0)} API-equiv (personal $${u.personal.week.toFixed(0)}, company $${u.company.week.toFixed(0)}) · ${commits} commits in ${projectsTouched} repos`, url: '/', tag: 'digest' }).catch(() => {});
 }
-// Nightly backup of the dashboard's own state (sessions, labels, push subscriptions, settings, schedule): state-backups/, keep 14.
+// Morning summary (08:00 local): what waits for you — tasks to review / open, sessions that need you, yesterday's spend + commits.
+let lastDailyDay = settings.get().lastDailyDay || '';
+async function dailySummary() {
+  const d = new Date(); if (d.getHours() < 8) return;
+  const day = d.toISOString().slice(0, 10); if (lastDailyDay === day) return; lastDailyDay = day; settings.update({ lastDailyDay: day });
+  const n = settings.get().notify || {}; if (n.daily === false) return;
+  const tk = tasks.all(); const review = tk.filter(t => t.status !== 'done' && t.result).length, open = tk.filter(t => t.status !== 'done').length;
+  const need = snapshot.sessions.filter(s => s.claude && s.claude.needsYou).length;
+  const u = usage.summary(); let commits = 0;
+  for (const p of projects.filter(x => x.isGit)) { const r = await run('git', ['-C', p.path, 'log', '--since=yesterday', '--author=' + (process.env.USER || ''), '--oneline'], { timeout: 8000 }); commits += r.stdout.split('\n').filter(Boolean).length; }
+  const parts = []; if (review) parts.push(`${review} task${review > 1 ? 's' : ''} to review`); if (open) parts.push(`${open} open`); if (need) parts.push(`${need} session${need > 1 ? 's' : ''} need you`); parts.push(`yesterday $${u.total.yesterday.toFixed(0)} · ${commits} commits`);
+  push.notify({ title: '☀️ Good morning', body: parts.join(' · ').slice(0, 120), url: review || open ? '/?view=tasks' : '/', tag: 'daily' }).catch(() => {});
+}
+// Nightly backup of the dashboard's own state (sessions, labels, push subscriptions, settings, schedule): state-backups/, keep 7.
 let lastBackupDay = '';
 function backupState() {
   const day = new Date().toISOString().slice(0, 10); if (lastBackupDay === day) return; lastBackupDay = day;
@@ -154,7 +175,7 @@ function backupState() {
   const out = path.join(dir, `state-${day}.tar.gz`); if (fs.existsSync(out)) return;
   run('tar', ['-czf', out, '-C', path.join(__dirname, 'state'), '--exclude=logs', '--exclude=usage-cache.json', '.'], { timeout: 60000 }).then(r => {
     if (!r.ok) return console.error('backup failed', r.stderr);
-    const files = fs.readdirSync(dir).filter(f => f.startsWith('state-')).sort(); while (files.length > 14) { try { fs.unlinkSync(path.join(dir, files.shift())); } catch {} }
+    const files = fs.readdirSync(dir).filter(f => f.startsWith('state-')).sort(); while (files.length > 7) { try { fs.unlinkSync(path.join(dir, files.shift())); } catch {} }
   });
 }
 // Auto-restore after a reboot: the first tick after start sees the remembered sessions with no tmux behind them.
@@ -230,12 +251,12 @@ claude.onChange((ev, r, prev) => {
     : r.state === 'error' ? oneLine(r.lastMessage || 'API error', 80)
     : oneLine(r.title || r.lastPrompt || r.lastMessage || 'finished', 80);
   const skipQuick = r.state === 'needs-you' && turn != null && turn < 20000;
-  if (!skipQuick && pushAllowed(kind, r.tmux)) push.notify({ title, body, url: `/?term=${encodeURIComponent(r.tmux)}&mode=chat`, tag: r.tmux }).then(res => { if (res.sent) console.log(`push: ${title} -> ${res.sent}`); });
+  if (!skipQuick && pushAllowed(kind, r.tmux)) push.notify({ title, body, url: `/?term=${encodeURIComponent(r.tmux)}&mode=chat`, tag: r.tmux, session: r.tmux, kind }).then(res => { if (res.sent) console.log(`push: ${title} -> ${res.sent}`); });
   broadcast('ding', { tmux: r.tmux, state: r.state, title });
   setTimeout(tick, 150);
 });
 
-async function statsTick() { try { const s = await sys.sample(); broadcast('stats', s); } catch (e) { console.error('stats failed', e); } }
+async function statsTick() { try { const s = await sys.sample(); sys.tempsSample(s); broadcast('stats', s); } catch (e) { console.error('stats failed', e); } }
 
 // ---- pace: full speed only while someone is watching ----
 /*
@@ -404,6 +425,8 @@ async function api(req, res, url) {
   }
   if (m === 'GET' && parts[0] === 'push' && parts[1] === 'key') return json(res, 200, { key: push.publicKey(), subs: push.subscriptions().length });
   if (m === 'GET' && parts[0] === 'usage') return json(res, 200, usage.summary());
+  if (m === 'GET' && parts[0] === 'temps') return json(res, 200, sys.tempsHistory());
+  if (m === 'GET' && parts[0] === 'recap') { const off = Math.max(0, Math.min(6, +(url.searchParams.get('day') || 0))); return json(res, 200, await recap.recap(off, projects, usage.files(), cwd => rt.attributeTo(projects, cwd))); }
   if (m === 'GET' && parts[0] === 'claude' && parts[1] === 'sessions') return json(res, 200, claude.all());
   if (m === 'GET' && parts[0] === 'transcript' && parts[1]) { // last N turns of a Claude session, by tmux name
     const r = claude.get(decodeURIComponent(parts[1])); if (!r || !r.transcriptPath) return json(res, 404, { error: 'no transcript known for this session yet (it appears after its first hook event)' });
@@ -484,6 +507,7 @@ async function api(req, res, url) {
     }
     case 'claude-mute': { const name = String(b.session || ''); const set = new Set(settings.get().muted || []); if (b.muted) set.add(name); else set.delete(name); settings.update({ muted: [...set] }); pushState(true); return json(res, 200, { ok: true, muted: [...set] }); }
     case 'unit': { const u = String(b.unit || ''); if (!/^[A-Za-z0-9@._-]+\.service$/.test(u) || !['restart', 'stop', 'start'].includes(b.action)) return json(res, 400, { error: 'bad unit/action' }); const r = await run('systemctl', ['--user', b.action, u], { timeout: 20000 }); setTimeout(tick, 1500); return json(res, r.ok ? 200 : 500, r.ok ? { ok: true } : { error: r.stderr.trim() || 'failed' }); }
+    case 'clientlog': { console.log('client:', String(b.ua || '').slice(0, 60), '|', String(b.msg || '').slice(0, 300), '|', String(b.where || '').slice(0, 200)); return json(res, 200, { ok: true }); }
     case 'task': { const r = tasks.add(b); pushState(true); return json(res, r.ok ? 200 : 400, r); }
     case 'task-update': { const r = tasks.update(String(b.id || ''), b); pushState(true); return json(res, r.ok ? 200 : 400, r); }
     case 'task-remove': { const r = tasks.remove(String(b.id || '')); pushState(true); return json(res, 200, r); }
@@ -497,8 +521,10 @@ async function api(req, res, url) {
       if (!name) { const cands = snapshot.sessions.filter(s => s.claude && s.project === p.id && (s.claude.account || (s.name.endsWith('-company') ? 'company' : 'personal')) === account); name = cands[0]?.name || null; }
       if (!name) { const r = await actions.claudeSession(p, account, {}); if (!r.ok) return json(res, 500, r); name = r.name; setTimeout(tick, 800); setTimeout(tick, 2500); }
       const at = Date.now() + (snapshot.sessions.some(s => s.name === name) ? 0 : 8000);
-      const r = schedule.add(name, at, [tasks.prompt(t, p.name)]); if (!r.ok) return json(res, 500, r);
-      tasks.noteRun(t.id, name); pushState(true); return json(res, 200, { ok: true, session: name, job: r.job.id });
+      // one job per task, all on the same session, in order: the scheduler sends the next one only when the session is idle again
+      const list = Array.isArray(b.ids) && b.ids.length ? b.ids.map(i => tasks.all().find(x => x.id === String(i))).filter(x => x && x.status !== 'done' && x.project === p.id) : [t];
+      let last = null; for (const tk of list) { const r = schedule.add(name, at, [tasks.prompt(tk, p.name)]); if (!r.ok) return json(res, 500, r); tasks.noteRun(tk.id, name, r.job.id); last = r.job.id; }
+      pushState(true); return json(res, 200, { ok: true, session: name, job: last, count: list.length });
     }
     case 'schedule': { const r = schedule.add(b.session, +b.at, b.prompts || b.prompt); pushState(true); return json(res, r.ok ? 200 : 400, r); }
     case 'schedule-remove': { const r = schedule.remove(String(b.id || '')); pushState(true); return json(res, 200, r); }
@@ -586,6 +612,7 @@ const server = http.createServer(async (req, res) => {
   await tick();
   setPace();   // krece u mirnom taktu; prvi klijent ga digne
   limits.start(() => pushState(false));   // plan limits (5 h / 7 d / Fable) per account, every minute
-  setInterval(() => runSchedule().catch(e => console.error('schedule', e)), 5000);   // scheduled prompts: own clock, not tied to the (slow when unwatched) tick
+  setInterval(() => runSchedule().catch(e => console.error('schedule', e)), 5000);
+  setInterval(() => dailySummary().catch(e => console.error('daily', e)), 60000);   // scheduled prompts: own clock, not tied to the (slow when unwatched) tick
   server.listen(s.port, '0.0.0.0', () => console.log(`beast-dash on http://${TS_IP || '0.0.0.0'}:${s.port}  (${projects.length} projects)`));
 })();

@@ -107,10 +107,11 @@ function ico(name, size = 15) {
   e.innerHTML = ICONS[name] || ''; return e;
 }
 // Terminal / Chat is ONE global switch for this device (Mac, phone …): every Claude session shows the same way.
-const TERM = { open: false, active: null, frames: new Map(), lastUsed: new Map(), showList: false, listKey: '', mode: localStorage.getItem('bd.mode') === 'chat' ? 'chat' : 'term', chatEv: {}, chatN: 40 };
+const IS_PHONE = matchMedia('(max-width: 900px)').matches;
+const TERM = { open: false, active: null, frames: new Map(), lastUsed: new Map(), showList: false, listKey: '', mode: localStorage.getItem('bd.mode') ? (localStorage.getItem('bd.mode') === 'chat' ? 'chat' : 'term') : (IS_PHONE ? 'chat' : 'term'), chatEv: {}, chatN: 40 };
 const chatMode = name => TERM.mode === 'chat' && !!claudeOf(name);
 // Focus: hide the session list in the terminal panel (screen sharing) — per device, remembered
-TERM.focus = localStorage.getItem('bd.focus') === '1';
+TERM.focus = localStorage.getItem('bd.focus') === '1' && !IS_PHONE;   // focus mode is a desktop thing; on the phone the list must always be reachable
 function setFocus(on) { TERM.focus = on; localStorage.setItem('bd.focus', on ? '1' : '0'); document.body.classList.toggle('focus', on); renderTermPanel(true); }
 function setMode(mode) { TERM.mode = mode; localStorage.setItem('bd.mode', mode); renderTermPanel(true); renderChatPane(true); if (mode === 'term') { const f = TERM.frames.get(TERM.active); if (f) setTimeout(() => f.focus(), 50); } }
 // Chat mode for the active session: the conversation view in place of the tmux iframe (same tmux session underneath)
@@ -145,7 +146,29 @@ function openTerm(session) {
   const f = TERM.frames.get(session); if (f && !chatMode(session)) setTimeout(() => f.focus(), 50);   // focus ONLY here, never on a state tick
 }
 function openTermTab(session) { window.open(termUrl(session), '_blank'); }
-function closeTermPanel(pop = true) { if (!TERM.open) return; TERM.open = false; renderTermPanel(); if (pop) popLayer(); }
+// phone bugs are invisible from the desk: ship JS errors (with what was open) to the server journal, a few per minute at most
+let clientLogN = 0; setInterval(() => { clientLogN = 0; }, 60000);
+function clientLog(msg) {
+  if (clientLogN++ > 5) return;
+  const where = `view=${UI.view} term=${TERM.open} list=${TERM.showList} mode=${TERM.mode} active=${TERM.active} drawer=${UI.drawer} modal=${!$('#modal').classList.contains('hidden')} vv=${window.visualViewport ? Math.round(window.visualViewport.height) + '/' + Math.round(window.visualViewport.offsetTop) : '-'} standalone=${!!navigator.standalone}`;
+  try { navigator.sendBeacon ? navigator.sendBeacon('/api/clientlog', new Blob([JSON.stringify({ ua: navigator.userAgent, msg, where })], { type: 'application/json' })) : fetch('/api/clientlog', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ua: navigator.userAgent, msg, where }) }); } catch {}
+}
+window.addEventListener('error', e => clientLog(`${e.message} @ ${(e.filename || '').split('/').pop()}:${e.lineno}`));
+window.addEventListener('unhandledrejection', e => clientLog('rejection: ' + (e.reason && (e.reason.stack || e.reason.message || e.reason))));
+// the files on the server changed: reload now unless the user is typing (then a banner offers it)
+function newBuild() {
+  const typing = [...document.querySelectorAll('textarea, input.qr-in, .creply')].some(t => t.value && t.value.trim() && document.activeElement === t);
+  if (!typing && $('#modal').classList.contains('hidden')) { const u = new URL(location.href); if (TERM.open && TERM.active) { u.search = '?term=' + encodeURIComponent(TERM.active) + (TERM.mode === 'chat' ? '&mode=chat' : ''); } else if (UI.view !== 'home') u.search = '?view=' + UI.view; location.replace(u.href); return; }
+  if (!$('#newbuild')) document.body.append(h('button', { id: 'newbuild', class: 'btn primary', onclick: () => location.reload() }, ico('refresh', 14), 'Dashboard updated — reload'));
+}
+function closeTermPanel(pop = true) { if (!TERM.open) return; TERM.open = false; renderTermPanel(); if (pop) popLayer(); if (TOUCH) requestAnimationFrame(() => window.scrollTo(0, TERM.pageY || 0)); }
+// iOS: with the keyboard up, a touch-scroll on anything that is not itself scrollable moves the whole page under the
+// fixed panel (the "content behind" scroll). Only the chat list, the session list and textareas may scroll.
+document.addEventListener('touchmove', e => {
+  if (!TERM.open) return;
+  const ok = e.target.closest && e.target.closest('.cscroll, #term-list, .termside, textarea, .tsel, .chpath, .modal .box, .drawer, .sbody, .logbox, .peek-b');
+  if (!ok) e.preventDefault();
+}, { passive: false });
 function termOrder() { return [...new Set([...termSessions().all.map(x => x.name), ...TERM.frames.keys()])]; }
 function switchTerm(dir) { const o = termOrder(); if (!o.length) return; const i = Math.max(0, o.indexOf(TERM.active)); openTerm(o[(i + dir + o.length) % o.length]); }
 // ---------- mobile keyboard vs. terminal panel ----------
@@ -217,9 +240,11 @@ function termSessions() {
 }
 const STATE_LABEL = { working: 'working', background: 'waiting on background task', permission: 'needs permission', 'needs-you': 'done · needs you', error: 'error', limit: 'usage limit', idle: 'idle', unknown: 'no signal yet', ended: 'claude exited' };
 const STATE_ICON = { working: '●', background: '◐', permission: '⚠', 'needs-you': '✓', error: '✗', limit: '⏳', idle: '○', unknown: '·', ended: '■' };
-function stateBadge(cl) {
+const STATE_SHORT = { working: 'working', background: 'background', permission: 'permission', 'needs-you': 'needs you', error: 'error', limit: 'limit', idle: 'idle', unknown: '—', ended: 'exited' };
+function stateBadge(cl, compact = false) {
   if (!cl) return null; const st = cl.state || 'unknown';
-  return h('span', { class: 'cst ' + st, title: (STATE_LABEL[st] || st) + (cl.since ? ' since ' + new Date(cl.since).toLocaleTimeString() : '') }, h('i', null, STATE_ICON[st] || '·'), ' ', STATE_LABEL[st] || st, cl.since && st !== 'unknown' ? h('b', null, ' ' + ago(cl.since)) : null);
+  if (compact) return h('span', { class: 'cst ' + st, title: (STATE_LABEL[st] || st) }, h('i', null, STATE_ICON[st] || '·'), cl.since && st !== 'unknown' ? h('b', null, ' ' + ago(cl.since)) : null);
+  return h('span', { class: 'cst ' + st, title: (STATE_LABEL[st] || st) + (cl.since ? ' since ' + new Date(cl.since).toLocaleTimeString() : '') }, h('i', null, STATE_ICON[st] || '·'), ' ', (IS_PHONE ? STATE_SHORT[st] : STATE_LABEL[st]) || st, cl.since && st !== 'unknown' ? h('b', null, ' ' + ago(cl.since)) : null);
 }
 // which Claude on a project this is: the base one (by account), a numbered extra instance, or a git worktree
 function instOf(it) {
@@ -247,6 +272,7 @@ function whereTag(cl) {
 const nice = n => n.startsWith('claude-') ? '✦ ' + n.replace(/^claude-/, '').replace(/-company$/, ' (' + acctL('company') + ')') : n.startsWith('bd_') ? '▶ ' + n.replace(/^bd_/, '').replace('__', ' · ') : n === 'shell' ? 'bash' : n.startsWith('sh-') ? '$ ' + n : n;
 function renderTermPanel(force) {
   const el = $('#termpanel'); const live = S.runtime.sessions.length; $('#term-count').textContent = live;
+  if (TERM.open && !document.body.classList.contains('term-open')) TERM.pageY = window.scrollY;   // body goes position:fixed -> remember where the page was
   el.classList.toggle('hidden', !TERM.open); document.body.classList.toggle('term-open', TERM.open);
   if (!TERM.open) { fitTermPanel(); return; }
   trackVV(300);
@@ -303,14 +329,15 @@ function renderTermPanel(force) {
   const act = S.runtime.sessions.find(s => s.name === TERM.active); const cl = act && act.claude;
   // mobile: ☰ + native <select> session picker (sidebar is an overlay there)
   const allNames = [...new Set([...S3.all.map(x => x.name), ...TERM.frames.keys()])];
-  bar.append(h('button', { class: 'btn sm mob', title: 'sessions', onclick: () => { TERM.showList = !TERM.showList; renderTermPanel(true); } }, '☰'),
-    h('select', { class: 'mob tsel', onchange: e => openTerm(e.target.value) }, allNames.map(n => h('option', { value: n, selected: n === TERM.active }, (claudeOf(n) ? (STATE_ICON[claudeOf(n).state] || '') + ' ' : '') + nice(n)))));
+  const mobName = act ? (act.claude?.label || (act.project && byId()[act.project]?.name) || TERM.active) : (TERM.active || 'Sessions');
+  bar.append(h('button', { class: 'btn sm mob icon', title: 'sessions', onclick: () => { TERM.showList = !TERM.showList; renderTermPanel(true); } }, ico('sidebar', 17)),
+    h('button', { class: 'mob msess', title: 'switch session', onclick: () => { TERM.showList = true; renderTermPanel(true); } }, act ? avatar(act.project, 'sm') : null, h('span', { class: 'nm' }, mobName), instOf(act || { name: TERM.active || '' }).n ? h('span', { class: 'grp' }, '#' + instOf(act).n) : null, h('span', { class: 'caret' }, '▾')), cl && IS_PHONE ? stateBadge(cl, true) : null);
   const actProj = act && byId()[act.project]; const actGit = actProj && gitOf(actProj);
   const actDirty = actGit && !actGit.error ? actGit.dirty + actGit.untracked : 0;
   // one switch for every session on this device — not per session
   const chatSw = cl && cl.hooked ? h('span', { class: 'seg', title: 'Terminal or Chat view — applies to all Claude sessions on this device' }, h('button', { class: 'segb' + (TERM.mode !== 'chat' ? ' on' : ''), onclick: () => setMode('term') }, ico('terminal', 14), h('span', { class: 'desk' }, 'Terminal')), h('button', { class: 'segb' + (TERM.mode === 'chat' ? ' on' : ''), onclick: () => setMode('chat') }, ico('chat', 14), h('span', { class: 'desk' }, 'Chat'))) : null;
   const actName = act ? (cl?.label || (act.project && byId()[act.project]?.name) || TERM.active) : TERM.active;
-  if (TERM.active) barAdd(TERM.focus ? h('button', { class: 'btn sm ghost icon desk', title: 'show the session list', onclick: () => setFocus(false) }, ico('sidebar', 15)) : null, act ? avatar(act.project, 'sm') : null, h('span', { class: 'tname desk', title: TERM.active }, actName, instOf(act || { name: TERM.active }).n ? h('span', { class: 'grp' }, ' #' + instOf(act).n) : null), chatSw, cl ? stateBadge(cl) : null, modelChip(cl), cl ? whereTag(cl) : null, cl && cl.title ? h('span', { class: 'dim desk ttitle', title: cl.title }, cl.title) : act ? h('span', { class: 'dim mono desk', style: 'font-size:11.5px' }, act.cwd) : h('span', { class: 'dim desk' }, TERM.active === 'shell' ? home(S.host.devRoot || '~') : 'session ended'), h('span', { class: 'sp' }),
+  if (TERM.active) barAdd(TERM.focus ? h('button', { class: 'btn sm ghost icon desk', title: 'show the session list', onclick: () => setFocus(false) }, ico('sidebar', 15)) : null, act ? avatar(act.project, 'sm') : null, h('span', { class: 'tname desk', title: TERM.active }, actName, instOf(act || { name: TERM.active }).n ? h('span', { class: 'grp' }, ' #' + instOf(act).n) : null), chatSw, cl && !IS_PHONE ? stateBadge(cl) : null, modelChip(cl), cl ? whereTag(cl) : null, cl && cl.title ? h('span', { class: 'dim desk ttitle', title: cl.title }, cl.title) : act ? h('span', { class: 'dim mono desk', style: 'font-size:11.5px' }, act.cwd) : h('span', { class: 'dim desk' }, TERM.active === 'shell' ? home(S.host.devRoot || '~') : 'session ended'), h('span', { class: 'sp' }),
     actProj ? h('button', { class: 'btn sm projbtn', title: 'project details — changes, files, logs, branches, docker', onclick: () => openDrawer(actProj.id, actDirty ? 'changes' : 'overview') }, ico('folder', 14), h('span', { class: 'desk' }, 'Project'), actDirty ? h('span', { class: 'pill warn' }, '± ' + actDirty) : null) : null,
     act ? h('button', { class: 'btn sm desk', title: 'copy the ssh command that attaches to this tmux session', onclick: () => navigator.clipboard.writeText(attachCmd(TERM.active)).then(() => toast('copied')) }, ico('copy', 13), 'ssh') : null,
     h('button', { class: 'btn sm desk', title: 'open in new browser tab', onclick: () => openTermTab(TERM.active) }, ico('ext', 13), 'Tab'),
@@ -433,10 +460,50 @@ function tempChip(t, what) {
   if (t == null || !(t > 0)) return null; const hue = Math.round(195 * (1 - Math.min(1, Math.max(0, (t - 35) / 60))));
   return h('span', { class: 'temp', style: `color:hsl(${hue} 45% 68%);background:hsl(${hue} 45% 68% / .12);border-color:hsl(${hue} 45% 68% / .3)`, title: (what || 'temperature') + ` ${t.toFixed(1)} °C` }, t.toFixed(0) + '°');
 }
+// 24 h history behind the CPU / GPU / Memory / Disk tiles: usage + temperatures, one point a minute (server keeps it)
+const HIST24 = { data: [], at: 0 };
+async function sysModal(kind) {
+  const m = $('#modal'); m.classList.remove('hidden');
+  if (Date.now() - HIST24.at > 30000) { try { HIST24.data = await api('temps'); HIST24.at = Date.now(); } catch {} }
+  const s = S.stats; const d = HIST24.data;
+  const series = {   // [label, column, colour, unit, min, max]
+    cpu: [['CPU usage', 4, 'rgb(126,166,224)', '%', 0, 100], ['CPU temp', 1, 'rgb(207,160,106)', '°C', 20, 95]],
+    gpu: [['GPU usage', 5, 'rgb(127,191,149)', '%', 0, 100], ['GPU temp', 2, 'rgb(207,160,106)', '°C', 20, 95]],
+    mem: [['Memory used', 6, 'rgb(169,147,201)', '%', 0, 100]],
+    disk: [['NVMe temp', 3, 'rgb(207,160,106)', '°C', 20, 90]],
+  }[kind];
+  const titles = { cpu: 'CPU', gpu: 'GPU', mem: 'Memory', disk: 'Disk' };
+  const stat = (k, v) => h('div', { class: 'sst' }, h('div', { class: 'k' }, k), h('div', { class: 'v mono' }, v));
+  const now = kind === 'cpu' ? [stat('now', s.cpu.pct.toFixed(0) + '%'), stat('temp', s.cpu.temp ? s.cpu.temp.toFixed(0) + '°' : '–'), stat('load', s.load.map(x => x.toFixed(2)).join(' ')), stat('cores', s.cpu.count)]
+    : kind === 'gpu' ? [stat('now', (s.gpu?.util ?? 0) + '%'), stat('temp', (s.gpu?.temp ?? '–') + '°'), stat('power', s.gpu?.power ? s.gpu.power.toFixed(0) + ' W' : '–'), stat('vram', s.gpu ? fmtB(s.gpu.memUsed) + ' / ' + fmtB(s.gpu.memTotal) : '–')]
+    : kind === 'mem' ? [stat('used', fmtB(s.mem.used)), stat('cache', fmtB(s.mem.cached)), stat('free', fmtB(s.mem.total - s.mem.used - s.mem.cached)), stat('swap', fmtB(s.mem.swapUsed || 0))]
+    : [stat('used', fmtB(s.disks?.[0]?.used)), stat('free', fmtB(s.disks?.[0]?.avail)), stat('temp', s.temps?.nvme ? s.temps.nvme.toFixed(0) + '°' : '–')];
+  const charts = series.map(([label, col, colour, unit, lo, hi]) => { const vals = d.map(x => x[col]).filter(v => v != null); const mx = vals.length ? Math.max(...vals) : null, avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+    return h('div', { class: 'schart' }, h('div', { class: 'sch-h' }, h('span', { class: 'sch-l' }, h('i', { style: 'background:' + colour }), label), h('span', { class: 'sp' }), h('span', { class: 'dim mono' }, mx != null ? `max ${mx.toFixed(0)}${unit} · avg ${avg.toFixed(0)}${unit}` : 'collecting…')), h('canvas', { 'data-col': col, 'data-colour': colour, 'data-lo': lo, 'data-hi': hi })); });
+  const box = h('div', { class: 'box settings sys' }, h('div', { class: 'sh' }, h('h3', null, titles[kind] + ' · last 24 h'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost icon', onclick: () => m.classList.add('hidden') }, ico('x', 15))),
+    h('div', { class: 'sbody' }, h('div', { class: 'sstats' }, now), charts, kind === 'cpu' ? h('div', { class: 'cores big' }, s.cpu.cores.map(c => h('i', { title: c.toFixed(0) + '%' }, h('b', { style: `width:${c}%` })))) : null, h('div', { class: 'hint' }, `${d.length} samples · one a minute · history starts when the dashboard started collecting`)));
+  m.replaceChildren(box); m.onclick = e => { if (e.target === m) m.classList.add('hidden'); };
+  requestAnimationFrame(() => { for (const c of box.querySelectorAll('canvas')) drawHist(c, d); });
+}
+function drawHist(c, d) {
+  const col = +c.dataset.col, colour = c.dataset.colour, lo = +c.dataset.lo, hi = +c.dataset.hi;
+  const dpr = window.devicePixelRatio || 1; const W = c.clientWidth, H = c.clientHeight; if (!W) return; c.width = W * dpr; c.height = H * dpr;
+  const ctx = c.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+  const t1 = Date.now(), t0 = t1 - 24 * 3600e3; const x = t => (t - t0) / (t1 - t0) * W; const y = v => H - 4 - (Math.min(hi, Math.max(lo, v)) - lo) / (hi - lo) * (H - 10);
+  ctx.strokeStyle = 'rgba(255,255,255,.07)'; ctx.lineWidth = 1; ctx.font = '10px ' + getComputedStyle(document.body).getPropertyValue('--mono'); ctx.fillStyle = 'rgba(255,255,255,.3)';
+  for (let i = 0; i <= 4; i++) { const v = lo + (hi - lo) * i / 4; ctx.beginPath(); ctx.moveTo(0, y(v)); ctx.lineTo(W, y(v)); ctx.stroke(); ctx.fillText(v.toFixed(0), 2, y(v) - 2); }
+  for (let hh = 0; hh <= 24; hh += 6) { const t = t1 - hh * 3600e3; ctx.beginPath(); ctx.moveTo(x(t), 0); ctx.lineTo(x(t), H); ctx.stroke(); if (hh) ctx.fillText('-' + hh + 'h', x(t) + 3, H - 2); }
+  if (d.length < 2) return;
+  ctx.beginPath(); let started = false;
+  for (const p of d) { if (p[col] == null) { started = false; continue; } const px = x(p[0]), py = y(p[col]); if (!started) { ctx.moveTo(px, py); started = true; } else ctx.lineTo(px, py); }
+  ctx.strokeStyle = colour; ctx.lineWidth = 1.6; ctx.lineJoin = 'round'; ctx.stroke();
+  ctx.lineTo(x(d[d.length - 1][0]), H); ctx.lineTo(x(d[0][0]), H); ctx.closePath(); ctx.fillStyle = colour.replace('rgb', 'rgba').replace(')', ',.12)'); ctx.fill();
+}
 function renderStats() {
   const s = S.stats; const el = $('#stats'); if (!s) return;
   const tiles = [];
-  const tile = (key, k, v, unit, sub, cls, extra) => h('div', { class: 'tile ' + (cls || ''), 'data-k': key }, h('div', { class: 'k' }, h('span', null, k), extra?.right), h('div', { class: 'v' }, v, h('small', null, unit)), h('div', { class: 's' }, sub), extra?.body, h('canvas'));
+  const DETAIL = { cpu: 'cpu', gpu: 'gpu', mem: 'mem', disk: 'disk' };
+  const tile = (key, k, v, unit, sub, cls, extra) => h('div', { class: 'tile ' + (cls || '') + (DETAIL[key] ? ' clickable' : ''), 'data-k': key, title: DETAIL[key] ? 'click: 24 h history' : null, onclick: DETAIL[key] ? () => sysModal(DETAIL[key]) : null }, h('div', { class: 'k' }, h('span', null, k), extra?.right), h('div', { class: 'v' }, v, h('small', null, unit)), h('div', { class: 's' }, sub), extra?.body, h('canvas'));
   const cpuCls = s.cpu.pct > 85 ? 'hot' : s.cpu.pct > 60 ? 'warn' : '';
   tiles.push(tile('cpu', 'CPU', s.cpu.pct.toFixed(0), '%', `${s.cpu.count} cores · load ${s.load.map(x => x.toFixed(2)).join(' ')}`, cpuCls, { right: tempChip(s.cpu.temp, 'CPU (Tctl)'), body: h('div', { class: 'cores' }, s.cpu.cores.map(c => h('i', null, h('b', { style: `width:${c}%;background:${c > 85 ? 'var(--red)' : c > 50 ? 'var(--amber)' : 'var(--accent)'}` })))) }));
   const memPct = s.mem.used / s.mem.total * 100;
@@ -539,6 +606,7 @@ function renderTermStrip() {
   const ss = scheduledStrip(); if (ss) el.append(ss);
   if (!S3.claude.length) { el.append(h('div', { class: 'tsempty' }, 'No Claude sessions. Open ', h('a', { href: '#', onclick: ev => { ev.preventDefault(); setView('projects'); } }, 'Projects'), ' and press ✦ Claude ▾ on a card, or ⌘K.')); return; }
   el.append(h('div', { class: 'agents' }, claudeGroups(S3.claude).map(agentGroup)));
+  el.append(recapStrip());
 }
 
 // ---------- running (home page): dev servers, processes, containers, shells — one table with controls ----------
@@ -983,6 +1051,41 @@ function scheduleDialog(name, draft) {
   m.replaceChildren(box); m.onclick = e => { if (e.target === m) m.classList.add('hidden'); };
   setAt(at); setTimeout(() => first.focus(), 50);
 }
+// Recap: what I did today / yesterday, per project. Collapsed = one calm line per project; open a project to see its
+// commits and sessions; open a session to see what you asked and what it edited.
+const RECAP = { day: 0, data: {}, at: {}, open: JSON.parse(localStorage.getItem('bd.recap') || '{"show":true}') };
+const recapSave = () => localStorage.setItem('bd.recap', JSON.stringify(RECAP.open));
+function recapStrip() {
+  const d = RECAP.data[RECAP.day];
+  if (!d || Date.now() - (RECAP.at[RECAP.day] || 0) > 120000) { RECAP.at[RECAP.day] = Date.now(); api('recap?day=' + RECAP.day).then(r => { RECAP.data[RECAP.day] = r; renderTermStrip(); }).catch(() => {}); }
+  const tabs = h('div', { class: 'seg' }, [['Today', 0], ['Yesterday', 1], ['2 days ago', 2], ['3 days ago', 3]].map(([l, i]) => h('button', { class: 'segb' + (RECAP.day === i ? ' on' : ''), onclick: () => { RECAP.day = i; renderTermStrip(); } }, l)));
+  const head = h('div', { class: 'rc-head' }, h('button', { class: 'rc-toggle', onclick: () => { RECAP.open.show = !RECAP.open.show; recapSave(); renderTermStrip(); } }, h('span', { class: 'caret' }, RECAP.open.show ? '▾' : '▸'), 'Recap'), d && RECAP.open.show ? h('span', { class: 'rc-sum' }, d.day, ' · ', [d.totals.commits ? `${d.totals.commits} commits` : null, d.totals.sessions ? `${d.totals.sessions} sessions` : null, d.totals.cost ? usd(d.totals.cost) : null].filter(Boolean).join(' · ') || 'nothing recorded') : null, h('span', { class: 'sp' }), RECAP.open.show ? tabs : null);
+  const box = h('section', { class: 'recap' }, head);
+  if (!RECAP.open.show) return box;
+  if (!d) { box.append(h('div', { class: 'rc-empty' }, 'loading…')); return box; }
+  if (!d.projects.length) { box.append(h('div', { class: 'rc-empty' }, 'Nothing on ' + d.day + '.')); return box; }
+  const fmtT = ts => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  box.append(h('div', { class: 'rc-list' }, d.projects.map(p => {
+    const key = d.day + '/' + p.id; const open = !!RECAP.open[key];
+    const meta = [p.commits.length ? `${p.commits.length} commit${p.commits.length > 1 ? 's' : ''}` : null, p.sessions.length ? `${p.sessions.length} session${p.sessions.length > 1 ? 's' : ''}` : null, p.cost ? usd(p.cost) : null].filter(Boolean).join(' · ');
+    const sub = p.sessions.map(x => x.title).filter(Boolean).slice(0, 2).join(' · ') || (p.commits[0] ? p.commits[0].subject : '');
+    const row = h('div', { class: 'rc-row', onclick: () => { RECAP.open[key] = !open; recapSave(); renderTermStrip(); } },
+      avatar(p.id.startsWith('dir:') ? null : p.id), h('div', { class: 'rc-t' }, h('div', { class: 'rc-n' }, p.name), sub ? h('div', { class: 'rc-s' }, sub) : null), h('span', { class: 'rc-m' }, meta), h('span', { class: 'caret' }, open ? '▾' : '▸'));
+    if (!open) return h('div', { class: 'rc-p' }, row);
+    const body = h('div', { class: 'rc-body' });
+    if (p.commits.length) body.append(h('div', { class: 'rc-sec' }, h('div', { class: 'rc-k' }, 'Commits', h('span', { class: 'n' }, p.commits.length)), h('div', { class: 'rc-commits' }, p.commits.map(c => h('div', { class: 'rc-c' }, h('span', { class: 'mono t' }, fmtT(c.ts)), h('span', { class: 'mono hsh' }, c.hash), h('span', { class: 'sub' }, c.subject))))));
+    for (const x of p.sessions) {
+      const skey = key + '/' + x.sessionId; const sopen = !!RECAP.open[skey];
+      body.append(h('div', { class: 'rc-sec sess' },
+        h('div', { class: 'rc-k' }, h('span', { class: 'ttl' }, x.title || 'Claude session'), h('span', { class: 'badge tag acc ' + x.account }, acct(x.account)), h('span', { class: 'sp' }), h('span', { class: 'mono dim' }, `${x.turns} prompts · ${usd(x.cost)}`), h('button', { class: 'btn sm ghost', title: 'open the conversation', onclick: ev => { ev.stopPropagation(); openTranscriptFile({ file: x.transcript, title: x.title, sessionId: x.sessionId, account: x.account, cwd: x.cwd, mtime: Date.now() }); } }, ico('ext', 13), 'Open')),
+        h('button', { class: 'rc-more', onclick: ev => { ev.stopPropagation(); RECAP.open[skey] = !sopen; recapSave(); renderTermStrip(); } }, h('span', { class: 'caret' }, sopen ? '▾' : '▸'), sopen ? 'Hide what I asked' : `What I asked (${Math.min(x.prompts.length, x.turns)})`),
+        sopen ? h('div', { class: 'rc-q' }, x.prompts.map(q => h('div', { class: 'q' }, h('span', { class: 'mono t' }, fmtT(q.ts)), h('span', { class: 'tx' }, q.text)))) : null,
+        x.files.length ? h('div', { class: 'rc-f' }, h('span', { class: 'lbl' }, 'edited'), x.files.slice(0, 14).map(f => h('span', { class: 'ag-tag', title: f }, f.split('/').pop())), x.files.length > 14 ? h('span', { class: 'dim' }, `+${x.files.length - 14}`) : null) : null));
+    }
+    return h('div', { class: 'rc-p open' }, row, body);
+  })));
+  return box;
+}
 // Pending scheduled messages (home, under the agents header): who, when, what, cancel.
 function scheduledStrip() {
   const jobs = (S.claude?.schedule || []).filter(j => j.state !== 'done' && j.state !== 'failed').sort((a, b) => a.at - b.at);
@@ -1395,7 +1498,7 @@ function settingsModal() {
         row('Projects', `rescan ${home(S.host.devRoot || '~')} for new folders`, h('button', { class: 'btn sm', onclick: () => act('Rescan', api('rescan', {})) }, 'Rescan')),
         row('State backup', 'nightly tar of sessions, labels, push subscriptions, settings, schedule — 14 kept', h('a', { href: '/api/backup', class: 'btn sm' }, 'Download'))),
       sect('Notifications',
-        ncb('done', 'Session finished'), ncb('permission', 'Needs permission'), ncb('error', 'Session error'), ncb('limit', 'Usage limit hit'), ncb('crash', 'Dev server died'), ncb('digest', 'Monday weekly digest'),
+        ncb('done', 'Session finished'), ncb('permission', 'Needs permission'), ncb('error', 'Session error'), ncb('limit', 'Usage limit hit'), ncb('crash', 'Dev server died'), ncb('digest', 'Monday weekly digest'), row('Morning summary', '08:00 — tasks to review, sessions that need you, yesterday\'s spend', sw(n.daily !== false, { 'data-n': 'daily' })),
         row('Quiet hours', 'no push between these times', h('span', { class: 'qh' }, qf, h('span', { class: 'dim' }, '–'), qt)),
         row('Sound', 'ding on this device when a session needs you', sw(SOUND.on, { onchange: e => { SOUND.on = e.target.checked; localStorage.setItem('bd.sound', SOUND.on ? '1' : '0'); if (SOUND.on) ding('done'); } })),
         row('Push', PUSH.supported ? `${S.host.pushSubs || 0} device(s) subscribed · ` + (PUSH.sub ? 'enabled here' : 'not enabled on this device') : 'needs HTTPS (service worker) — open via https://' + (S.host.tsName || '<magicdns-name>'),
@@ -1427,8 +1530,8 @@ function renderTasks() {
     h('button', { class: 'btn sm ghost', onclick: () => { TASKS_UI.showDone = !TASKS_UI.showDone; renderTasks(); } }, TASKS_UI.showDone ? 'hide done' : `done (${done.length})`),
     h('button', { class: 'btn sm primary', onclick: () => taskModal(null) }, ico('plus', 14), 'New task')));
   if (!open.length && !TASKS_UI.showDone) el.append(h('div', { class: 'tsempty' }, 'No open tasks. Write yourself one — as detailed as a prompt, with screenshots — and hand it to Claude when you are ready.'));
-  const groups = [['doing', 'In progress'], ['todo', 'To do']];
-  for (const [st, label] of groups) { const ts = open.filter(t => t.status === st); if (!ts.length) continue; el.append(h('div', { class: 'tksec' }, label, h('span', { class: 'n' }, ts.length)), h('div', { class: 'tklist' }, ts.map(taskCard))); }
+  const review = open.filter(t => t.result); const doing = open.filter(t => t.status === 'doing' && !t.result); const todo = open.filter(t => t.status === 'todo');
+  for (const [label, ts, cls] of [['Needs your review', review, ' review'], ['In progress', doing, ''], ['To do', todo, '']]) { if (!ts.length) continue; el.append(h('div', { class: 'tksec' + cls }, label, h('span', { class: 'n' }, ts.length)), h('div', { class: 'tklist' }, ts.map(taskCard))); }
   if (TASKS_UI.showDone && done.length) el.append(h('div', { class: 'tksec' }, 'Done', h('span', { class: 'n' }, done.length)), h('div', { class: 'tklist done' }, done.sort((a, b) => b.doneAt - a.doneAt).map(taskCard)));
 }
 function taskCard(t) {
@@ -1442,19 +1545,26 @@ function taskCard(t) {
         t.status !== 'done' ? h('button', { class: 'btn sm', title: 'mark done', onclick: () => api('task-update', { id: t.id, status: 'done' }).then(() => toast('done ✓', 'ok')) }, '✓ Done') : h('button', { class: 'btn sm', title: 'reopen', onclick: () => api('task-update', { id: t.id, status: 'todo' }) }, '↺ Reopen'),
         h('button', { class: 'btn sm icon ghost', title: 'edit', onclick: () => taskModal(t) }, '✎'),
         h('button', { class: 'btn sm icon ghost', title: 'delete', onclick: () => { if (confirm('Delete this task?')) api('task-remove', { id: t.id }); } }, ico('x', 13)))),
+    t.result ? h('div', { class: 'tk-result' + (t.result.ok ? '' : ' err') }, h('div', { class: 'tk-rh' }, t.result.ok ? '✓ Claude finished' : '✗ failed', h('span', { class: 'dim' }, ' · ' + ago(t.result.at) + ' ago'), h('span', { class: 'sp' }), t.status !== 'done' ? h('button', { class: 'btn sm primary', onclick: () => api('task-update', { id: t.id, status: 'done' }).then(() => toast('done ✓', 'ok')) }, '✓ Accept · Done') : null, t.result.session ? h('button', { class: 'btn sm', onclick: () => openTerm(t.result.session) }, 'Open chat') : null), h('div', { class: 'tk-rs' }, oneLine(t.result.summary || t.result.error || '', 600))) : null,
     t.body ? h('div', { class: 'tk-body', onclick: () => taskModal(t) }, t.body) : null,
     imgs.length || others.length ? h('div', { class: 'tk-files' }, imgs.map(f => h('a', { href: '/api/file?p=' + encodeURIComponent(f), target: '_blank', title: f.split('/').pop() }, h('img', { src: '/api/file?p=' + encodeURIComponent(f), loading: 'lazy' }))), others.map(f => h('a', { class: 'tk-file', href: '/api/file?p=' + encodeURIComponent(f), target: '_blank', title: f }, ico('clip', 12), f.split('/').pop()))) : null);
 }
 function runTaskMenu(ev, t) {
   const p = t.project && byId()[t.project]; if (!p) { toast('pick a project for this task first', 'err'); return taskModal(t); }
   const live = S.runtime.sessions.filter(s => s.claude && s.project === p.id);
-  const go = (account, session) => act('Task → ' + p.name, api('task-run', { id: t.id, account, session })).then(r => { if (r && r.session) setTimeout(() => openTerm(r.session), 1200); });
+  const others = (S.claude?.tasks || []).filter(x => x.project === p.id && x.status !== 'done' && x.id !== t.id);
+  const go = (account, session, ids) => act((ids ? ids.length + ' tasks' : 'Task') + ' → ' + p.name, api('task-run', { id: t.id, account, session, ids })).then(r => { if (r && r.session) setTimeout(() => openTerm(r.session), 1200); });
+  const chain = [t.id, ...others.map(x => x.id)];
   openMenu(ev, [
     { header: 'Send the task as a prompt to…' },
     ...live.map(s => ({ label: (s.claude.label || p.name) + (instOf(s).n ? ' #' + instOf(s).n : ''), sub: `${s.name} · ${STATE_LABEL[s.claude.state] || ''}${s.claude.state === 'working' ? ' — queued until it is idle' : ''}`, icon: '●', cur: true, onclick: () => go(s.claude.account, s.name) })),
     live.length ? 'sep' : null,
     { label: `New ${acctL('personal')} session`, sub: 'starts claude in ' + home(p.path), icon: '＋', onclick: () => go('personal') },
     { label: `New ${acctL('company')} session`, sub: `starts claude (${acctL('company')} account)`, icon: '＋', onclick: () => go('company') },
+    others.length ? 'sep' : null,
+    others.length ? { header: `Chain: this + ${others.length} more open task${others.length > 1 ? 's' : ''} on ${p.name}, one after another` } : null,
+    ...(others.length ? live.map(s => ({ label: 'Run all on ' + (s.claude.label || p.name) + (instOf(s).n ? ' #' + instOf(s).n : ''), sub: s.name, icon: '▶▶', onclick: () => go(s.claude.account, s.name, chain) })) : []),
+    others.length ? { label: `Run all in a new ${acctL('personal')} session`, icon: '▶▶', onclick: () => go('personal', null, chain) } : null,
   ].filter(Boolean));
 }
 // New / edit task: project picker, title, prompt-style body (paste or drop screenshots straight in), attachments kept forever
@@ -1497,6 +1607,7 @@ function render() {
   if (UI.menuOpen) return; // don't yank menus from under the cursor
   $('#view-home').classList.toggle('hidden', UI.view !== 'home'); $('#view-projects').classList.toggle('hidden', UI.view !== 'projects'); $('#view-tasks').classList.toggle('hidden', UI.view !== 'tasks');
   for (const b of document.querySelectorAll('#nav .navb')) b.classList.toggle('on', b.dataset.view === UI.view);
+  document.body.classList.toggle('view-projects', UI.view === 'projects');
   renderHeader(); renderBanner(); renderTunnels(); 
   if (UI.view === 'home') { renderStats(); renderTermStrip(); renderRunning(); } else if (UI.view === 'tasks') renderTasks(); else renderMain();
   if (UI.drawer) renderDrawer(false);
@@ -1508,7 +1619,7 @@ function render() {
 // ---------- events ----------
 function connect() {
   const es = new EventSource('/api/events');
-  es.addEventListener('state', e => { const d = JSON.parse(e.data); Object.assign(S, { projects: d.projects, runtime: d.runtime, settings: d.settings, host: d.host, claude: d.claude || S.claude, health: d.health || S.health || {}, crashes: d.crashes || [] }); render(); firstState(); });
+  es.addEventListener('state', e => { const d = JSON.parse(e.data); if (d.host && d.host.build) { if (!S.build) S.build = d.host.build; else if (S.build !== d.host.build) { S.build = d.host.build; newBuild(); } } Object.assign(S, { projects: d.projects, runtime: d.runtime, settings: d.settings, host: d.host, claude: d.claude || S.claude, health: d.health || S.health || {}, crashes: d.crashes || [] }); render(); firstState(); });
   es.addEventListener('history', e => { S.hist = JSON.parse(e.data); drawSparks(); });
   es.addEventListener('stats', e => { S.stats = JSON.parse(e.data); const H = S.hist; const push = (a, v) => { a.push(v); if (a.length > 180) a.shift(); }; push(H.cpu, S.stats.cpu.pct); push(H.mem, S.stats.mem.used / S.stats.mem.total * 100); push(H.gpu, S.stats.gpu?.util || 0); push(H.net, [S.stats.net.rxRate, S.stats.net.txRate]); if (!UI.menuOpen && UI.view === 'home') renderStats(); });
   es.addEventListener('ding', e => { const d = JSON.parse(e.data); if (SOUND.on) ding(d.state); });
@@ -1641,6 +1752,8 @@ function firstState() {
   else if (q.get('newtask')) { history.replaceState(null, '', location.pathname); setView('tasks'); taskModal(null, q.get('newtask') === '1' ? null : q.get('newtask')); }
   else if (q.get('settings')) { history.replaceState(null, '', location.pathname); settingsModal(); }
   else if (q.get('schedule')) { history.replaceState(null, '', location.pathname); scheduleDialog(q.get('schedule'), ''); }
+  // a notification tap while the app is already open (service worker posts the target url)
+  if (navigator.serviceWorker) navigator.serviceWorker.addEventListener('message', ev => { const u = ev.data && ev.data.open; if (!u) return; const qq = new URL(u, location.origin).searchParams; const term = qq.get('term'); if (term) { if (qq.get('mode') === 'chat') { TERM.mode = 'chat'; localStorage.setItem('bd.mode', 'chat'); } if (UI.drawer) closeDrawer(); openTerm(term); } else if (qq.get('session')) openSession(qq.get('session'), 'transcript'); else if (qq.get('view')) setView(qq.get('view')); });
   pushStatus();
 }
 connect();

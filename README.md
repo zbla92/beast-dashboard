@@ -24,14 +24,17 @@ your projects and it gives you:
   session (or starts one).
 - **Tunnels** — ports that projects bind on `127.0.0.1` are forwarded onto your Tailscale IP with
   `socat`, so `http://100.x.y.z:5173` just works from any of your devices.
-- **System** — CPU (per core + temperature), memory, GPU, disk, network, with history.
+- **Recap** — what happened today / yesterday / the day before, per project: your commits, the
+  Claude sessions that ran (title, what you asked, files edited) and what they cost.
+- **System** — CPU (per core + temperature), memory, GPU, disk, network; each tile opens a
+  24-hour detail (usage + temperature charts, per-core bars).
 
 It runs on a home server, a VPS or any Linux machine you can SSH into. No accounts, no cloud,
 nothing leaves your tailnet.
 
 | Projects | Changes & commits | Phone |
 |---|---|---|
-| ![](docs/screenshots/projects.png) | ![](docs/screenshots/changes.png) | ![](docs/screenshots/phone-agent.png) |
+| ![](docs/screenshots/projects.png) | ![](docs/screenshots/changes.png) | ![](docs/screenshots/phone-agents.png) |
 
 ---
 
@@ -165,7 +168,9 @@ collapsed, with *Files edited* linking to diffs. `Esc`, `^C`, `y`/`n` are one ta
 
 **Scheduling.** ⏰ on a session: send a prompt (or a chain of prompts — each waits for the previous
 one to finish) at a given time. Combine with **Tasks**: write yourself prompt-style tasks with
-attachments, then *Run* one on a project's session while you're away.
+attachments, then *Run* one — or *Run all* open tasks of a project, chained on one session — while
+you're away. When Claude finishes, its closing summary lands on the task (*Needs your review →
+Accept / Done*), and the push notification can be answered with a quick reply.
 
 **Cost and limits.** *Claude today* prices the tokens in the local transcripts at API list price
 (on a subscription nothing is billed per token — it measures how much work the agents did). *Usage
@@ -182,8 +187,9 @@ read-only and *Resume here*.
 
 ## Everyday use
 
-- **Home** — system tiles, the agents that need you first, and the running table (dev servers,
-  processes started by hand, containers) with ports, CPU, memory, logs, restart, stop.
+- **Home** — system tiles, the agents that need you first, the day's recap, and the running
+  table (dev servers, processes started by hand, containers) with ports, CPU, memory, logs,
+  restart, stop. On a phone the agents come first and chat is the default view of a session.
 - **Projects** — cards grouped by org. ▶ runs the primary command; ▾ lists every script /
   Makefile target / compose action / your own custom commands. *Open* → the drawer: Overview,
   Changes (stage · commit · push, diffs), Files (tree, diffs, editor), Logs, Branches, Docker,
@@ -192,6 +198,8 @@ read-only and *Resume here*.
 - **Terminals** — the terminal panel with a session list; `t`, `n` (next session that needs you),
   `s` (new shell), `1-9` switch. Inside a terminal: `Ctrl+Shift+←/→` switch, `Ctrl+Shift+↑` back.
 - **⌘K / Ctrl+K** — jump to any session or project, start Claude, run actions, search conversations.
+
+![Recap: commits and Claude sessions per project, per day](docs/screenshots/recap.png)
 
 ![Command palette](docs/screenshots/palette.png)
 
@@ -239,7 +247,8 @@ lib/usage.js         transcript cost        lib/limits.js   plan limits
 lib/schedule.js      timed prompts          lib/tasks.js    task backlog
 lib/gitinfo.js       git status/diffs       lib/files.js    file tree / editor
 lib/expose.js        socat forwards         lib/push.js     Web Push (VAPID + aes128gcm, no deps)
-lib/health.js        port health            lib/sys.js      system stats
+lib/health.js        port health            lib/sys.js      system stats (24 h history)
+lib/recap.js         per-day recap from git log + transcripts
 public/              the UI — vanilla JS, one file
 term/                ttyd's page + the phone layer (build with bin/build-term-index.sh)
 bin/                 hook script + installer, HTTPS setup, terminal entrypoint, icon generator
