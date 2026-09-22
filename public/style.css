@@ -882,13 +882,6 @@ body.term-open { overflow: hidden; }
 .titem.st-limit .dot { background: #fb7185 !important; box-shadow: 0 0 8px #fb7185 !important; }
 .pi .c.wrap { white-space: normal; line-height: 1.35; }
 .pi.hit .k { max-width: 40%; overflow: hidden; text-overflow: ellipsis; }
-.review { border: 1px solid rgba(126,166,224,.35); background: rgba(126,166,224,.05); border-radius: 12px; padding: 10px 14px; }
-.review .who { color: var(--accent); }
-.rfiles { display: flex; flex-direction: column; gap: 3px; margin: 6px 0 8px; }
-.rf { display: flex; align-items: center; gap: 8px; font-size: 12.5px; min-width: 0; }
-.rf .chpath { font-size: 12px; }
-.rf .btn.sm { padding: 1px 7px; }
-.racts { display: flex; gap: 6px; flex-wrap: wrap; }
 .tli { display: flex; flex-direction: column; gap: 3px; }
 .tli.err .tn { color: var(--red); }
 .mcode.small { font-size: 11px; margin: 2px 0 4px; padding: 5px 8px; white-space: pre-wrap; word-break: break-all; }

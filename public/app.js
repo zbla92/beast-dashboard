@@ -929,16 +929,6 @@ function renderConversation(box, name, t, o) {
     conv.append(h('div', { class: 'turn ' + turn.role }, h('div', { class: 'who' }, turn.role === 'user' ? '❯ you' : '✦ claude', turn.ts ? h('span', { class: 'dim mono' }, ' ' + new Date(turn.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })) : null),
       turn.text ? h('div', { class: 'ttext', html: mdLite(turn.text) }) : null, toolsBlock(turn)));
   }
-  // review card: Claude finished and edited files -> approve / ask for changes / look at or revert each file
-  const s0 = S.runtime.sessions.find(x => x.name === name); const pr0 = s0 && byId()[s0.project]; const cl0 = s0?.claude || {};
-  if ((cl0.state === 'needs-you' || cl0.state === 'idle') && (t.touched || []).length && pr0) {
-    const root = pr0.path; const files = t.touched.filter(f => f.path.startsWith(root + '/')).slice(0, 12);
-    if (files.length) conv.append(h('div', { class: 'review' }, h('div', { class: 'who' }, '± review changes', h('span', { class: 'dim mono' }, ` ${files.length} file${files.length === 1 ? '' : 's'} edited this session`)),
-      h('div', { class: 'rfiles' }, files.map(f => { const rel = f.path.slice(root.length + 1); return h('div', { class: 'rf' }, fileIcon(rel), h('span', { class: 'chpath' }, rel),
-        h('button', { class: 'btn sm ghost', title: 'diff', onclick: () => { FILES.sel = rel; FILES.mode = 'diff'; closeDrawer(); closeTermPanel(); openDrawer(pr0.id, 'files'); } }, '± diff'),
-        h('button', { class: 'btn sm ghost danger', title: 'throw this file\'s changes away (git checkout / delete if new)', onclick: () => { if (confirm('Revert ' + rel + '?')) act('revert ' + rel, api('git', { id: pr0.isGit ? pr0.id : pr0.parent, action: 'revert-file', file: rel })); } }, '↶')); })),
-      h('div', { class: 'racts' }, h('button', { class: 'btn sm primary', onclick: () => sendText('Looks good — continue.') }, '✓ Approve'), h('button', { class: 'btn sm', onclick: () => { ta.value = 'Please change: '; ta.focus(); grow(); } }, '✎ Request changes'), pr0.isGit ? h('button', { class: 'btn sm ghost', onclick: () => { closeDrawer(); closeTermPanel(); openDrawer(pr0.id, 'changes'); } }, 'commit…') : null)));
-  }
   for (const pm of PENDING[name] || []) conv.append(h('div', { class: 'turn user pending' }, h('div', { class: 'who' }, '❯ you', h('span', { class: 'dim mono' }, ' sending…')), h('div', { class: 'ttext' }, pm.text)));
   const cl = claudeOf(name) || {};
   if (cl.state === 'working' || cl.state === 'background') conv.append(h('div', { class: 'turn assistant live' }, h('div', { class: 'who' }, '✦ claude', h('span', { class: 'dim mono' }, ' working…')), h('div', { class: 'ag-now' }, h('span', { class: 'spin' }), h('span', { class: 'mono' }, cl.lastTool || 'thinking…'))));
