@@ -813,10 +813,10 @@ body.term-open { overflow: hidden; }
 .db.sess { display: flex; flex-direction: column; padding-bottom: 0; }
 .conv { display: flex; flex-direction: column; gap: 12px; padding-bottom: 12px; }
 .turn { border-radius: 12px; padding: 10px 14px; font-size: 13px; line-height: 1.5; min-width: 0; max-width: 100%; }
-.turn.user { background: rgba(126,166,224,.07); border: 1px solid rgba(126,166,224,.2); margin-left: 8%; }
-.turn.assistant { background: var(--panel); border: 1px solid var(--border); margin-right: 8%; }
+.turn.user { background: rgba(45,212,191,.09); border: 1px solid rgba(45,212,191,.28); border-right: 3px solid #2dd4bf; margin-left: 12%; }
+.turn.assistant { background: var(--panel); border: 1px solid var(--border); border-left: 3px solid #d97757; margin-right: 6%; }
 .turn .who { font-size: 10.5px; text-transform: uppercase; letter-spacing: 1px; font-weight: 700; color: var(--muted); margin-bottom: 4px; display: flex; gap: 6px; align-items: baseline; }
-.turn.user .who { color: var(--accent); } .turn.assistant .who { color: var(--accent); }
+.turn.user .who { color: #2dd4bf; justify-content: flex-end; } .turn.assistant .who { color: #e0916f; }
 .ttext { white-space: pre-wrap; word-break: break-word; }
 .ttext code { font-family: var(--mono); font-size: 12px; background: rgba(255,255,255,.07); padding: 0 4px; border-radius: 4px; }
 .ttext .mh { display: block; margin-top: 6px; }
@@ -832,7 +832,7 @@ body.term-open { overflow: hidden; }
 .tl .tr { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
 .tl.err .tn { color: var(--red); }
 .qr.sticky { position: sticky; bottom: 0; background: var(--bg2); padding: 10px 0; border-top: 1px solid var(--border); margin-top: auto; }
-@media (max-width: 900px) { .turn.user { margin-left: 0; } .turn.assistant { margin-right: 0; } .lfilt { width: 120px; } .cbox .btn { flex: 1 1 auto; } }
+@media (max-width: 900px) { .turn.user { margin-left: 10%; } .turn.assistant { margin-right: 3%; } .lfilt { width: 120px; } .cbox .btn { flex: 1 1 auto; } }
 
 /* iOS Safari zooms the page when a focused input has a font smaller than 16px ("flicks up" the view).
    On touch devices every text input is 16px, so focusing the quick reply / search / commit box never zooms. */
@@ -1325,5 +1325,11 @@ body.recording .ckeys > :not(.mic) { pointer-events: none; opacity: .4; }
 /* send when free */
 .cqueue { flex: none; height: 44px; min-width: 44px; padding: 0 12px; font-size: 18px; border-radius: 12px; background: rgba(96,165,250,.12); border: 1px solid rgba(96,165,250,.4); color: #60a5fa; }
 .cqueue:hover { background: rgba(96,165,250,.2); }
-.turn.user.queued { opacity: .85; border: 1px dashed rgba(96,165,250,.45); border-radius: 12px; padding: 8px 10px; background: rgba(96,165,250,.05); }
+.turn.user.queued { opacity: .85; border: 1px dashed rgba(45,212,191,.5); border-right: 3px dashed #2dd4bf; border-radius: 12px; padding: 8px 10px; background: rgba(45,212,191,.05); }
 .turn.user.queued .who { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; } .turn.user.queued .who .sp { flex: 1; }
+
+/* transcript events (background agent finished, interrupted …) — not your messages */
+.tevent { display: flex; align-items: center; gap: 8px; margin: 2px auto; max-width: 92%; font-size: 12px; color: var(--muted); padding: 4px 12px; border-radius: 999px; background: rgba(255,255,255,.03); border: 1px solid var(--hair); }
+.tevent .ic { color: #34d399; flex: none; } .tevent.bad .ic { color: #f87171; }
+.tevent .tx { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.turn.user.shell pre { margin: 4px 0 0; }

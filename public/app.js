@@ -966,6 +966,9 @@ function renderConversation(box, name, t, o) {
     h('button', { class: 'btn sm', onclick: o.refresh }, '↻'));
   const conv = h('div', { class: 'conv' });
   for (const turn of t.turns) {
+    // not something you typed: a background agent finished, you interrupted, … -> one quiet line between the turns
+    if (turn.role === 'event') { conv.append(h('div', { class: 'tevent' + (turn.status === 'failed' || turn.status === 'killed' ? ' bad' : '') }, h('span', { class: 'ic' }, turn.status === 'interrupted' ? '⏹' : turn.status === 'completed' ? '✓' : turn.status === 'failed' || turn.status === 'killed' ? '✗' : '⚙'), h('span', { class: 'tx' }, turn.status === 'interrupted' ? 'interrupted' : turn.text), turn.ts ? h('span', { class: 'dim mono' }, new Date(turn.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })) : null)); continue; }
+    if (turn.role === 'shell') { conv.append(h('div', { class: 'turn user shell' }, h('div', { class: 'who' }, '❯ you · shell', turn.ts ? h('span', { class: 'dim mono' }, ' ' + new Date(turn.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })) : null), h('pre', { class: 'mcode small' }, '! ' + turn.text), turn.out ? h('details', { class: 'ttools' }, h('summary', null, 'output'), h('pre', { class: 'mcode small' }, turn.out)) : null)); continue; }
     conv.append(h('div', { class: 'turn ' + turn.role }, h('div', { class: 'who' }, turn.role === 'user' ? '❯ you' : '✦ claude', turn.ts ? h('span', { class: 'dim mono' }, ' ' + new Date(turn.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })) : null),
       turn.text ? h('div', { class: 'ttext', html: mdLite(turn.text) }) : null, toolsBlock(turn)));
   }
