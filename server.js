@@ -9,6 +9,9 @@ const discovery = require('./lib/discovery');
 const git = require('./lib/gitinfo');
 const rt = require('./lib/runtime');
 const sys = require('./lib/sys');
+const hogs = require('./lib/hogs');
+// a process's cwd -> the project it runs in (deepest matching project path)
+hogs.setResolver(cwd => { let best = null; for (const p of projects) if ((cwd === p.path || cwd.startsWith(p.path + '/')) && (!best || p.path.length > best.path.length)) best = p; return best; });
 const expose = require('./lib/expose');
 const actions = require('./lib/actions');
 const claude = require('./lib/claude');
@@ -133,11 +136,12 @@ async function claudeVersion() {
 }
 // Scheduled prompts: send when due and the session is not busy; push when a job finishes.
 async function runSchedule() {
-  // busy = what the hooks say right now (the store is live even when the tick is slow); exists = ask tmux directly
-  const busy = name => { const st = claude.get(name)?.state; return st === 'working' || st === 'background' || st === 'permission'; };
+  // busy = hooks + pane merged (so "waiting on background agents" counts as busy); exists = ask tmux directly
+  const busy = name => { const st = claude.info(name).state; return st === 'working' || st === 'background' || st === 'permission'; };
   const exists = name => actions.sessionExists(name);
   const done = await schedule.run(busy, (name, text) => claude.send(name, text, true), exists);
   for (const j of done) {
+    if (j.whenFree && j.state === 'done') continue;   // the session's own "done" push already covers it
     // a task rode on this job: attach Claude's closing message and tell the phone about the TASK, not the job
     const tk = tasks.noteResult(j.id, { ok: j.state === 'done', summary: claude.get(j.session)?.lastMessage, session: j.session, error: j.error });
     if (tk) { if (pushAllowed('done', j.session)) push.notify({ title: `${tk.title.slice(0, 60)} · ${j.state === 'done' ? 'Claude finished' : 'failed'}`, body: oneLine(tk.result.summary || tk.result.error || 'review it on the Tasks screen', 80), url: '/?view=tasks', tag: 'task-' + tk.id }).catch(() => {}); pushState(true); continue; } const ok = j.state === 'done'; if (pushAllowed('done', j.session)) push.notify({ title: `${j.session.replace(/^claude-/, '').replace(/-company$/, '')} · scheduled ${ok ? 'done' : 'failed'}`, body: oneLine(ok ? j.prompts[0] : (j.error || ''), 80), url: `/?term=${encodeURIComponent(j.session)}&mode=chat`, tag: 'sched-' + j.id }).catch(() => {}); }
@@ -256,7 +260,19 @@ claude.onChange((ev, r, prev) => {
   setTimeout(tick, 150);
 });
 
-async function statsTick() { try { const s = await sys.sample(); sys.tempsSample(s); broadcast('stats', s); } catch (e) { console.error('stats failed', e); } }
+async function statsTick() { try { const s = await sys.sample(); try { s.hogs = hogs.sample(); } catch (e) { s.hogs = []; } sys.tempsSample(s); systemAlerts(s); broadcast('stats', s); } catch (e) { console.error('stats failed', e); } }
+// Phone buzz when the machine itself is in trouble: CPU too hot, memory nearly gone, a process pinning many cores for
+// a long time. Each alert at most once per 30 min (per process: once per its life), under the 'system' toggle.
+const sysAlertAt = new Map(); let hotSince = null;
+function systemAlerts(s) {
+  const now = Date.now(); const once = (key, gap, fn) => { if (now - (sysAlertAt.get(key) || 0) < gap) return; sysAlertAt.set(key, now); if (pushAllowed('system')) fn(); };
+  const t = s.cpu.temp; hotSince = t >= 90 ? (hotSince || now) : null;
+  const host = settings.get().serverName || require('os').hostname();
+  if (hotSince && now - hotSince > 60000) once('temp', 30 * 60e3, () => push.notify({ title: `🔥 ${host} CPU ${t.toFixed(0)}°C`, body: oneLine((s.hogs[0] ? 'Top: ' + s.hogs[0].name + ' · ' + s.hogs[0].cpu + '% CPU' : 'no single process to blame'), 80), url: '/?view=home', tag: 'sys-temp' }).catch(() => {}));
+  const availPct = s.mem.total ? (s.mem.total - s.mem.used) / s.mem.total * 100 : 100;
+  if (availPct < 6) once('mem', 30 * 60e3, () => push.notify({ title: `🧠 ${host} memory ${Math.round(100 - availPct)}% used`, body: oneLine(s.hogs.slice().sort((a, b) => b.rss - a.rss).slice(0, 2).map(x => x.name + ' ' + (x.rss / 2 ** 30).toFixed(1) + ' GB').join(' · ') || 'check Home', 80), url: '/?view=home', tag: 'sys-mem' }).catch(() => {}));
+  for (const hg of s.hogs) if (hg.cpu >= 300 && hg.heavyFor > 10 * 60e3) once('hog-' + hg.pid, 24 * 3600e3, () => push.notify({ title: `🐷 ${hg.name} · ${hg.cpu}% CPU`, body: oneLine(`busy for ${Math.round(hg.heavyFor / 60e3)} min` + (hg.tip ? ' — ' + hg.tip : ''), 100), url: '/?view=home', tag: 'hog-' + hg.pid }).catch(() => {}));
+}
 
 // ---- pace: full speed only while someone is watching ----
 /*
@@ -307,6 +323,19 @@ function sse(res) { res.writeHead(200, { 'content-type': 'text/event-stream', 'c
 const proj = id => projects.find(p => p.id === id);
 const shqPrompt = s => `'${String(s).replace(/'/g, `'\\''`)}'`;
 
+// ---- Whisper on demand ----
+let whisperInfo = null;   // last /health answer: { idle, exitIn } — shown in the recording sheet
+function whisperHealth() { return new Promise(res => { const r = require('http').get({ host: '127.0.0.1', port: 8790, path: '/health', timeout: 800 }, up => { let d = ''; up.on('data', x => d += x); up.on('end', () => { try { whisperInfo = JSON.parse(d); } catch { whisperInfo = null; } res(up.statusCode === 200); }); }); r.on('error', () => { whisperInfo = null; res(false); }); r.on('timeout', () => { r.destroy(); res(false); }); }); }
+let whisperStarting = null;
+const whisperInstalled = () => fs.existsSync(path.join(require('os').homedir(), '.config', 'systemd', 'user', 'beast-whisper.service'));
+function whisperStart() { if (!whisperStarting) { whisperStarting = run('systemctl', ['--user', 'start', 'beast-whisper'], { timeout: 10000 }).finally(() => setTimeout(() => { whisperStarting = null; }, 5000)); } return whisperStarting; }
+async function whisperEnsure(ms = 45000) { whisperStart(); const t0 = Date.now(); while (Date.now() - t0 < ms) { if (await whisperHealth()) return true; await new Promise(r => setTimeout(r, 400)); } return false; }
+// UI build version = newest mtime of the files the page is made of. Open pages poll /api/version and reload
+// themselves (when idle) once it changes, so a phone never runs an old index.html against a new app.js.
+function uiVersion() { let v = 0; for (const f of ['index.html', 'app.js', 'style.css', 'sw.js']) { try { v = Math.max(v, fs.statSync(path.join(PUBLIC, f)).mtimeMs); } catch {} } return Math.round(v).toString(36); }
+// ~/Downloads on the server, browsed with the same file explorer as a project's Files tab (id "_downloads")
+const DOWNLOADS = { id: '_downloads', name: 'downloads', path: path.join(require('os').homedir(), 'Downloads'), isGit: false, parent: null, rel: '' };
+const fsRoot = id => { if (id !== '_downloads') return proj(id); try { fs.mkdirSync(DOWNLOADS.path, { recursive: true }); } catch {} return DOWNLOADS; };   // a fresh server may have no ~/Downloads yet
 async function api(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean).slice(1); // after 'api'
   const m = req.method;
@@ -391,7 +420,7 @@ async function api(req, res, url) {
     return json(res, 200, await git.headDiff(p.path, file, url.searchParams.get('untracked') === '1'));
   }
   if (m === 'GET' && parts[0] === 'tree' && parts[1]) { // Files tab: one directory level, with git change marks
-    const p = proj(parts[1]); if (!p) return json(res, 404, { error: 'no project' });
+    const p = fsRoot(parts[1]); if (!p) return json(res, 404, { error: 'no project' });
     const gitRoot = p.isGit ? p : (p.parent && proj(p.parent)) || null;
     let changed = {};
     if (gitRoot) { const all = await git.changedPaths(gitRoot.path); const sub = path.relative(gitRoot.path, p.path); const pre = sub ? sub + '/' : ''; for (const [k, v] of Object.entries(all)) if (k.startsWith(pre)) changed[k.slice(pre.length)] = v; }
@@ -399,12 +428,17 @@ async function api(req, res, url) {
     return json(res, r.error ? 400 : 200, r);
   }
   if (m === 'GET' && parts[0] === 'read' && parts[1]) { // file content for the preview / editor
-    const p = proj(parts[1]); if (!p) return json(res, 404, { error: 'no project' });
+    const p = fsRoot(parts[1]); if (!p) return json(res, 404, { error: 'no project' });
     const r = files.read(p.path, url.searchParams.get('path') || ''); return json(res, r.error ? 400 : 200, r);
   }
-  if (m === 'GET' && parts[0] === 'download' && parts[1]) { // raw file, as attachment
-    const p = proj(parts[1]); if (!p) return json(res, 404, { error: 'no project' });
-    return files.stream(p.path, url.searchParams.get('path') || '', res);
+  if (m === 'GET' && parts[0] === 'download' && parts[1]) { // raw file, as attachment (inline=1: shown in the browser — image / PDF preview)
+    const p = fsRoot(parts[1]); if (!p) return json(res, 404, { error: 'no project' });
+    return files.stream(p.path, url.searchParams.get('path') || '', res, url.searchParams.get('inline') === '1');
+  }
+  if (m === 'GET' && parts[0] === 'zip' && parts[1]) { // several files / folders as one zip (?path=a&path=b)
+    const p = fsRoot(parts[1]); if (!p) return json(res, 404, { error: 'no project' });
+    const ps = url.searchParams.getAll('path'); const d = new Date();
+    return files.zip(p.path, ps, res, ps.length === 1 ? path.basename(ps[0]) + '.zip' : `${p.name || p.id}-${d.toISOString().slice(0, 10)}-${ps.length}-items.zip`);
   }
   if (m === 'GET' && parts[0] === 'file' && !parts[1] && url.searchParams.get('p')) { // an uploaded attachment (only from <devRoot>/.pasted)
     const base = pastedDir(); const fp = path.resolve(url.searchParams.get('p'));
@@ -475,9 +509,36 @@ async function api(req, res, url) {
     ws.on('error', () => { try { json(res, 500, { error: 'write failed' }); } catch {} });
     return;
   }
+  if (m === 'GET' && parts[0] === 'version') return json(res, 200, { v: uiVersion() });
+  // speech-to-text: the recorded audio goes straight through to the local Whisper service (beast-whisper, GPU).
+  // It runs on demand: GET ?warm=1 (sent when the mic is pressed) starts it, it loads in ~2 s while you talk, and
+  // it exits by itself 1 min after the last use so the GPU isn't held at ~9 W all day.
+  if (parts[0] === 'transcribe') {
+    if (m === 'GET') {
+      if (!whisperInstalled()) return json(res, 200, { ok: false, installed: false });   // no bin/setup-whisper.sh yet: the mic uses the browser's speech recognition
+      const up = await whisperHealth();
+      if (!up && url.searchParams.get('warm') === '1') whisperStart();
+      return json(res, 200, { ok: true, loaded: up, onDemand: true, exitIn: up ? whisperInfo?.exitIn ?? null : null, starting: !up && !!whisperStarting });
+    }
+    if (m !== 'POST') return json(res, 405, { error: 'POST audio' });
+    if (!whisperInstalled()) { req.resume(); return json(res, 503, { error: 'Whisper is not installed (bin/setup-whisper.sh)' }); }
+    if (!(await whisperHealth()) && !(await whisperEnsure())) { req.resume(); return json(res, 503, { error: 'whisper did not start' }); }
+    const http = require('http');
+    const up = http.request({ host: '127.0.0.1', port: 8790, method: 'POST', path: '/transcribe' + (url.search || ''), headers: { 'content-type': 'application/octet-stream', 'content-length': req.headers['content-length'] || 0 }, timeout: 120000 }, r2 => { res.writeHead(r2.statusCode, { 'content-type': 'application/json', 'cache-control': 'no-store' }); r2.pipe(res); });
+    up.on('error', e => { if (!res.headersSent) json(res, 503, { error: 'whisper: ' + e.message }); });
+    up.on('timeout', () => up.destroy(new Error('timeout')));
+    req.pipe(up); return;
+  }
   if (m !== 'POST') return json(res, 404, { error: 'not found' });
   const b = await body(req, parts[0] === 'savefile' ? 8e6 : 1e6);
   switch (parts[0]) {
+    case 'proc-kill': { // stop (TERM) / kill (KILL) one of the heavy processes shown on Home
+      const r = hogs.kill(b.pid, b.sig, sys.latest()?.hogs); if (r.ok) setTimeout(statsTick, 1500); return json(res, r.ok ? 200 : 400, r);
+    }
+    case 'rmpaths': { // delete selected files / folders — only in ~/Downloads (the Files tab of projects is read/edit, not delete)
+      if (b.id !== '_downloads' || !Array.isArray(b.paths)) return json(res, 400, { error: 'only ~/Downloads' });
+      const r = files.remove(DOWNLOADS.path, b.paths.map(String)); return json(res, r.ok ? 200 : 207, r);
+    }
     case 'run': {
       const p = proj(b.id); if (!p) return json(res, 404, { error: 'no project' });
       const cmd = b.cmd || p.commands.find(c => c.name === b.name)?.cmd; if (!cmd) return json(res, 400, { error: 'no command' });
@@ -526,7 +587,11 @@ async function api(req, res, url) {
       let last = null; for (const tk of list) { const r = schedule.add(name, at, [tasks.prompt(tk, p.name)]); if (!r.ok) return json(res, 500, r); tasks.noteRun(tk.id, name, r.job.id); last = r.job.id; }
       pushState(true); return json(res, 200, { ok: true, session: name, job: last, count: list.length });
     }
-    case 'schedule': { const r = schedule.add(b.session, +b.at, b.prompts || b.prompt); pushState(true); return json(res, r.ok ? 200 : 400, r); }
+    case 'schedule': { const r = schedule.add(b.session, +b.at, b.prompts || b.prompt, { whenFree: !!b.whenFree }); pushState(true); setTimeout(() => runSchedule().catch(() => {}), 300); return json(res, r.ok ? 200 : 400, r); }
+    case 'schedule-now': { // "send now" on a queued message: drop it from the queue and type it in
+      const j = schedule.all().find(x => x.id === b.id); if (!j) return json(res, 404, { error: 'gone' });
+      schedule.remove(j.id); const r = await claude.send(j.session, j.prompts.slice(j.idx).join('\n\n'), true); pushState(true); return json(res, r.ok ? 200 : 500, r);
+    }
     case 'schedule-remove': { const r = schedule.remove(String(b.id || '')); pushState(true); return json(res, 200, r); }
     case 'handoff': { // usage limit on one account: start the other account in the same folder with a summary of where this one stopped
       const from = claude.get(String(b.session || '')); if (!from || !from.cwd) return json(res, 404, { error: 'unknown session' });
@@ -600,6 +665,10 @@ const server = http.createServer(async (req, res) => {
     f = path.normalize(f).replace(/^(\.\.[\/\\])+/, '');
     const fp = path.join(PUBLIC, f);
     if (!fp.startsWith(PUBLIC) || !fs.existsSync(fp)) { res.writeHead(404); return res.end('404'); }
+    if (f === '/index.html') { // stamp the build: the page knows which version it is, and app.js / style.css can't come from an older cache
+      const v = uiVersion(); const html = fs.readFileSync(fp, 'utf8').replace('</head>', `<meta name="bd-ver" content="${v}"></head>`).replace('src="/app.js"', `src="/app.js?v=${v}"`).replace('href="/style.css"', `href="/style.css?v=${v}"`);
+      res.writeHead(200, { 'content-type': MIME['.html'], 'cache-control': 'no-cache, no-store' }); return res.end(html);
+    }
     res.writeHead(200, { 'content-type': MIME[path.extname(fp)] || 'application/octet-stream', 'cache-control': 'no-cache' });
     fs.createReadStream(fp).pipe(res);
   } catch (e) { console.error(e); if (!res.headersSent) json(res, 500, { error: String(e.message || e) }); else try { res.end(); } catch {} }

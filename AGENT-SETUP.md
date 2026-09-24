@@ -108,6 +108,16 @@ Open the dashboard and use ⚙ Settings; it writes `state/settings.json`. Worth 
 - `publicHost` — leave empty to auto-detect the Tailscale IPv4.
 - `autoRestore` — bring Claude sessions back after a reboot.
 - Notification rules (events, quiet hours, per-session mute) — only relevant once push works.
+- `serverName` — the name in system push titles (CPU too hot, memory, runaway process).
+- `voiceLangs` — only if the user wants voice input in more than one language, e.g. `["en", "de"]`.
+
+## Voice input (optional)
+
+Ask the user whether they want voice input transcribed on this server. If yes, run
+`./bin/setup-whisper.sh` (a Python venv with faster-whisper; CUDA libraries when `nvidia-smi` works,
+otherwise CPU — then set `WHISPER_MODEL='small'` in `whisper/whisper.env`). Put the languages they speak
+in `WHISPER_LANGS` there. Nothing runs until the mic is pressed; the first press downloads the model
+(~1.6 GB for large-v3-turbo). Without it the mic uses the browser's speech recognition.
 
 ## Claude Code hooks
 

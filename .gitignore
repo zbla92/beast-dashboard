@@ -4,3 +4,5 @@ state-backups/
 .DS_Store
 *.log
 docs/screenshots/*.tmp
+whisper/.venv/
+whisper/whisper.env

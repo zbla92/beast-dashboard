@@ -42,6 +42,7 @@
   <div class="search"><span class="icon">⌕</span><input id="search" placeholder="Search projects, ports, branches…  ( / )" autocomplete="off"></div>
   <div class="topbtns">
     <button class="btn primary term" id="btn-shell" title="Terminals: live tmux sessions (Claude, dev servers) in the dashboard  (t)"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="ico"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="m7 9 3 3-3 3M13 15h4"/></svg>Terminals <span class="pill" id="term-count">0</span><span class="pill need hidden" id="need-count" title="Claude sessions that need you">0</span></button>
+    <button class="btn ghost" id="btn-downloads" title="Downloads on the server (~/Downloads) — files Claude drops for you  (d)">⬇ Downloads</button>
     <button class="btn ghost" id="btn-palette" title="Jump to any session or project  (⌘K / Ctrl+K)">⌘K</button>
     <button class="btn ghost icon" id="btn-settings" title="Settings · tunnels · rescan"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="ico"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
     <span class="hidden" id="tunnel-count"></span>
@@ -53,6 +54,7 @@
 
 <div id="view-home">
   <section class="stats" id="stats"></section>
+  <section class="hogsec" id="hogs"></section>
   <section class="termstrip" id="termstrip"></section>
   <section class="running" id="running"></section>
 </div>

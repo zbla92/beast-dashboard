@@ -1,0 +1,12 @@
+[Unit]
+Description=Beast Dash — Whisper speech-to-text on the GPU (on demand: started by beast-dash, exits 1 min after the last use)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=__REPO__/whisper/run.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

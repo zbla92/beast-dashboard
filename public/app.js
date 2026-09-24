@@ -124,7 +124,7 @@ async function renderChatPane(force) {
   let t; try { t = await api(`transcript/${encodeURIComponent(name)}?n=${TERM.chatN}`); } catch (e) { TERM.chatEv.busy = false; pane.replaceChildren(h('div', { class: 'dim', style: 'padding:20px' }, e.message, ' — this session has no transcript yet; use the terminal.')); return; }
   TERM.chatEv.busy = false;
   if (TERM.active !== name) return;
-  const cl = claudeOf(name) || {}; const key = [name, t.size, t.total, cl.state, cl.lastTool, TERM.chatN, (PENDING[name] || []).length].join(':');
+  const cl = claudeOf(name) || {}; const key = [name, t.size, t.total, cl.state, cl.lastTool, TERM.chatN, (PENDING[name] || []).length, queuedKey(name)].join(':');
   if (!force && TERM.chatEv.key === key) return;
   TERM.chatEv.key = key;
   renderConversation(pane, name, t, { n: TERM.chatN, more: () => { TERM.chatN = Math.min(200, TERM.chatN * 2); renderChatPane(true); }, refresh: () => renderChatPane(false) });
@@ -166,7 +166,7 @@ function closeTermPanel(pop = true) { if (!TERM.open) return; TERM.open = false;
 // fixed panel (the "content behind" scroll). Only the chat list, the session list and textareas may scroll.
 document.addEventListener('touchmove', e => {
   if (!TERM.open) return;
-  const ok = e.target.closest && e.target.closest('.cscroll, #term-list, .termside, textarea, .tsel, .chpath, .modal .box, .drawer, .sbody, .logbox, .peek-b');
+  const ok = e.target.closest && e.target.closest('.cscroll, #term-list, .termside, textarea, .tsel, .chpath, .modal .box, .drawer, .sbody, .logbox, .peek-b, .recov-text');
   if (!ok) e.preventDefault();
 }, { passive: false });
 function termOrder() { return [...new Set([...termSessions().all.map(x => x.name), ...TERM.frames.keys()])]; }
@@ -238,7 +238,7 @@ function termSessions() {
   out.all = [...out.claude, ...out.dev, ...out.other];
   return out;
 }
-const STATE_LABEL = { working: 'working', background: 'waiting on background task', permission: 'needs permission', 'needs-you': 'done · needs you', error: 'error', limit: 'usage limit', idle: 'idle', unknown: 'no signal yet', ended: 'claude exited' };
+const STATE_LABEL = { working: 'working', background: 'background agents running', permission: 'needs permission', 'needs-you': 'done · needs you', error: 'error', limit: 'usage limit', idle: 'idle', unknown: 'no signal yet', ended: 'claude exited' };
 const STATE_ICON = { working: '●', background: '◐', permission: '⚠', 'needs-you': '✓', error: '✗', limit: '⏳', idle: '○', unknown: '·', ended: '■' };
 const STATE_SHORT = { working: 'working', background: 'background', permission: 'permission', 'needs-you': 'needs you', error: 'error', limit: 'limit', idle: 'idle', unknown: '—', ended: 'exited' };
 function stateBadge(cl, compact = false) {
@@ -514,9 +514,35 @@ function renderStats() {
   const u = S.claude?.usage;
   if (u) tiles.push(tile('claude', 'Claude today', usd(u.total.today), 'API-equiv.', `${acctL('personal')} ${usd(u.personal.today)} · ${acctL('company')} ${usd(u.company.today)} · yesterday ${usd(u.total.yesterday)} · 7d ${usd(u.total.week)}`, '', { right: h('span', { class: 'dim', style: 'font-size:10.5px', title: 'What these tokens would cost at API list price. On a subscription nothing is billed per token; this measures how much work the sessions did.' }, 'est.') }));
   const lt = limitsTile(S.claude?.limits || {}); if (lt) tiles.push(lt);
+  const hs = $('#hogs'); if (hs) { const hg = hogsTile(s); hs.replaceChildren(...(hg ? [hg] : [])); }   // own section: on the phone it sits above the agents
   tiles.push(tile('up', 'Uptime', fmtUp(s.uptime), '', `${S.runtime.sessions.length} sessions · ${S.runtime.external.length} procs · ${S.runtime.containers.filter(c => c.state === 'running').length}/${S.runtime.containers.length} containers`));
   el.replaceChildren(...tiles);
   drawSparks();
+}
+// Heavy processes: only when something keeps a core busy or holds a lot of memory. One row per process — what it is
+// (in words), its project, CPU as a share of the whole machine, memory, for how long, a tip when there's a known fix,
+// and Stop / Kill for your own processes.
+const fmtDur = ms => { const m = Math.round(ms / 60000); return m < 1 ? '<1 min' : m < 60 ? m + ' min' : Math.floor(m / 60) + ' h ' + (m % 60 ? (m % 60) + ' min' : ''); };
+function hogsTile(s) {
+  const list = s.hogs || []; if (!list.length) return null;
+  const cores = s.cpu.count || 1; const hot = list.some(x => x.level === 'hot');
+  const killP = (x, sig) => { if (!confirm(`${sig === 'KILL' ? 'Force-kill' : 'Stop'} ${x.name}?\n\npid ${x.pid} · ${x.cpu}% CPU · ${fmtB(x.rss)}\n${x.cmd.slice(0, 200)}`)) return; act((sig === 'KILL' ? 'kill ' : 'stop ') + x.name, api('proc-kill', { pid: x.pid, sig })); };
+  const rows = list.map(x => {
+    const share = Math.min(100, x.cpu / cores);
+    return h('div', { class: 'hog ' + x.level, title: `pid ${x.pid}\n${x.cmd}${x.cwd ? '\n' + home(x.cwd) : ''}` },
+      h('div', { class: 'hog-ic' }, x.icon || '⚙'),
+      h('div', { class: 'hog-main' },
+        h('div', { class: 'hog-name' }, h('b', null, x.name), x.container ? h('span', { class: 'badge tag' }, 'docker') : null, !x.mine ? h('span', { class: 'badge tag', title: 'owned by another user (root / system) — no Stop from here' }, 'system') : null),
+        h('div', { class: 'hog-bars' },
+          h('span', { class: 'hog-m mono', title: `${x.cpu}% of one core = ${share.toFixed(0)}% of the whole CPU (${cores} threads)` }, h('span', { class: 'lbl' }, 'CPU'), h('span', { class: 'bar' }, h('b', { style: `width:${Math.max(2, share)}%` })), h('span', { class: 'val' }, x.cpu + '%')),
+          h('span', { class: 'hog-m mono', title: 'resident memory' }, h('span', { class: 'lbl' }, 'RAM'), h('span', { class: 'bar mem' }, h('b', { style: `width:${Math.max(2, Math.min(100, x.rss / s.mem.total * 100))}%` })), h('span', { class: 'val' }, fmtB(x.rss))),
+          h('span', { class: 'hog-t mono dim' }, 'heavy ' + fmtDur(x.heavyFor) + ' · up ' + fmtDur(x.runningFor))),
+        x.tip ? h('div', { class: 'hog-tip' }, '💡 ', x.tip) : null),
+      x.mine ? h('div', { class: 'hog-act' }, h('button', { class: 'btn sm ghost', title: 'ask it to stop (SIGTERM)', onclick: ev => { ev.stopPropagation(); killP(x, 'TERM'); } }, 'Stop'), h('button', { class: 'btn sm ghost danger', title: 'force-kill (SIGKILL)', onclick: ev => { ev.stopPropagation(); killP(x, 'KILL'); } }, 'Kill')) : null);
+  });
+  return h('div', { class: 'tile wfull hogs' + (hot ? ' is-hot' : ''), 'data-k': 'hogs' },
+    h('div', { class: 'k' }, h('span', null, (hot ? '🔥 ' : '') + 'Heavy processes', h('span', { class: 'pill' }, list.length)), h('span', { class: 'dim', style: 'font-size:10.5px;text-transform:none;letter-spacing:0' }, 'keeping ≥1 core busy or holding ≥3 GB · 100% = one core')),
+    h('div', { class: 'hog-list' }, rows));
 }
 function drawSparks() {
   const H = S.hist; const u = S.claude?.usage;
@@ -545,11 +571,18 @@ const portLinksOf = ports => ports?.length ? h('span', { class: 'ports' }, ports
 // what the session is doing, or a one-line recap of why it needs you. The whole card opens the terminal;
 // prompting, kill, mute, handoff and restart live in the terminal bar.
 const oneLine = (t, n = 160) => { t = String(t || '').replace(/```[\s\S]*?```/g, ' ').replace(/[*_`#>|]+/g, '').replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
+// "2 background agents — fork: Reading tests.py · 26m 28s" (what the pane's agent footer shows)
+function bgText(bg) {
+  if (!bg) return 'waiting on a background task';
+  const head = bg.n + ' background ' + bg.kind + (bg.n > 1 ? 's' : '') + ' running';
+  const a = bg.agents && bg.agents[0];
+  return a ? head + ' — ' + a.name + (a.doing ? ': ' + a.doing : '') + ' · ' + a.age + (bg.agents.length > 1 ? ' +' + (bg.agents.length - 1) : '') : head;
+}
 function agentCard(it) {
   const cl = it.claude || { state: 'unknown' }; const st = cl.state || 'unknown'; const i = instOf(it);
   let line;   // [class, icon, text]
   if (st === 'working') line = ['work', h('span', { class: 'spin' }), cl.lastTool ? cl.lastTool : 'thinking…'];
-  else if (st === 'background') line = ['work', '◐', 'waiting on a background task'];
+  else if (st === 'background') line = ['work', '◐', bgText(cl.bg)];
   else if (st === 'permission') line = ['need', '⚠', 'Needs you — wants to run: ' + (cl.lastTool || '?')];
   else if (st === 'limit') line = ['need', '⏳', 'Usage limit — ' + oneLine(cl.limitText || (acct(it.account) + ' account'))];
   else if (st === 'error') line = ['err', '✗', 'Error — ' + oneLine(cl.lastMessage || 'open the terminal')];
@@ -883,7 +916,7 @@ async function renderSessionDrawer(full = true) {
     const body = d.querySelector('.db.sess'); if (!body || SESS.tab !== 'transcript' || SESS.busy) return; SESS.busy = true;
     let t; try { t = await api(`transcript/${encodeURIComponent(name)}?n=${SESS.n}`); } catch { SESS.busy = false; return; } SESS.busy = false;
     if (SESS.name !== name) return;
-    const key = [name, t.size, t.total, cl.state, cl.lastTool, SESS.n, (PENDING[name] || []).length].join(':'); if (SESS.key === key) return; SESS.key = key;
+    const key = [name, t.size, t.total, cl.state, cl.lastTool, SESS.n, (PENDING[name] || []).length, queuedKey(name)].join(':'); if (SESS.key === key) return; SESS.key = key;
     renderConversation(body, name, t, { n: SESS.n, more: () => { SESS.n = Math.min(200, SESS.n * 2); renderSessionDrawer(); }, refresh: () => renderSessionDrawer(false) });
     return;
   }
@@ -907,14 +940,21 @@ async function renderSessionDrawer(full = true) {
         h('span', { class: 'chst s' + (f.tool === 'Write' ? 'A' : 'M') }, f.tool === 'Write' ? 'W' : 'E'), fileIcon(f.path), h('span', { class: 'chpath' }, r), h('span', { class: 'dim mono', style: 'font-size:11px' }, ago(f.at) + ' ago'), h('span', { class: 'caret' }, '▸'))); }
     return;
   }
-  SESS.key = [name, t.size, t.total, cl.state, cl.lastTool, SESS.n, (PENDING[name] || []).length].join(':');
+  SESS.key = [name, t.size, t.total, cl.state, cl.lastTool, SESS.n, (PENDING[name] || []).length, queuedKey(name)].join(':');
   renderConversation(body, name, t, { n: SESS.n, more: () => { SESS.n = Math.min(200, SESS.n * 2); renderSessionDrawer(); }, refresh: () => renderSessionDrawer(false) });
 }
 // The conversation itself: turns, tool calls, and a reply box that grows with the text and stays above the keyboard.
 // `t` is the /api/transcript payload. Draft text in the reply box survives re-renders.
+const queuedKey = name => (S.claude?.schedule || []).filter(j => j.session === name && j.whenFree && j.state === 'waiting').map(j => j.id).join(',');   // re-render the chat when its queue changes
 const PENDING = {};   // name -> [{ text, ts }] messages sent from here that the transcript hasn't shown yet
+// Unsent text is kept per chat (localStorage, so it survives switching chats, closing the panel and reloads).
+const draftKey = n => 'bd.draft.' + n;
+const loadDraft = n => { try { return localStorage.getItem(draftKey(n)) || ''; } catch { return ''; } };
+const saveDraft = (n, v) => { try { if (v && v.trim()) localStorage.setItem(draftKey(n), v); else localStorage.removeItem(draftKey(n)); } catch {} };
 function renderConversation(box, name, t, o) {
-  const prevDraft = box.querySelector('.creply')?.value || '';
+  // same chat re-rendering: the live box wins; another chat was shown here before: this chat's saved draft
+  const prevDraft = box.dataset.chat === name && box.querySelector('.creply') ? box.querySelector('.creply').value : loadDraft(name);
+  box.dataset.chat = name;
   const prevScroll = box.querySelector('.cscroll'); const atBottom = !prevScroll || prevScroll.scrollHeight - prevScroll.scrollTop - prevScroll.clientHeight < 60; const prevTop = prevScroll ? prevScroll.scrollTop : 0;
   const hadFocus = document.activeElement && document.activeElement.classList.contains('creply');
   // drop local echoes once the transcript has them (or after a minute)
@@ -929,37 +969,54 @@ function renderConversation(box, name, t, o) {
     conv.append(h('div', { class: 'turn ' + turn.role }, h('div', { class: 'who' }, turn.role === 'user' ? '❯ you' : '✦ claude', turn.ts ? h('span', { class: 'dim mono' }, ' ' + new Date(turn.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })) : null),
       turn.text ? h('div', { class: 'ttext', html: mdLite(turn.text) }) : null, toolsBlock(turn)));
   }
+  // "send when free" messages waiting in the queue: shown as your next turn, with Send now / Cancel
+  const queued = (S.claude?.schedule || []).filter(j => j.session === name && j.whenFree && j.state === 'waiting');
+  for (const j of queued) conv.append(h('div', { class: 'turn user queued' },
+    h('div', { class: 'who' }, '❯ you', h('span', { class: 'dim mono' }, ' ⏳ queued — goes out when Claude is free'), h('span', { class: 'sp' }),
+      h('button', { class: 'btn sm ghost', title: 'send it right now', onclick: () => api('schedule-now', { id: j.id }).then(() => { toast('sent'); setTimeout(o.refresh, 800); }).catch(e => toast(e.message, 'err')) }, 'Send now'),
+      h('button', { class: 'btn sm ghost danger', title: 'remove from the queue (the text goes back into the box)', onclick: () => api('schedule-remove', { id: j.id }).then(() => { if (!ta.value.trim()) { ta.value = j.prompts.join('\n\n'); grow(); } toast('removed from the queue'); }) }, 'Cancel')),
+    h('div', { class: 'ttext' }, j.prompts.join('\n\n'))));
   for (const pm of PENDING[name] || []) conv.append(h('div', { class: 'turn user pending' }, h('div', { class: 'who' }, '❯ you', h('span', { class: 'dim mono' }, ' sending…')), h('div', { class: 'ttext' }, pm.text)));
   const cl = claudeOf(name) || {};
-  if (cl.state === 'working' || cl.state === 'background') conv.append(h('div', { class: 'turn assistant live' }, h('div', { class: 'who' }, '✦ claude', h('span', { class: 'dim mono' }, ' working…')), h('div', { class: 'ag-now' }, h('span', { class: 'spin' }), h('span', { class: 'mono' }, cl.lastTool || 'thinking…'))));
+  // Feedback right away: a "working" turn appears the moment you send (before the hooks confirm it), with a Stop that
+  // interrupts Claude and puts your text back in the box. Esc in the box does the same.
+  const busy = cl.state === 'working' || cl.state === 'background'; const justSent = (PENDING[name] || []).length > 0;
+  const stop = async () => { const last = (PENDING[name] || []).slice(-1)[0]; try { await api('key', { session: name, key: 'esc' }); } catch {} PENDING[name] = []; if (last && !ta.value.trim()) { ta.value = last.text; grow(); } ta.focus(); toast('stopped — your text is back in the box'); setTimeout(o.refresh, 600); };
+  if (busy || justSent) conv.append(h('div', { class: 'turn assistant live' }, h('div', { class: 'who' }, '✦ claude', h('span', { class: 'dim mono' }, cl.state === 'background' ? ' waiting on background agents' : busy ? ' working…' : ' starting…'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost stopb', title: 'interrupt (Esc) — your message goes back into the box', onclick: stop }, '■ Stop')), h('div', { class: 'ag-now' }, h('span', { class: 'spin' }), h('span', { class: 'mono' }, cl.state === 'background' ? bgText(cl.bg) : busy ? (cl.lastTool || 'thinking…') : 'sending to Claude…'))));
   const scroller = h('div', { class: 'cscroll' }, bar, conv);
   // reply box: textarea that grows to 6 lines; Enter sends, Shift+Enter = newline; Esc button interrupts Claude
   const ta = h('textarea', { class: 'creply', rows: 1, placeholder: cl.state === 'permission' ? 'y / n, or type…' : 'Message Claude…', title: 'Enter sends · Shift+Enter = new line', autocomplete: 'off', autocapitalize: 'sentences', spellcheck: true });
   ta.value = prevDraft;
-  const grow = () => { ta.style.height = '44px'; if (ta.value) ta.style.height = Math.min(Math.max(44, ta.scrollHeight), 6 * 24 + 20) + 'px'; };
+  const grow = () => { ta.style.height = '44px'; if (ta.value) ta.style.height = Math.min(Math.max(44, ta.scrollHeight), 6 * 24 + 20) + 'px'; saveDraft(name, ta.value); };   // every change goes through grow() -> the draft is saved
   const sendText = async (v) => { (PENDING[name] = PENDING[name] || []).push({ text: v, ts: Date.now() }); conv.append(h('div', { class: 'turn user pending' }, h('div', { class: 'who' }, '❯ you', h('span', { class: 'dim mono' }, ' sending…')), h('div', { class: 'ttext' }, v))); scroller.scrollTop = scroller.scrollHeight; try { await api('send', { session: name, text: v }); } catch (e) { toast(e.message, 'err'); } setTimeout(o.refresh, 700); setTimeout(o.refresh, 2500); };
   const send = async () => { const v = ta.value.trim(); if (!v) return; ta.value = ''; grow();
     (PENDING[name] = PENDING[name] || []).push({ text: v, ts: Date.now() });
     conv.append(h('div', { class: 'turn user pending' }, h('div', { class: 'who' }, '❯ you', h('span', { class: 'dim mono' }, ' sending…')), h('div', { class: 'ttext' }, v))); scroller.scrollTop = scroller.scrollHeight;
     try { await api('send', { session: name, text: v }); } catch (e) { toast(e.message, 'err'); PENDING[name] = PENDING[name].filter(x => x.text !== v); ta.value = v; grow(); }
-    setTimeout(o.refresh, 700); setTimeout(o.refresh, 2500); };
+    for (const ms of [400, 1200, 2500, 5000]) setTimeout(o.refresh, ms); };
   ta.addEventListener('input', grow);
-  ta.addEventListener('keydown', ev => { ev.stopPropagation(); if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); send(); } });
+  ta.addEventListener('keydown', ev => { ev.stopPropagation(); if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); send(); } else if (ev.key === 'Escape' && (busy || justSent)) { ev.preventDefault(); stop(); } });
   const sendBtn = h('button', { class: 'btn primary csend', title: 'send (Enter)', onclick: send }, ico('send', 16));
   // 📎 attach: any file (photo / screenshot downscaled, everything else as-is) -> <devRoot>/.pasted -> its path goes into the message (Claude reads it)
   const fileIn = h('input', { type: 'file', style: 'display:none' });
   fileIn.addEventListener('change', async () => { const f = fileIn.files[0]; fileIn.value = ''; if (!f) return; try { const p = await uploadFile(f); ta.value = (ta.value ? ta.value.replace(/\s*$/, ' ') : '') + p + ' '; grow(); ta.focus(); toast('attached — describe what to do with it and send', 'ok'); } catch (e) { toast('upload failed: ' + e.message, 'err'); } });
   const attach = h('button', { class: 'btn sm ghost qk', title: 'attach a file — photo, screenshot, CSV, PDF, anything up to 100 MB', onclick: () => fileIn.click() }, ico('clip', 15));
   // 🎤 hold to talk (Web Speech API; Safari + Chrome): release sends
-  const mic = voiceButton(ta, grow);
+  const mic = voiceButton(ta, grow, name);
   const clock = h('button', { class: 'btn sm ghost qk', title: 'schedule this message for later (or a chain of messages)', onclick: () => scheduleDialog(name, ta.value) }, ico('clock', 15));
   const jobs = (S.claude?.schedule || []).filter(j => j.session === name && j.state !== 'done' && j.state !== 'failed');
   const keys = h('div', { class: 'ckeys' }, attach, mic, clock, fileIn,
-    jobs.length ? h('span', { class: 'sjobs' }, jobs.map(j => h('span', { class: 'sjob', title: j.prompts.join('\n\n') }, ico('clock', 12), ' ', new Date(j.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), j.prompts.length > 1 ? ` ×${j.prompts.length}` : '', j.state === 'running' || j.state === 'sent' ? ' · ' + j.state : '', h('button', { class: 'x', title: 'remove', onclick: () => api('schedule-remove', { id: j.id }) }, ico('x', 11))))) : null,
+    jobs.length ? h('span', { class: 'sjobs' }, jobs.map(j => h('span', { class: 'sjob', title: j.prompts.join('\n\n') }, ico('clock', 12), ' ', j.whenFree ? 'when free' : new Date(j.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), j.prompts.length > 1 ? ` ×${j.prompts.length}` : '', j.state === 'running' || j.state === 'sent' ? ' · ' + j.state : '', h('button', { class: 'x', title: 'remove', onclick: () => api('schedule-remove', { id: j.id }) }, ico('x', 11))))) : null,
     cl.state === 'working' || cl.state === 'background' ? h('button', { class: 'btn sm ghost qk', title: 'interrupt Claude (Escape)', onclick: () => api('key', { session: name, key: 'esc' }).then(() => toast('Esc sent')) }, 'Esc') : null,
     cl.state === 'permission' ? ['y', 'n'].map(k => h('button', { class: 'btn sm qk ' + (k === 'y' ? 'yes' : 'no'), onclick: () => api('send', { session: name, text: k, enter: false }) }, k)) : null,
     h('button', { class: 'btn sm ghost qk', title: 'send Ctrl-C', onclick: () => { if (confirm('Send Ctrl-C?')) api('key', { session: name, key: 'c-c' }); } }, '^C'));
-  box.append(scroller, h('div', { class: 'cbox2' }, keys, h('div', { class: 'crow' }, ta, sendBtn)));
+  // Claude busy (working / waiting on background agents / asking permission): ⏳ queues the message instead of typing
+  // it in now; the server sends it the moment the session is free
+  const busyNow = cl.state === 'working' || cl.state === 'background' || cl.state === 'permission';
+  const queue = async () => { const v = ta.value.trim(); if (!v) { toast('type the message first'); ta.focus(); return; } ta.value = ''; grow();
+    try { await api('schedule', { session: name, at: Date.now(), prompts: [v], whenFree: true }); toast('queued — goes out when Claude is free', 'ok'); } catch (e) { ta.value = v; grow(); toast(e.message, 'err'); } };
+  const queueBtn = busyNow ? h('button', { class: 'btn cqueue', title: 'send when Claude is free — queued, goes out by itself the moment this session finishes', onclick: queue }, '⏳') : null;
+  box.append(scroller, h('div', { class: 'cbox2' }, keys, h('div', { class: 'crow' }, ta, queueBtn, sendBtn)));
   grow(); scroller.scrollTop = atBottom ? scroller.scrollHeight : prevTop;
   if (hadFocus) ta.focus({ preventScroll: true });
   setTimeout(() => { if (atBottom) scroller.scrollTop = scroller.scrollHeight; }, 0);
@@ -989,22 +1046,138 @@ async function uploadImage(file, keep = false) {
   const blob = await new Promise(res => c.toBlob(res, 'image/jpeg', 0.88));
   const r = await fetch('/api/paste-image?ext=jpg' + (keep ? '&keep=1' : ''), { method: 'POST', body: blob }); const j = await r.json(); if (!j.ok) throw new Error(j.error || 'upload failed'); return j.path;
 }
-function voiceButton(ta, grow) {
+// Whisper on the server's GPU (beast-whisper service, started on demand): same engine on the laptop and the phone.
+// Falls back to the browser's own speech recognition when the service is down.
+const WHISPER = { ok: false, at: 0 };
+let actx = null;
+function beep(freq = 880, ms = 140) { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === 'suspended') actx.resume(); const o = actx.createOscillator(), g = actx.createGain(); o.frequency.value = freq; o.connect(g); g.connect(actx.destination); const t = actx.currentTime; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.25, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + ms / 1000); o.start(t); o.stop(t + ms / 1000 + 0.02); } catch {} }
+async function whisperUp() { if (Date.now() - WHISPER.at < 60000) return WHISPER.ok; WHISPER.at = Date.now(); try { const r = await fetch('/api/transcribe', { cache: 'no-store' }); WHISPER.ok = r.ok && (await r.json()).ok === true; } catch { WHISPER.ok = false; } return WHISPER.ok; }
+whisperUp();
+function voiceButton(ta, grow, chatKey) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) return null;
-  // Hold to talk. Pointer capture keeps the recording alive while the finger drifts off the button; releasing
-  // only fills the textarea (never sends) so the transcript can be fixed before it goes out.
-  const b = h('button', { class: 'btn sm ghost qk mic', title: 'hold to talk — release to fill the message (you send it)' }, ico('mic', 16), h('span', { class: 'mlbl' }, 'hold'));
-  let rec = null, base = '', final = '', active = false;
-  const start = ev => { ev.preventDefault(); if (active) return; active = true; try { b.setPointerCapture(ev.pointerId); } catch {} base = ta.value ? ta.value.replace(/\s*$/, ' ') : ''; final = ''; b.classList.add('rec'); document.body.classList.add('recording');
+  const canRec = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
+  if (!SR && !canRec) return null;
+  // Tap the mic (a long press counts as a tap too) -> a full-screen recording sheet over everything; the only thing
+  // you can press is Stop. The words show on the sheet; the message box gets them on Stop (never sent by itself).
+  // iOS ends a recognition on its own after a pause or ~1 min while the button still looks live: onend restarts it
+  // for as long as we are recording, keeping what was already recognised. One recogniser is reused per page so
+  // iOS asks for the microphone as rarely as it lets us (a home-screen app still forgets it on every launch).
+  const b = h('button', { class: 'btn sm ghost qk mic', title: 'record — tap, talk, then Stop (the text lands in the message box; you send it)' }, ico('mic', 18));
+  let rec = null, base = '', final = '', interim = '', active = false, restarts = [], settle = null;
+  // while recording: a sheet over the bottom of the screen — red dot + timer, the words as they come in (always
+  // scrolled to the newest), one big Stop. The textarea fills too and is kept scrolled to the end.
+  let ov = null, ovText = null, ovTime = null, ovTimer = null, t0 = 0, ovStatus = null;
+  // spoken language: Settings → voiceLangs (e.g. ['sr', 'en']) — the sheet toggles between them, remembered per chat
+  // (falls back to the last one picked anywhere, then the first). Empty list: no toggle, Whisper detects the language.
+  const LANGS = () => (Array.isArray(S.settings?.voiceLangs) ? S.settings.voiceLangs : []).filter(x => /^[a-z]{2,3}$/.test(x)); const lk = 'bd.vlang.' + (chatKey || '_');
+  const vlang = () => { const L = LANGS(); if (!L.length) return ''; try { const v = localStorage.getItem(lk) || localStorage.getItem('bd.vlang'); return L.includes(v) ? v : L[0]; } catch { return L[0]; } };
+  const setVlang = v => { try { localStorage.setItem(lk, v); localStorage.setItem('bd.vlang', v); } catch {} };
+  const openOverlay = () => {
+    ovText = h('div', { class: 'recov-text' }, h('span', { class: 'dim' }, 'listening…')); ovTime = h('span', { class: 'recov-time mono' }, '0:00'); t0 = Date.now();
+    ov = h('div', { class: 'recov' }, h('div', { class: 'recov-box' },
+      h('div', { class: 'recov-head' }, h('span', { class: 'recov-dot' }), h('b', null, 'Recording'), ovTime, h('span', { class: 'sp' }), (ovStatus = h('span', { class: 'recov-st' }, canRec && WHISPER.ok ? '' : 'browser speech')),
+        canRec && WHISPER.ok && LANGS().length > 1 ? h('button', { class: 'btn sm ghost recov-lang', title: 'language you speak in this chat — tap to switch (' + LANGS().join(' / ') + ', remembered per chat)', onclick: ev => { ev.preventDefault(); ev.stopPropagation(); const L = LANGS(); const n = L[(L.indexOf(vlang()) + 1) % L.length]; setVlang(n); ev.currentTarget.textContent = n.toUpperCase(); } }, vlang().toUpperCase()) : null),
+      ovText,
+      h('button', { class: 'btn recov-stop', onclick: ev => { ev.preventDefault(); ev.stopPropagation(); finish(); } }, h('span', { class: 'sq' }), 'Stop recording')));
+    for (const t of ['pointerdown', 'pointerup', 'click', 'touchstart']) ov.addEventListener(t, ev => { ev.stopPropagation(); if (ev.target === ov) ev.preventDefault(); });
+    ov.addEventListener('keydown', ev => ev.stopPropagation());
+    document.body.append(ov); document.activeElement && document.activeElement.blur && document.activeElement.blur();
+    document.addEventListener('keydown', escStop, true);
+    ovTimer = setInterval(() => { const s = Math.floor((Date.now() - t0) / 1000); ovTime.textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }, 500);
+  };
+  const escStop = ev => { if (ev.key === 'Escape' && active) { ev.preventDefault(); ev.stopPropagation(); finish(); } };
+  const closeOverlay = () => { clearInterval(ovTimer); if (ov) ov.remove(); ov = null; ovText = null; ovStatus = null; document.removeEventListener('keydown', escStop, true); };
+  const show = () => {
+    if (ovText) { const said = (final + interim).trim(); ovText.replaceChildren(said ? h('span', null, final, h('span', { class: 'dim' }, interim)) : h('span', { class: 'dim' }, 'listening…')); ovText.scrollTop = ovText.scrollHeight; }
+  };
+  const ensure = () => {
+    if (rec) return rec;
     rec = new SR(); rec.lang = navigator.language || 'en-US'; rec.interimResults = true; rec.continuous = true;
-    rec.onresult = e => { let interim = ''; for (let i = e.resultIndex; i < e.results.length; i++) { const r = e.results[i]; if (r.isFinal) final += r[0].transcript + ' '; else interim += r[0].transcript; } ta.value = base + final + interim; grow(); };
-    rec.onerror = e => { toast('voice: ' + e.error, 'err'); stop(null, false); };
-    try { rec.start(); } catch (e) { toast('voice unavailable', 'err'); active = false; b.classList.remove('rec'); } };
-  const stop = ev => { if (ev) ev.preventDefault(); if (!active) return; active = false; b.classList.remove('rec'); document.body.classList.remove('recording'); try { rec && rec.stop(); } catch {}
-    // the last final result lands a moment after stop(): settle, then leave the text in the box for review — no auto-send
-    setTimeout(() => { ta.value = (base + final).trim() ? base + final : ta.value; grow(); ta.focus({ preventScroll: true }); ta.setSelectionRange(ta.value.length, ta.value.length); if (ta.value.trim()) toast('check the text, then send', 'ok'); }, 400); };
-  b.addEventListener('pointerdown', start); b.addEventListener('pointerup', stop); b.addEventListener('pointercancel', stop); b.addEventListener('lostpointercapture', () => { if (active) stop(null); });
+    rec.onresult = e => { interim = ''; for (let i = e.resultIndex; i < e.results.length; i++) { const r = e.results[i]; if (r.isFinal) final += r[0].transcript.trim() + ' '; else interim += r[0].transcript; } show(); };
+    rec.onerror = e => {
+      if (e.error === 'no-speech' || e.error === 'aborted') return;           // silence / our own restart: onend takes it from here
+      toast(e.error === 'not-allowed' ? 'microphone not allowed — allow it when iOS asks' : 'voice: ' + e.error, 'err'); finish();
+    };
+    rec.onend = () => {
+      if (!active) return;
+      if (interim) { final += interim.trim() + ' '; interim = ''; }           // iOS drops the pending words when it ends by itself
+      const now = Date.now(); restarts = restarts.filter(t => now - t < 10000); restarts.push(now);
+      if (restarts.length > 6) { toast('voice keeps stopping — try again', 'err'); finish(); return; }
+      try { rec.start(); } catch { setTimeout(() => { if (active) try { rec.start(); } catch { finish(); } }, 250); }
+    };
+    return rec;
+  };
+  const begin = () => {
+    active = true; clearTimeout(settle); base = ta.value ? ta.value.replace(/\s*$/, ' ') : ''; final = ''; interim = ''; restarts = [];
+    b.classList.add('rec'); document.body.classList.add('recording'); openOverlay();
+    if (canRec && WHISPER.ok) { startWhisper(); return; }
+    if (!SR) { toast('voice: Whisper on the server is not running', 'err'); finish(); return; }
+    try { ensure().start(); } catch (e) { try { rec.abort(); } catch {} rec = null; try { ensure().start(); } catch { toast('voice unavailable', 'err'); finish(); } }
+  };
+  // ---- Whisper engine: record with MediaRecorder; every ~2.5 s the whole recording so far goes to the server for a
+  // live preview (one request in flight at a time), and on Stop once more for the final text ----
+  let stream = null, mr = null, chunks = [], mime = '', inflight = false, liveTimer = null, gen = 0, whisperOn = false;
+  const whisperSend = async () => {
+    const blob = new Blob(chunks, { type: mime || 'audio/webm' }); if (blob.size < 2000) return null;
+    const r = await fetch('/api/transcribe?lag=' + lag + (vlang() ? '&lang=' + vlang() : ''), { method: 'POST', body: blob, headers: { 'content-type': 'application/octet-stream' } });
+    const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status); return j;
+  };
+  let tapAt = 0, lag = 0, whisperNote = '';
+  const micStatus = (live, extra) => { if (!ovStatus) return; ovStatus.replaceChildren(...(live ? [h('span', { class: 'ok' }, '● Recording — talk')] : [h('span', { class: 'spin' }), ' Starting mic… wait'])); if (whisperNote) ovStatus.append(h('span', { class: 'dim' }, ' · ' + whisperNote)); };
+  async function startWhisper() {
+    whisperOn = true; chunks = []; const my = ++gen; tapAt = Date.now(); whisperNote = ''; micStatus(false);
+    wakeWhisper(my);   // starts the service if it's asleep; audio is buffered, so it doesn't matter when it's ready
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 } }); }
+    catch (e) { toast(e.name === 'NotAllowedError' ? 'microphone not allowed — allow it when asked' : 'mic: ' + e.message, 'err'); whisperOn = false; finish(); return; }
+    if (!active || my !== gen) { stream.getTracks().forEach(t => t.stop()); return; }
+    mime = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm'].find(t => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || '';
+    mr = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined); mime = mr.mimeType || mime;
+    mr.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    mr.onstart = () => { lag = Date.now() - tapAt; if (my === gen) { micStatus(true); beep(); } };   // only now is the mic really recording
+    mr.start(1000);
+    liveTimer = setInterval(async () => {
+      if (inflight || !active || my !== gen) return; inflight = true;
+      try { const j = await whisperSend(); if (j && active && my === gen) { final = j.text ? j.text + ' ' : ''; interim = ''; show(); } } catch {} finally { inflight = false; }
+    }, 2500);
+  }
+  // Asleep -> "Waking Whisper…" with a spinner until it answers, then a short beep + "Ready — talk". Awake -> ready right away,
+  // with how long until it sleeps again.
+  async function wakeWhisper(my) {
+    const note = t => { whisperNote = t; if (my === gen && ov) micStatus(!!(mr && mr.state === 'recording')); };
+    let j = null; try { j = await (await fetch('/api/transcribe?warm=1', { cache: 'no-store' })).json(); } catch {}
+    if (j && j.loaded) return;
+    const w0 = Date.now(); note('Whisper waking');
+    while (active && my === gen && Date.now() - w0 < 45000) {
+      await new Promise(r => setTimeout(r, 400));
+      try { j = await (await fetch('/api/transcribe', { cache: 'no-store' })).json(); } catch { j = null; }
+      if (j && j.loaded) { note(''); return; }
+    }
+    if (active && my === gen) note('Whisper did not wake up');
+  }
+  async function stopWhisper() {
+    clearInterval(liveTimer); const my = gen; if (!mr) { whisperOn = false; return; }
+    await new Promise(res => { mr.onstop = res; try { mr.state !== 'inactive' ? mr.stop() : res(); } catch { res(); } });
+    stream && stream.getTracks().forEach(t => t.stop()); stream = null; mr = null;
+    try { const j = await whisperSend(); if (my === gen && j) { final = j.text ? j.text + ' ' : ''; interim = ''; } } catch (e) { toast('Whisper: ' + e.message, 'err'); }
+    whisperOn = false;
+  }
+  function finish() {
+    if (!active) return; active = false;
+    b.classList.remove('rec');
+    // Whisper: keep the sheet up ("Finishing…") until the final pass is back, then close it and fill the box
+    const done = () => { document.body.classList.remove('recording'); closeOverlay(); };
+    if (whisperOn && ov) { clearInterval(ovTimer); const sb = ov.querySelector('.recov-stop'); if (sb) { sb.disabled = true; sb.replaceChildren(h('span', { class: 'spin' }), 'Finishing…'); } if (ovStatus) ovStatus.replaceChildren(h('span', { class: 'dim' }, 'Whisper is writing it down')); }
+    else done();
+    const settleText = () => { if (interim) { final += interim.trim() + ' '; interim = ''; } ta.value = (base + final).trim() ? base + final : ta.value; grow(); ta.focus({ preventScroll: true }); ta.setSelectionRange(ta.value.length, ta.value.length); ta.scrollTop = ta.scrollHeight; if (ta.value.trim()) toast('check the text, then send', 'ok'); };
+    // Whisper: the final pass over the whole recording. Browser engine: the last result lands a moment after stop().
+    if (whisperOn) { stopWhisper().then(() => { done(); settleText(); }); return; }
+    try { rec && rec.stop(); } catch {}
+    settle = setTimeout(settleText, 500);
+  }
+  b.addEventListener('pointerenter', () => whisperUp());
+  // tap = start (a long press is the same tap); stopping only happens with Stop on the sheet
+  b.addEventListener('pointerdown', ev => { ev.preventDefault(); try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); actx.resume(); } catch {} if (!active) begin(); });
+  b.addEventListener('click', ev => ev.preventDefault());
   b.addEventListener('contextmenu', ev => ev.preventDefault());
   return b;
 }
@@ -1379,34 +1552,58 @@ function renderDiffHl(text, lang) {
 
 // ---------- Files tab: tree on the left (changed files marked), preview on the right (diff vs HEAD, content, download, edit) ----------
 const FILES = { open: new Set(JSON.parse(localStorage.getItem('bd.fopen') || '[]')), sel: null, mode: 'auto', editing: false, wide: localStorage.getItem('bd.fwide') === '1' };
+const mediaOf = n => { const x = (n.split('.').pop() || '').toLowerCase(); return ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(x) ? 'img' : x === 'pdf' ? 'pdf' : ['mp4', 'webm', 'mov'].includes(x) ? 'video' : null; };
 const STATUS_TITLE = { M: 'modified', A: 'added', D: 'deleted', R: 'renamed', '?': 'untracked', U: 'conflict' };
-function tabFiles(el, p) {
+// o: { st: own state (open folders / selection), key: localStorage key for open folders, select: checkboxes + bulk
+// download (zip) / delete, noEdit, newest: files newest-first }. Projects use the defaults; ~/Downloads passes all of them.
+function tabFiles(el, p, o = {}) {
+  const st = o.st || FILES; const okey = o.key || 'bd.fopen';
   el.classList.add('files-tab');
-  const tree = h('div', { class: 'ftree' }); const prev = h('div', { class: 'fprev' }, h('div', { class: 'dim', style: 'padding:20px' }, 'Pick a file. Changed files are marked; the preview shows their diff against HEAD.'));
-  el.append(h('div', { class: 'fwrap' + (FILES.wide ? ' wide' : '') }, tree, prev));
+  const tree = h('div', { class: 'ftree' }); const prev = h('div', { class: 'fprev' }, h('div', { class: 'dim', style: 'padding:20px' }, o.select ? 'Pick a file to preview it (images, PDFs, text). Tick files or folders on the left to download them — several at once come as one .zip.' : 'Pick a file. Changed files are marked; the preview shows their diff against HEAD.'));
+  // selection (Downloads): a checkbox per row, a sticky bar with Download (one file direct, more / folders as .zip) and Delete
+  const picked = st.picked || (st.picked = new Set());
+  const selBar = o.select ? h('div', { class: 'fselbar' }) : null;
+  const renderSel = () => {
+    if (!selBar) return; const n = picked.size; const ps = [...picked];
+    const one = n === 1 && tree.querySelector(`.frow.file[data-path="${CSS.escape(ps[0])}"]`);
+    const href = one ? `/api/download/${p.id}?path=${encodeURIComponent(ps[0])}` : `/api/zip/${p.id}?` + ps.map(x => 'path=' + encodeURIComponent(x)).join('&');
+    selBar.replaceChildren(...[
+      h('button', { class: 'btn sm ghost', title: n ? 'clear selection' : 'select everything at the top level', onclick: () => { if (n) picked.clear(); else for (const r of tree.querySelectorAll(':scope > .frow')) picked.add(r.dataset.path); syncChecks(); } }, n ? '☐ none' : '☑ all'),
+      h('span', { class: 'dim mono fselc' }, n ? n + ' selected' : 'tick files to download'),
+      h('span', { class: 'sp' }),
+      h('button', { class: 'btn sm ghost', title: 'reload', onclick: () => loadDir('', tree, 0) }, '↻'),
+      n ? h('button', { class: 'btn sm ghost danger', title: 'delete the selected files / folders from the server', onclick: async () => { if (!confirm(`Delete ${n} item${n > 1 ? 's' : ''} from ${o.rootLabel || 'here'}?\n\n` + ps.slice(0, 12).join('\n') + (n > 12 ? '\n…' : ''))) return; try { const r = await api('rmpaths', { id: p.id, paths: ps }); toast(r.failed?.length ? 'some failed: ' + r.failed[0] : 'deleted ' + n, r.failed?.length ? 'err' : 'ok'); } catch (e) { toast(e.message, 'err'); } picked.clear(); if (ps.includes(st.sel)) { st.sel = null; prev.replaceChildren(h('div', { class: 'dim', style: 'padding:20px' }, 'Pick a file.')); } loadDir('', tree, 0); } }, '🗑') : null,
+      n ? h('a', { class: 'btn sm primary', href, download: one ? ps[0].split('/').pop() : '', title: one ? 'download' : 'download as one .zip' }, one ? '⬇ Download' : `⬇ Download ${n} (.zip)`) : null].filter(Boolean));
+  };
+  const syncChecks = () => { for (const c of tree.querySelectorAll('.fchk')) c.classList.toggle('on', picked.has(c.parentElement.dataset.path)); renderSel(); };
+  const chk = path => o.select ? h('span', { class: 'fchk' + (picked.has(path) ? ' on' : ''), title: 'select', onclick: ev => { ev.stopPropagation(); if (picked.has(path)) picked.delete(path); else picked.add(path); syncChecks(); } }) : null;
+  el.append(h('div', { class: 'fwrap' + (st.wide ? ' wide' : '') + (o.select ? ' sel' : '') }, selBar ? h('div', { class: 'ftreebox' }, selBar, tree) : tree, prev));
+  renderSel();
   const gitTarget = p.isGit ? p : byId()[p.parent];
   const loadDir = async (rel, box, depth) => {
     box.innerHTML = ''; let d; try { d = await api(`tree/${p.id}?path=${encodeURIComponent(rel)}`); } catch (e) { box.append(h('div', { class: 'dim' }, e.message)); return; }
     if (d.error) { box.append(h('div', { class: 'dim' }, d.error)); return; }
+    if (o.newest) d.entries.sort((a, b) => (a.type === b.type ? 0 : a.type === 'dir' ? -1 : 1) || (b.mtime || 0) - (a.mtime || 0));
+    if (!d.entries.length && !depth) box.append(h('div', { class: 'dim', style: 'padding:12px' }, 'empty'));
     for (const e of d.entries) {
       if (e.type === 'dir') {
-        const kids = h('div', { class: 'fkids' }); const isOpen = FILES.open.has(e.path);
-        const row = h('div', { class: 'frow dir' + (e.changed ? ' has' : '') + (e.skip ? ' skip' : ''), style: `padding-left:${8 + depth * 14}px`, title: e.skip ? 'build / dependency folder' : e.path },
-          h('span', { class: 'fcaret' }, isOpen ? '▾' : '▸'), h('span', { class: 'fico' }, isOpen ? '📂' : '📁'), h('span', { class: 'fname' }, e.name), e.changed ? h('span', { class: 'fchg', title: e.changed + ' changed files inside' }, e.changed) : null);
-        row.onclick = () => { const now = !FILES.open.has(e.path); if (now) FILES.open.add(e.path); else FILES.open.delete(e.path); localStorage.setItem('bd.fopen', JSON.stringify([...FILES.open].slice(-200))); row.querySelector('.fcaret').textContent = now ? '▾' : '▸'; row.querySelector('.fico').textContent = now ? '📂' : '📁'; kids.classList.toggle('hidden', !now); if (now && !kids.childElementCount) loadDir(e.path, kids, depth + 1); };
+        const kids = h('div', { class: 'fkids' }); const isOpen = st.open.has(e.path);
+        const row = h('div', { class: 'frow dir' + (e.changed ? ' has' : '') + (e.skip ? ' skip' : ''), style: `padding-left:${8 + depth * 14}px`, title: e.skip ? 'build / dependency folder' : e.path, 'data-path': e.path },
+          chk(e.path), h('span', { class: 'fcaret' }, isOpen ? '▾' : '▸'), h('span', { class: 'fico' }, isOpen ? '📂' : '📁'), h('span', { class: 'fname' }, e.name), e.changed ? h('span', { class: 'fchg', title: e.changed + ' changed files inside' }, e.changed) : null);
+        row.onclick = () => { const now = !st.open.has(e.path); if (now) st.open.add(e.path); else st.open.delete(e.path); localStorage.setItem(okey, JSON.stringify([...st.open].slice(-200))); row.querySelector('.fcaret').textContent = now ? '▾' : '▸'; row.querySelector('.fico').textContent = now ? '📂' : '📁'; kids.classList.toggle('hidden', !now); if (now && !kids.childElementCount) loadDir(e.path, kids, depth + 1); };
         if (!isOpen) kids.classList.add('hidden'); else loadDir(e.path, kids, depth + 1);
         box.append(row, kids);
       } else {
-        const row = h('div', { class: 'frow file' + (e.status ? ' has st' + (e.status === '?' ? 'Q' : e.status) : '') + (FILES.sel === e.path ? ' on' : ''), style: `padding-left:${8 + depth * 14}px`, title: e.path + ' · ' + fmtB(e.size) + (e.status ? ' · ' + (STATUS_TITLE[e.status] || e.status) : ''), 'data-path': e.path },
-          h('span', { class: 'fcaret' }), h('span', { class: 'fico' }, fileIcon(e.name)), h('span', { class: 'fname' }, e.name), e.status ? h('span', { class: 'chst s' + (e.status === '?' ? 'Q' : e.status), title: STATUS_TITLE[e.status] || e.status }, e.status) : null, h('span', { class: 'fsize mono' }, fmtB(e.size)));
-        row.onclick = () => { if (FILES.editing && !confirm('Discard unsaved edits?')) return; FILES.editing = false; if (FILES.sel !== e.path) FILES.mode = 'auto'; FILES.sel = e.path; for (const x of tree.querySelectorAll('.frow.file.on')) x.classList.remove('on'); row.classList.add('on'); showFile(e); };
+        const row = h('div', { class: 'frow file' + (e.status ? ' has st' + (e.status === '?' ? 'Q' : e.status) : '') + (st.sel === e.path ? ' on' : ''), style: `padding-left:${8 + depth * 14}px`, title: e.path + ' · ' + fmtB(e.size) + (e.status ? ' · ' + (STATUS_TITLE[e.status] || e.status) : ''), 'data-path': e.path },
+          chk(e.path), h('span', { class: 'fcaret' }), h('span', { class: 'fico' }, fileIcon(e.name)), h('span', { class: 'fname' }, e.name), e.status ? h('span', { class: 'chst s' + (e.status === '?' ? 'Q' : e.status), title: STATUS_TITLE[e.status] || e.status }, e.status) : null, h('span', { class: 'fsize mono' }, fmtB(e.size) + (o.newest && e.mtime ? ' · ' + ago(e.mtime) : '')));
+        row.onclick = () => { if (st.editing && !confirm('Discard unsaved edits?')) return; st.editing = false; if (st.sel !== e.path) st.mode = 'auto'; st.sel = e.path; for (const x of tree.querySelectorAll('.frow.file.on')) x.classList.remove('on'); row.classList.add('on'); showFile(e); };
         box.append(row);
       }
     }
   };
   const showFile = async (e) => {
     prev.innerHTML = ''; prev.append(h('div', { class: 'dim', style: 'padding:20px' }, 'loading…'));
-    const status = e.status; const wantDiff = status && status !== '?' && status !== 'A' ? (FILES.mode === 'auto' || FILES.mode === 'diff') : FILES.mode === 'diff' && status === '?';
+    const status = e.status; const wantDiff = status && status !== '?' && status !== 'A' ? (st.mode === 'auto' || st.mode === 'diff') : st.mode === 'diff' && status === '?';
     let content = null, diff = null;
     try { content = await api(`read/${p.id}?path=${encodeURIComponent(e.path)}`); } catch (err) { content = { error: err.message }; }
     if (status && gitTarget) { try { const sub = (p.isGit ? '' : p.rel.slice(gitTarget.rel.length + 1) + '/'); diff = await api(`git/${gitTarget.id}/headdiff?file=${encodeURIComponent(sub + e.path)}&untracked=${status === '?' ? 1 : 0}`); } catch (err) { diff = { error: err.message }; } }
@@ -1419,29 +1616,34 @@ function tabFiles(el, p) {
         status ? h('span', { class: 'chst s' + (status === '?' ? 'Q' : status), title: STATUS_TITLE[status] || status }, status) : null,
         h('span', { class: 'dim mono', style: 'font-size:11px' }, fmtB(content.size || e.size)),
         h('span', { class: 'sp' }),
-        status ? h('button', { class: 'btn sm' + (showDiff ? ' primary' : ''), onclick: () => { FILES.mode = 'diff'; showFile(e); } }, '± diff') : null,
-        h('button', { class: 'btn sm' + (!showDiff && !FILES.editing ? ' primary' : ''), onclick: () => { FILES.mode = 'content'; FILES.editing = false; showFile(e); } }, '▤ content'),
-        !content.error && !content.binary && !content.truncated ? h('button', { class: 'btn sm' + (FILES.editing ? ' primary' : ''), title: 'edit in place (simple text editor)', onclick: () => { FILES.mode = 'content'; FILES.editing = true; render(); } }, '✎ edit') : null,
+        status ? h('button', { class: 'btn sm' + (showDiff ? ' primary' : ''), onclick: () => { st.mode = 'diff'; showFile(e); } }, '± diff') : null,
+        h('button', { class: 'btn sm' + (!showDiff && !st.editing ? ' primary' : ''), onclick: () => { st.mode = 'content'; st.editing = false; showFile(e); } }, '▤ content'),
+        !o.noEdit && !content.error && !content.binary && !content.truncated ? h('button', { class: 'btn sm' + (st.editing ? ' primary' : ''), title: 'edit in place (simple text editor)', onclick: () => { st.mode = 'content'; st.editing = true; render(); } }, '✎ edit') : null,
+        h('a', { class: 'btn sm', href: `/api/download/${p.id}?path=${encodeURIComponent(e.path)}&inline=1`, target: '_blank', rel: 'noopener', title: 'open in a new tab' }, '↗ open'),
         h('a', { class: 'btn sm', href: `/api/download/${p.id}?path=${encodeURIComponent(e.path)}`, download: e.name, title: 'download this file' }, '⇩ download'),
-        h('button', { class: 'btn sm ghost', title: FILES.wide ? 'show tree' : 'hide tree', onclick: () => { FILES.wide = !FILES.wide; localStorage.setItem('bd.fwide', FILES.wide ? '1' : '0'); el.querySelector('.fwrap').classList.toggle('wide', FILES.wide); } }, FILES.wide ? '⇤' : '⇥'));
+        h('button', { class: 'btn sm ghost', title: st.wide ? 'show tree' : 'hide tree', onclick: () => { st.wide = !st.wide; !o.st && localStorage.setItem('bd.fwide', st.wide ? '1' : '0'); el.querySelector('.fwrap').classList.toggle('wide', st.wide); } }, st.wide ? '⇤' : '⇥'));
       prev.append(bar);
-      if (FILES.editing && content && !content.error && !content.binary) {
+      if (st.editing && content && !content.error && !content.binary) {
         const ta = h('textarea', { class: 'fedit', spellcheck: false }); ta.value = content.text;
         ta.addEventListener('keydown', ev => { ev.stopPropagation(); if (ev.key === 'Tab') { ev.preventDefault(); const s0 = ta.selectionStart; ta.setRangeText('  ', s0, ta.selectionEnd, 'end'); } if ((ev.metaKey || ev.ctrlKey) && ev.key === 's') { ev.preventDefault(); saveBtn.click(); } });
-        const saveBtn = h('button', { class: 'btn sm primary', onclick: async () => { try { const r = await api('savefile', { id: p.id, path: e.path, text: ta.value, mtime: content.mtime }); content.mtime = r.mtime; content.size = r.size; content.text = ta.value; FILES.editing = false; toast('saved ' + e.name, 'ok'); showFile(e); } catch (err) { toast('save failed: ' + err.message, 'err'); } } }, '💾 Save (⌘S)');
-        prev.append(h('div', { class: 'fedbar' }, h('span', { class: 'dim' }, 'Editing in place. Save refuses if the file changed on disk meanwhile (a Claude session may be working here).'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost', onclick: () => { FILES.editing = false; render(); } }, 'Cancel'), saveBtn), ta);
+        const saveBtn = h('button', { class: 'btn sm primary', onclick: async () => { try { const r = await api('savefile', { id: p.id, path: e.path, text: ta.value, mtime: content.mtime }); content.mtime = r.mtime; content.size = r.size; content.text = ta.value; st.editing = false; toast('saved ' + e.name, 'ok'); showFile(e); } catch (err) { toast('save failed: ' + err.message, 'err'); } } }, '💾 Save (⌘S)');
+        prev.append(h('div', { class: 'fedbar' }, h('span', { class: 'dim' }, 'Editing in place. Save refuses if the file changed on disk meanwhile (a Claude session may be working here).'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost', onclick: () => { st.editing = false; render(); } }, 'Cancel'), saveBtn), ta);
         setTimeout(() => { ta.focus(); ta.setSelectionRange(0, 0); ta.scrollTop = 0; }, 0);
         return;
       }
       if (showDiff) { prev.append(h('div', { class: 'chdiff fdiff hljs', html: renderDiffHl(diff.text, langOf(e.name)) })); return; }
       if (content.error) { prev.append(h('div', { class: 'dim', style: 'padding:20px' }, content.error)); return; }
+      const media = mediaOf(e.name), raw = `/api/download/${p.id}?path=${encodeURIComponent(e.path)}&inline=1`;
+      if (media === 'img') { prev.append(h('div', { class: 'fmedia' }, h('img', { src: raw, alt: e.name }))); return; }
+      if (media === 'pdf') { prev.append(h('iframe', { class: 'fmedia pdf', src: raw, title: e.name })); return; }
+      if (media === 'video') { prev.append(h('div', { class: 'fmedia' }, h('video', { src: raw, controls: true }))); return; }
       if (content.binary) { prev.append(h('div', { class: 'dim', style: 'padding:20px' }, 'binary file — use download')); return; }
       if (status && diff && diff.error) prev.append(h('div', { class: 'dim', style: 'padding:6px 12px' }, 'diff: ' + diff.error));
       const lines = hlLines(content.text, langOf(e.name));
       prev.append(h('pre', { class: 'fcode hljs' }, lines.map((l, i) => h('div', { class: 'ln' }, h('span', { class: 'n' }, i + 1), h('span', { class: 't', html: l || ' ' }))), content.truncated ? h('div', { class: 'dim' }, '… truncated (2 MB shown) — download for the whole file') : null));
     }
   };
-  loadDir('', tree, 0).then(() => { if (FILES.sel) { const row = tree.querySelector(`.frow.file[data-path="${CSS.escape(FILES.sel)}"]`); if (row) row.click(); else { const parts = FILES.sel.split('/'); if (parts.length > 1) { for (let i = 1; i < parts.length; i++) FILES.open.add(parts.slice(0, i).join('/')); loadDir('', tree, 0).then(() => setTimeout(() => { const r2 = tree.querySelector(`.frow.file[data-path="${CSS.escape(FILES.sel)}"]`); if (r2) r2.click(); }, 400)); } } } });
+  loadDir('', tree, 0).then(() => { if (st.sel) { const row = tree.querySelector(`.frow.file[data-path="${CSS.escape(st.sel)}"]`); if (row) row.click(); else { const parts = st.sel.split('/'); if (parts.length > 1) { for (let i = 1; i < parts.length; i++) st.open.add(parts.slice(0, i).join('/')); loadDir('', tree, 0).then(() => setTimeout(() => { const r2 = tree.querySelector(`.frow.file[data-path="${CSS.escape(st.sel)}"]`); if (r2) r2.click(); }, 400)); } } } });
 }
 
 async function tabBranches(el, p) {
@@ -1488,7 +1690,7 @@ function settingsModal() {
         row('Projects', `rescan ${home(S.host.devRoot || '~')} for new folders`, h('button', { class: 'btn sm', onclick: () => act('Rescan', api('rescan', {})) }, 'Rescan')),
         row('State backup', 'nightly tar of sessions, labels, push subscriptions, settings, schedule — 14 kept', h('a', { href: '/api/backup', class: 'btn sm' }, 'Download'))),
       sect('Notifications',
-        ncb('done', 'Session finished'), ncb('permission', 'Needs permission'), ncb('error', 'Session error'), ncb('limit', 'Usage limit hit'), ncb('crash', 'Dev server died'), ncb('digest', 'Monday weekly digest'), row('Morning summary', '08:00 — tasks to review, sessions that need you, yesterday\'s spend', sw(n.daily !== false, { 'data-n': 'daily' })),
+        ncb('done', 'Session finished'), ncb('permission', 'Needs permission'), ncb('error', 'Session error'), ncb('limit', 'Usage limit hit'), ncb('crash', 'Dev server died'), ncb('system', 'Server too hot / out of memory / runaway process'), ncb('digest', 'Monday weekly digest'), row('Morning summary', '08:00 — tasks to review, sessions that need you, yesterday\'s spend', sw(n.daily !== false, { 'data-n': 'daily' })),
         row('Quiet hours', 'no push between these times', h('span', { class: 'qh' }, qf, h('span', { class: 'dim' }, '–'), qt)),
         row('Sound', 'ding on this device when a session needs you', sw(SOUND.on, { onchange: e => { SOUND.on = e.target.checked; localStorage.setItem('bd.sound', SOUND.on ? '1' : '0'); if (SOUND.on) ding('done'); } })),
         row('Push', PUSH.supported ? `${S.host.pushSubs || 0} device(s) subscribed · ` + (PUSH.sub ? 'enabled here' : 'not enabled on this device') : 'needs HTTPS (service worker) — open via https://' + (S.host.tsName || '<magicdns-name>'),
@@ -1635,6 +1837,23 @@ $('#search').addEventListener('input', e => { UI.q = e.target.value.trim(); if (
 for (const b of document.querySelectorAll('#nav .navb')) b.onclick = () => setView(b.dataset.view);
 $('#btn-shell').onclick = () => { if (TERM.open) return closeTermPanel(); pushLayer('term'); TERM.open = true; if (!TERM.active) { const c = S.runtime.sessions.find(x => x.name.startsWith('claude-')) || S.runtime.sessions[0]; if (c) { ensureFrame(c.name); TERM.active = c.name; } } renderTermPanel(); };
 $('#btn-settings').onclick = settingsModal;
+// ---------- downloads (~/Downloads on the server) ----------
+// Claude drops finished reports/files there. Same explorer as a project's Files tab (tree + preview), plus
+// checkboxes: download one file, or several files / folders as one .zip; delete. Newest first.
+const DLF = { open: new Set(JSON.parse(localStorage.getItem('bd.dlopen') || '[]')), sel: null, mode: 'content', editing: false, wide: false, picked: new Set() };
+function downloadsModal() {
+  const m = $('#modal'); m.classList.remove('hidden');
+  const close = () => { m.classList.add('hidden'); document.removeEventListener('keydown', esc, true); };
+  const esc = e => { if (e.key === 'Escape' && !m.classList.contains('hidden')) { e.preventDefault(); e.stopPropagation(); close(); } };
+  document.addEventListener('keydown', esc, true);
+  const body = h('div', { class: 'db files-tab dlx-body' });
+  const box = h('div', { class: 'box dlx' },
+    h('div', { class: 'sh' }, h('h3', null, '⬇ Downloads'), h('span', { class: 'dim mono', style: 'font-size:12px' }, '~/Downloads on the server'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', onclick: close }, ico('x', 15))),
+    body);
+  m.replaceChildren(box); m.onclick = e => { if (e.target === m) close(); };
+  tabFiles(body, { id: '_downloads', isGit: false, parent: null, rel: '' }, { st: DLF, key: 'bd.dlopen', select: true, noEdit: true, newest: true, rootLabel: '~/Downloads on the server' });
+}
+if ($('#btn-downloads')) $('#btn-downloads').onclick = downloadsModal;   // guarded: a phone may still hold an older index.html
 $('#scrim').onclick = closeDrawer;
 document.addEventListener('keydown', e => {
   const typing = document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA' || document.activeElement.tagName === 'SELECT');
@@ -1645,6 +1864,7 @@ document.addEventListener('keydown', e => {
   // dashboard-level shortcuts (not while typing): t = terminals, n = next session that needs you, s = new shell
   if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.key === 't') { e.preventDefault(); $('#btn-shell').click(); }
+  if (e.key === 'd') { e.preventDefault(); downloadsModal(); }
   if (e.key === 'p') { e.preventDefault(); setView('projects'); }
   if (e.key === 'h') { e.preventDefault(); setView('home'); }
   if (e.key === 'n') { e.preventDefault(); const c = termSessions().claude.find(x => x.claude?.needsYou) || termSessions().claude[0]; if (c) openTerm(c.name); }
@@ -1741,10 +1961,66 @@ function firstState() {
   else if (['projects', 'home', 'tasks'].includes(q.get('view'))) { history.replaceState(null, '', location.pathname); setView(q.get('view')); }
   else if (q.get('newtask')) { history.replaceState(null, '', location.pathname); setView('tasks'); taskModal(null, q.get('newtask') === '1' ? null : q.get('newtask')); }
   else if (q.get('settings')) { history.replaceState(null, '', location.pathname); settingsModal(); }
+  else if (q.get('downloads')) { history.replaceState(null, '', location.pathname); downloadsModal(); }
   else if (q.get('schedule')) { history.replaceState(null, '', location.pathname); scheduleDialog(q.get('schedule'), ''); }
-  // a notification tap while the app is already open (service worker posts the target url)
-  if (navigator.serviceWorker) navigator.serviceWorker.addEventListener('message', ev => { const u = ev.data && ev.data.open; if (!u) return; const qq = new URL(u, location.origin).searchParams; const term = qq.get('term'); if (term) { if (qq.get('mode') === 'chat') { TERM.mode = 'chat'; localStorage.setItem('bd.mode', 'chat'); } if (UI.drawer) closeDrawer(); openTerm(term); } else if (qq.get('session')) openSession(qq.get('session'), 'transcript'); else if (qq.get('view')) setView(qq.get('view')); });
   pushStatus();
+  takePendingOpen();
 }
+// ---------- notification tap -> that conversation ----------
+// Two paths, whichever lands first: the service worker's postMessage (app already open) and the target it parks in
+// Cache Storage (iOS resumes / reloads the PWA after the message was sent). Registered at load, not after first state.
+function openFromUrl(u) {
+  let qq; try { qq = new URL(u, location.origin).searchParams; } catch { return; }
+  const term = qq.get('term');
+  if (term) {
+    if (qq.get('mode') === 'chat') { TERM.mode = 'chat'; localStorage.setItem('bd.mode', 'chat'); }
+    if (PAL.open) closePalette(false); if (UI.drawer) closeDrawer(); $('#modal')?.classList.add('hidden');
+    if (!firstDone) { setTimeout(() => openFromUrl(u), 400); return; }   // first state not here yet (cold start)
+    openTerm(term);
+  } else if (qq.get('session')) openSession(qq.get('session'), 'transcript');
+  else if (qq.get('view')) setView(qq.get('view'));
+}
+let takingOpen = false, lastOpenAt = 0;
+async function takePendingOpen() {
+  if (takingOpen) return; takingOpen = true;
+  try {
+    if (!window.caches) return; const c = await caches.open('bd-nav'); const r = await c.match('/__pending-open'); if (!r) return;
+    const { url, at } = await r.json(); await c.delete('/__pending-open');
+    if (Date.now() - at < 120000) navOnce(url);
+  } catch {} finally { takingOpen = false; }
+}
+// the same tap can arrive three ways (message, broadcast, parked target): act on it once
+function navOnce(u) { if (Date.now() - lastOpenAt < 3000) return; lastOpenAt = Date.now(); caches?.open('bd-nav').then(c => c.delete('/__pending-open')).catch(() => {}); openFromUrl(u); }
+try { const bc = new BroadcastChannel('bd-nav'); bc.onmessage = ev => { if (ev.data && ev.data.open) navOnce(ev.data.open); }; } catch {}
+if (navigator.serviceWorker) navigator.serviceWorker.addEventListener('message', ev => { const u = ev.data && ev.data.open; if (u) navOnce(u); });
+// iOS brings the app to the front *before* the service worker handles the tap, so the parked target appears a moment
+// later: keep looking for a few seconds after every wake-up
+document.addEventListener('visibilitychange', () => { if (document.visibilityState !== 'visible') return; for (const ms of [0, 250, 600, 1200, 2000, 3500, 5000]) setTimeout(takePendingOpen, ms); });
+window.addEventListener('focus', () => { for (const ms of [0, 600, 2000]) setTimeout(takePendingOpen, ms); });
+window.addEventListener('pageshow', () => takePendingOpen());
 connect();
 $('#btn-palette').onclick = () => openPalette();
+
+// ---------- auto-update: reload into the new build once it's safe ----------
+// The page carries its build (meta bd-ver, stamped by the server). Every minute and on every wake-up it asks for the
+// current one; when they differ it reloads — but only when nothing is in progress: not recording, no text being
+// typed, no modal / palette open. A pending reload is retried until that moment comes.
+const MY_VER = document.querySelector('meta[name="bd-ver"]')?.content || null;
+let newVer = null;
+function safeToReload() {
+  if (document.body.classList.contains('recording')) return false;
+  const a = document.activeElement; if (a && (a.tagName === 'TEXTAREA' || a.tagName === 'INPUT') && a.value && a.value.trim()) return false;
+  for (const t of document.querySelectorAll('textarea:not(.creply)')) if (t.value && t.value.trim()) return false;   // unsent text outside a chat (chat drafts are saved per chat and come back)
+  if (!$('#modal')?.classList.contains('hidden')) return false;
+  if (typeof PAL !== 'undefined' && PAL.open) return false;
+  return true;
+}
+async function checkVersion() {
+  if (!MY_VER) return;
+  try { const r = await fetch('/api/version', { cache: 'no-store' }); const { v } = await r.json(); if (v && v !== MY_VER) newVer = v; } catch { return; }
+  if (newVer && safeToReload()) { try { sessionStorage.setItem('bd.updated', newVer); } catch {} location.reload(); }
+}
+setInterval(checkVersion, 60000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(checkVersion, 1500); });
+setTimeout(checkVersion, 5000);
+try { if (sessionStorage.getItem('bd.updated')) { sessionStorage.removeItem('bd.updated'); setTimeout(() => toast('updated to the latest version', 'ok'), 1200); } } catch {}

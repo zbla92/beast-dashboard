@@ -27,7 +27,7 @@ command -v tmux >/dev/null || { echo "tmux is required (sudo apt install tmux)";
 
 log "systemd user services (node: $NODE, repo: $REPO)"
 mkdir -p ~/.config/systemd/user
-for u in beast-dash beast-term; do
+for u in beast-dash beast-term beast-whisper; do   # beast-whisper: on demand, started by beast-dash, not enabled at boot
   sed -e "s#__NODE_DIR__#$NODE_DIR#g" -e "s#__REPO__#$REPO#g" "$u.service" > ~/.config/systemd/user/"$u.service"
 done
 systemctl --user daemon-reload

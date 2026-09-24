@@ -14,11 +14,17 @@ your projects and it gives you:
 - **Claude Code sessions as cards** — which project, what it is doing right now (`working: npm test`),
   whether it is *done and waiting for you*, *needs permission* or *hit an error*, its last message,
   and a reply box. Sessions live in tmux on the server, so they run **24/7** without your laptop.
+  A session waiting on its own background agents shows as *background* (which agent, doing what,
+  for how long), not as idle. Busy? **⏳ Send when free** queues your message and it goes out the
+  moment Claude finishes. Unsent text is kept per chat.
 - **Start / stop anything** — dev servers, tests, builds, docker compose — each in its own tmux
   session with live, colour-preserving logs. A dev server that dies raises a banner and a push.
 - **A terminal in the browser** (ttyd + tmux) with a phone-friendly layer: Esc/Tab/arrows/Ctrl keys,
   paste, file upload, finger scrolling. Two devices can share the same session.
-- **Push notifications** to your phone and laptop when an agent finishes or needs you.
+- **Push notifications** to your phone and laptop when an agent finishes or needs you — tapping one
+  opens that conversation, also when the app was in the background.
+- **Voice input** — tap the mic, talk, Stop: transcribed on your own server with Whisper
+  (optional, [below](#voice-input-whisper)); falls back to the browser's speech recognition.
 - **Git without a terminal** — switch branches, stage, commit, push, read diffs, edit files.
 - **Tasks** — a personal backlog of prompt-style tasks per project; "Run" hands one to a Claude
   session (or starts one).
@@ -27,7 +33,14 @@ your projects and it gives you:
 - **Recap** — what happened today / yesterday / the day before, per project: your commits, the
   Claude sessions that ran (title, what you asked, files edited) and what they cost.
 - **System** — CPU (per core + temperature), memory, GPU, disk, network; each tile opens a
-  24-hour detail (usage + temperature charts, per-core bars).
+  24-hour detail (usage + temperature charts, per-core bars). **Heavy processes** get their own card:
+  what is keeping cores busy or holding GBs of memory, in words (`Android emulator · Pixel_8`,
+  `vite · my-app`, `Gradle daemon`), with tips for known fixes and Stop / Kill. A push when the CPU
+  runs hot, memory runs out or a process pins several cores for 10+ minutes.
+- **Downloads** — `~/Downloads` on the server in a file explorer: preview images / PDFs / text,
+  tick files and download one, or several (and folders) as one zip. Ask Claude to "drop the
+  report in Downloads" and grab it from your phone.
+- **Updates itself** — open pages reload into a new build on their own when idle.
 
 It runs on a home server, a VPS or any Linux machine you can SSH into. No accounts, no cloud,
 nothing leaves your tailnet.
@@ -228,12 +241,31 @@ Everything lives in `state/` (gitignored) and is edited through ⚙ Settings, wh
 | `accountLabels` | `{personal: 'Personal', company: 'Company'}` | display names of the two Claude logins (`~/.claude`, `~/.claude-company`) |
 | `pushContact` | `mailto:admin@example.com` | VAPID contact sent to push services — set it to yours |
 | `notify` | all on | which events push, quiet hours |
+| `serverName` | hostname | name in system push titles (*"myserver CPU 92 °C"*) |
+| `voiceLangs` | `[]` | languages the mic toggles between, e.g. `["en", "de"]` (first = default); empty = auto |
 
 Per-project overrides (hide, rename, custom commands, pin) are set from the card's ⋯ menu.
 
 Nightly, `state/` is tarred into `state-backups/` (also gitignored) — download from Settings.
 **Keep both folders out of git**: `state/push.json` holds the VAPID private key and your push
 subscriptions.
+
+## Voice input (Whisper)
+
+Optional. `bin/setup-whisper.sh` makes `whisper/.venv` with [faster-whisper](https://github.com/SYSTRAN/faster-whisper)
+(plus the CUDA 12 libraries when there is an NVIDIA GPU) and installs the `beast-whisper` user unit. It is
+**not** started at boot: pressing the mic starts it (the model loads in 1–3 s while you already talk — the
+recording is buffered), and it exits a minute after the last use, so the GPU isn't held.
+
+- Settings in `whisper/whisper.env` (from `whisper.env.example`): model, device (`auto` = GPU if there is one,
+  else CPU int8 — use `small` there), the languages you speak (detection never picks a third one), a prompt
+  with your jargon, regex fixes for words it keeps mishearing.
+- On a GPU (`large-v3-turbo`) a 30 s recording transcribes in well under a second; idle, the loaded model
+  costs a few hundred MB of RAM and ~2 GB of VRAM, nothing else.
+- The recording sheet covers the page: *Starting mic…* until the microphone is really live, then a beep —
+  iOS takes a moment (and home-screen apps ask for the mic again after being killed).
+
+Without it the mic uses the browser's own speech recognition (Safari / Chrome).
 
 ## How it fits together
 

@@ -18,10 +18,15 @@ self.addEventListener('notificationclick', e => {
     e.waitUntil(p.catch(() => {})); return;
   }
   const url = new URL(e.notification.data?.url || '/', self.location.origin).href;
+  // Also park the target in Cache Storage: iOS often resumes a frozen PWA *after* our postMessage was sent (or reloads it),
+  // so the page checks this on load / when it becomes visible and goes there itself. Consumed once, ignored after 2 min.
+  const park = caches.open('bd-nav').then(c => c.put('/__pending-open', new Response(JSON.stringify({ url, at: Date.now() }), { headers: { 'content-type': 'application/json' } }))).catch(() => {});
   // Safari (iOS PWA) has no WindowClient.navigate(): tell the open page where to go and focus it; open a window only
   // when nothing is open. The page handles {open: url} (app.js) by opening that session's chat.
-  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(cs => {
+  e.waitUntil(park.then(() => self.clients.matchAll({ type: 'window', includeUncontrolled: true })).then(cs => {
     const c = cs.find(x => x.url.startsWith(self.location.origin));
+    // BroadcastChannel reaches every open page of the app even when matchAll misses it (iOS resuming a suspended PWA)
+    try { const bc = new BroadcastChannel('bd-nav'); bc.postMessage({ open: url }); bc.close(); } catch {}
     if (c) { try { c.postMessage({ open: url }); } catch {} return (c.focus ? c.focus() : Promise.resolve()).catch(() => self.clients.openWindow(url)); }
     return self.clients.openWindow(url);
   }));
