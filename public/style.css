@@ -1333,3 +1333,5 @@ body.recording .ckeys > :not(.mic) { pointer-events: none; opacity: .4; }
 .tevent .ic { color: #34d399; flex: none; } .tevent.bad .ic { color: #f87171; }
 .tevent .tx { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
 .turn.user.shell pre { margin: 4px 0 0; }
+
+.ag-status { font-size: 11.5px; color: #e0916f; margin-top: 4px; opacity: .9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

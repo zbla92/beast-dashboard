@@ -124,8 +124,8 @@ async function renderChatPane(force) {
   let t; try { t = await api(`transcript/${encodeURIComponent(name)}?n=${TERM.chatN}`); } catch (e) { TERM.chatEv.busy = false; pane.replaceChildren(h('div', { class: 'dim', style: 'padding:20px' }, e.message, ' — this session has no transcript yet; use the terminal.')); return; }
   TERM.chatEv.busy = false;
   if (TERM.active !== name) return;
-  const cl = claudeOf(name) || {}; const key = [name, t.size, t.total, cl.state, cl.lastTool, TERM.chatN, (PENDING[name] || []).length, queuedKey(name)].join(':');
-  if (!force && TERM.chatEv.key === key) return;
+  const cl = claudeOf(name) || {}; const key = [name, t.size, t.total, cl.state, cl.lastTool, TERM.chatN, (PENDING[name] || []).length, queuedKey(name), (cl.status || '').split(' (')[0], t.pending || ''].join(':');
+  if (!force && TERM.chatEv.key === key) { const st = pane.querySelector('.ag-status'); if (st && cl.status) st.textContent = cl.status; return; }   // same turn: just tick Claude's status line
   TERM.chatEv.key = key;
   renderConversation(pane, name, t, { n: TERM.chatN, more: () => { TERM.chatN = Math.min(200, TERM.chatN * 2); renderChatPane(true); }, refresh: () => renderChatPane(false) });
 }
@@ -330,7 +330,7 @@ function renderTermPanel(force) {
   // mobile: ☰ + native <select> session picker (sidebar is an overlay there)
   const allNames = [...new Set([...S3.all.map(x => x.name), ...TERM.frames.keys()])];
   const mobName = act ? (act.claude?.label || (act.project && byId()[act.project]?.name) || TERM.active) : (TERM.active || 'Sessions');
-  bar.append(h('button', { class: 'btn sm mob icon', title: 'sessions', onclick: () => { TERM.showList = !TERM.showList; renderTermPanel(true); } }, ico('sidebar', 17)),
+  barAdd(h('button', { class: 'btn sm mob icon', title: 'sessions', onclick: () => { TERM.showList = !TERM.showList; renderTermPanel(true); } }, ico('sidebar', 17)),
     h('button', { class: 'mob msess', title: 'switch session', onclick: () => { TERM.showList = true; renderTermPanel(true); } }, act ? avatar(act.project, 'sm') : null, h('span', { class: 'nm' }, mobName), instOf(act || { name: TERM.active || '' }).n ? h('span', { class: 'grp' }, '#' + instOf(act).n) : null, h('span', { class: 'caret' }, '▾')), cl && IS_PHONE ? stateBadge(cl, true) : null);
   const actProj = act && byId()[act.project]; const actGit = actProj && gitOf(actProj);
   const actDirty = actGit && !actGit.error ? actGit.dirty + actGit.untracked : 0;
@@ -916,7 +916,7 @@ async function renderSessionDrawer(full = true) {
     const body = d.querySelector('.db.sess'); if (!body || SESS.tab !== 'transcript' || SESS.busy) return; SESS.busy = true;
     let t; try { t = await api(`transcript/${encodeURIComponent(name)}?n=${SESS.n}`); } catch { SESS.busy = false; return; } SESS.busy = false;
     if (SESS.name !== name) return;
-    const key = [name, t.size, t.total, cl.state, cl.lastTool, SESS.n, (PENDING[name] || []).length, queuedKey(name)].join(':'); if (SESS.key === key) return; SESS.key = key;
+    const key = [name, t.size, t.total, cl.state, cl.lastTool, SESS.n, (PENDING[name] || []).length, queuedKey(name), (cl.status || '').split(' (')[0], t.pending || ''].join(':'); if (SESS.key === key) { const st = body.querySelector('.ag-status'); if (st && cl.status) st.textContent = cl.status; return; } SESS.key = key;
     renderConversation(body, name, t, { n: SESS.n, more: () => { SESS.n = Math.min(200, SESS.n * 2); renderSessionDrawer(); }, refresh: () => renderSessionDrawer(false) });
     return;
   }
@@ -940,7 +940,7 @@ async function renderSessionDrawer(full = true) {
         h('span', { class: 'chst s' + (f.tool === 'Write' ? 'A' : 'M') }, f.tool === 'Write' ? 'W' : 'E'), fileIcon(f.path), h('span', { class: 'chpath' }, r), h('span', { class: 'dim mono', style: 'font-size:11px' }, ago(f.at) + ' ago'), h('span', { class: 'caret' }, '▸'))); }
     return;
   }
-  SESS.key = [name, t.size, t.total, cl.state, cl.lastTool, SESS.n, (PENDING[name] || []).length, queuedKey(name)].join(':');
+  SESS.key = [name, t.size, t.total, cl.state, cl.lastTool, SESS.n, (PENDING[name] || []).length, queuedKey(name), (cl.status || '').split(' (')[0], t.pending || ''].join(':');
   renderConversation(body, name, t, { n: SESS.n, more: () => { SESS.n = Math.min(200, SESS.n * 2); renderSessionDrawer(); }, refresh: () => renderSessionDrawer(false) });
 }
 // The conversation itself: turns, tool calls, and a reply box that grows with the text and stays above the keyboard.
@@ -983,9 +983,11 @@ function renderConversation(box, name, t, o) {
   const cl = claudeOf(name) || {};
   // Feedback right away: a "working" turn appears the moment you send (before the hooks confirm it), with a Stop that
   // interrupts Claude and puts your text back in the box. Esc in the box does the same.
-  const busy = cl.state === 'working' || cl.state === 'background'; const justSent = (PENDING[name] || []).length > 0;
+  // busy: hooks / pane say so, or the transcript ends in a tool call that hasn't returned yet (Claude is running it)
+  const busy = cl.state === 'working' || cl.state === 'background' || !!t.pending; const justSent = (PENDING[name] || []).length > 0;
   const stop = async () => { const last = (PENDING[name] || []).slice(-1)[0]; try { await api('key', { session: name, key: 'esc' }); } catch {} PENDING[name] = []; if (last && !ta.value.trim()) { ta.value = last.text; grow(); } ta.focus(); toast('stopped — your text is back in the box'); setTimeout(o.refresh, 600); };
-  if (busy || justSent) conv.append(h('div', { class: 'turn assistant live' }, h('div', { class: 'who' }, '✦ claude', h('span', { class: 'dim mono' }, cl.state === 'background' ? ' waiting on background agents' : busy ? ' working…' : ' starting…'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost stopb', title: 'interrupt (Esc) — your message goes back into the box', onclick: stop }, '■ Stop')), h('div', { class: 'ag-now' }, h('span', { class: 'spin' }), h('span', { class: 'mono' }, cl.state === 'background' ? bgText(cl.bg) : busy ? (cl.lastTool || 'thinking…') : 'sending to Claude…'))));
+  if (busy || justSent) conv.append(h('div', { class: 'turn assistant live' }, h('div', { class: 'who' }, '✦ claude', h('span', { class: 'dim mono' }, cl.state === 'background' ? ' waiting on background agents' : busy ? ' working…' : ' starting…'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost stopb', title: 'interrupt (Esc) — your message goes back into the box', onclick: stop }, '■ Stop')), h('div', { class: 'ag-now' }, h('span', { class: 'spin' }), h('span', { class: 'mono' }, cl.state === 'background' ? bgText(cl.bg) : busy ? (cl.state === 'working' ? cl.lastTool || t.pending || 'thinking…' : t.pending || cl.lastTool || 'working…') : 'sending to Claude…')),
+    cl.state === 'working' && cl.status ? h('div', { class: 'ag-status mono' }, cl.status) : null));   // Claude's own status line: "✻ Cooking… (2m 10s · ↓ 3.1k tokens)"
   const scroller = h('div', { class: 'cscroll' }, bar, conv);
   // reply box: textarea that grows to 6 lines; Enter sends, Shift+Enter = newline; Esc button interrupts Claude
   const ta = h('textarea', { class: 'creply', rows: 1, placeholder: cl.state === 'permission' ? 'y / n, or type…' : 'Message Claude…', title: 'Enter sends · Shift+Enter = new line', autocomplete: 'off', autocapitalize: 'sentences', spellcheck: true });
