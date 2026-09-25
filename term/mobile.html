@@ -31,6 +31,9 @@
 -->
 <style>
   :root { --bd-bar: 46px; }
+  /* xterm's scrollback bar: thin and dark like the dashboard (Linux Firefox / Chrome drew a wide light system one) */
+  .xterm-viewport::-webkit-scrollbar { width: 8px; } .xterm-viewport::-webkit-scrollbar-thumb { background: #263043; border-radius: 6px; } .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
+  @supports (-moz-appearance: none) { .xterm-viewport { scrollbar-width: thin; scrollbar-color: #263043 transparent; } }
 
   body.bd-touch #terminal-container {
     height: calc(100% - var(--bd-bar) - env(safe-area-inset-bottom, 0px));

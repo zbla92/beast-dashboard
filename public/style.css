@@ -15,6 +15,8 @@ body { background: var(--bg); min-height: 100vh; -webkit-font-smoothing: antiali
 a { color: var(--accent); text-decoration: none; }
 button { font: inherit; color: inherit; }
 ::-webkit-scrollbar { width: 10px; height: 10px; } ::-webkit-scrollbar-thumb { background: #263043; border-radius: 6px; } ::-webkit-scrollbar-track { background: transparent; }
+/* Firefox ignores ::-webkit-scrollbar and draws light system scrollbars (Linux especially): same thin dark thumb there. Scoped to Firefox so Chrome/Safari keep the rules above. */
+@supports (-moz-appearance: none) { * { scrollbar-width: thin; scrollbar-color: #263043 transparent; } }
 .hidden { display: none !important; }
 .dim { color: var(--muted); font-weight: 500; }
 .mono { font-family: var(--mono); }

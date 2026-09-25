@@ -45,26 +45,56 @@ your projects and it gives you:
 It runs on a home server, a VPS or any Linux machine you can SSH into. No accounts, no cloud,
 nothing leaves your tailnet.
 
-### A tour
+## A tour
 
-*(From a demo box: example projects, two Claude sessions, made-up usage numbers.)*
+*Screenshots from a demo box: example projects, two Claude Code sessions, made-up usage numbers.*
 
-| Chat with a session | The same session in the terminal | A plain shell |
-|---|---|---|
-| ![Chat view: your prompts, Claude's replies, tool calls with their diffs, the live status line](docs/screenshots/chat.png) | ![Terminal view: the Claude Code TUI running in tmux, in the browser](docs/screenshots/terminal.png) | ![Shell: bash in tmux on the server](docs/screenshots/shell.png) |
-| **Changes: diff, stage, commit, push** | **Files: tree, preview, edit in place** | **Downloads: preview, tick, download as zip** |
-| ![Changes tab with an expanded diff](docs/screenshots/changes.png) | ![Files tab in edit mode](docs/screenshots/files.png) | ![Downloads explorer with an image preview and two files selected](docs/screenshots/downloads.png) |
-| **Projects** | **Tasks** | **⌘K** |
-| ![Projects grouped by folder, with what runs in each](docs/screenshots/projects.png) | ![Task backlog per project](docs/screenshots/tasks.png) | ![Command palette](docs/screenshots/palette.png) |
+### Talk to Claude from anywhere
 
-**On the phone** — home, chat, terminal, a diff, Downloads:
+**Chat** renders the session from its transcript: your messages on the right, Claude's on the
+left, and while it works a live turn with what it is running right now and its own status line.
 
-<p>
-<img src="docs/screenshots/phone-home.png" width="19%" alt="Phone: home">
-<img src="docs/screenshots/phone-chat.png" width="19%" alt="Phone: chat with a working session">
-<img src="docs/screenshots/phone-terminal.png" width="19%" alt="Phone: Claude Code in the terminal">
-<img src="docs/screenshots/phone-changes.png" width="19%" alt="Phone: a diff in the Changes tab">
-<img src="docs/screenshots/phone-downloads.png" width="19%" alt="Phone: Downloads with an image preview">
+![Chat with a working session: your prompts, Claude's replies, the live turn with the running tool and Claude's status line](docs/screenshots/chat.png)
+
+Each turn keeps its tool calls folded into one line (*▸ 6 tool calls · Read, Edit, Write, Bash*).
+Open it to see exactly what Claude changed: the Edit / Write diffs and the Bash commands with their results.
+
+![A turn with its tool calls opened: Edit diffs in red and green, the new file, the test command](docs/screenshots/chat-tools.png)
+
+| Done, waiting for you | The same session as the real Claude Code TUI |
+|---|---|
+| ![Chat of a finished session: Claude's summary with a list and a question](docs/screenshots/chat-done.png) | ![Terminal view: Claude Code running in tmux, in the browser](docs/screenshots/terminal.png) |
+
+### Terminals, git and files
+
+| A shell in tmux on the server | Changes: diff, stage, commit, push |
+|---|---|
+| ![bash in the browser terminal](docs/screenshots/shell.png) | ![Changes tab with an expanded diff](docs/screenshots/changes.png) |
+| **Files: tree, preview, edit in place** | **Downloads: preview, tick, get one file or a zip** |
+| ![Files tab in edit mode](docs/screenshots/files.png) | ![Downloads explorer with an image preview and two files selected](docs/screenshots/downloads.png) |
+
+### Plan the work
+
+| Projects, grouped by folder | Tasks per project |
+|---|---|
+| ![Project cards with branch, changes and what runs in each](docs/screenshots/projects.png) | ![Task backlog: in progress and to do](docs/screenshots/tasks.png) |
+| **Schedule a message (or a chain)** | **⌘K: jump anywhere** |
+| ![Schedule dialog: when, the message, follow-ups](docs/screenshots/schedule.png) | ![Command palette with sessions, dev servers and projects](docs/screenshots/palette.png) |
+
+**Recap** — what happened today, per project: your commits and the Claude sessions (what you
+asked, files edited, cost).
+
+![Recap of a project: commits and two Claude sessions](docs/screenshots/recap.png)
+
+### On the phone
+
+![Phone: home, chat, Claude Code in the terminal, a diff, Downloads](docs/screenshots/phone-strip.png)
+
+<p align="center">
+<img src="docs/screenshots/phone-sessions.png" width="24%" alt="Phone: session switcher">
+<img src="docs/screenshots/phone-chat-done.png" width="24%" alt="Phone: a finished session">
+<img src="docs/screenshots/phone-projects.png" width="24%" alt="Phone: projects">
+<img src="docs/screenshots/phone-tasks.png" width="24%" alt="Phone: tasks">
 </p>
 
 ---
@@ -171,7 +201,7 @@ Plain `http://<ip>:8787` keeps working; only push and the installable app need H
 On iPhone, add the page to the Home Screen (Share → Add to Home Screen): you get a full-screen
 app, notifications, and the terminal with a key bar above the keyboard.
 
-<img src="docs/screenshots/phone-home.png" width="300" alt="Phone: heavy processes, agents, recap, system">
+<p align="center"><img src="docs/screenshots/phone-home.png" width="320" alt="Phone: heavy processes, agents, recap, system"></p>
 
 ## Claude Code
 
@@ -233,8 +263,6 @@ read-only and *Resume here*.
 - **Terminals** — the terminal panel with a session list; `t`, `n` (next session that needs you),
   `s` (new shell), `1-9` switch. Inside a terminal: `Ctrl+Shift+←/→` switch, `Ctrl+Shift+↑` back.
 - **⌘K / Ctrl+K** — jump to any session or project, start Claude, run actions, search conversations.
-
-![Recap: commits and Claude sessions per project, per day](docs/screenshots/recap.png)
 
 - **Tunnels** (⚙ → Tunnels) — loopback-only ports of running projects are forwarded onto the
   Tailscale IP automatically; *Rebuild all* after a resume; manual expose for anything else.
