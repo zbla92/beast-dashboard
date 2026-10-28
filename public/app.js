@@ -122,6 +122,7 @@ function ico(name, size = 15) {
 // Terminal / Chat is ONE global switch for this device (Mac, phone …): every Claude session shows the same way.
 const IS_PHONE = matchMedia('(max-width: 900px)').matches;
 const TERM = { open: false, active: null, frames: new Map(), lastUsed: new Map(), showList: false, listKey: '', mode: localStorage.getItem('bd.mode') ? (localStorage.getItem('bd.mode') === 'chat' ? 'chat' : 'term') : (IS_PHONE ? 'chat' : 'term'), chatEv: {}, chatN: 40 };
+let CLAUDE_UPGRADING = false;   // mise upgrade claude in flight (see updateClaude)
 const chatMode = name => TERM.mode === 'chat' && !!claudeOf(name);
 // Focus: hide the session list in the terminal panel (screen sharing) — per device, remembered
 TERM.focus = localStorage.getItem('bd.focus') === '1' && !IS_PHONE;   // focus mode is a desktop thing; on the phone the list must always be reachable
@@ -348,7 +349,7 @@ function renderTermPanel(force) {
   const extra = [...TERM.frames.keys()].filter(k => !known.has(k));
   // The list and the bar are rebuilt only when something they show actually changed. Rebuilding them on every
   // 3-second state tick blurred the terminal iframe (the focus bug) and made the sidebar flicker.
-  const key = JSON.stringify([TERM.active, TERM.showList, TERM.mode, TERM.focus, S3.all.map(x => [x.name, x.claude?.state, x.claude?.title, x.claude?.draft, x.claude?.model, x.claude?.effort, x.claude?.branch, x.claude?.worktree?.name, x.claude?.version, (S.settings.muted || []).includes(x.name), Math.floor((x.cpu || 0) / 10), x.ports.map(p => p.port)]), S.claude?.installed, S.claude?.update?.version, extra, [...TERM.frames.keys()], S.runtime.sessions.filter(s => s.name === TERM.active).map(s => s.project + (gitOf(byId()[s.project] || {})?.dirty || 0))]);
+  const key = JSON.stringify([TERM.active, TERM.showList, TERM.mode, TERM.focus, S3.all.map(x => [x.name, x.claude?.state, x.claude?.title, x.claude?.draft, x.claude?.model, x.claude?.effort, x.claude?.branch, x.claude?.worktree?.name, x.claude?.version, (S.settings.muted || []).includes(x.name), Math.floor((x.cpu || 0) / 10), x.ports.map(p => p.port)]), S.claude?.installed, S.claude?.update?.version, CLAUDE_UPGRADING, extra, [...TERM.frames.keys()], S.runtime.sessions.filter(s => s.name === TERM.active).map(s => s.project + (gitOf(byId()[s.project] || {})?.dirty || 0))]);
   const frames = $('#term-frames'); const chatOn = TERM.active && chatMode(TERM.active);
   for (const [k, f] of TERM.frames) { if (!f.isConnected) frames.append(f); f.classList.toggle('on', k === TERM.active && !chatOn); }
   $('#term-chat').classList.toggle('hidden', !chatOn);
@@ -414,7 +415,7 @@ function renderTermPanel(force) {
     h('button', { class: 'btn sm desk', title: 'open in new browser tab', onclick: () => openTermTab(TERM.active) }, ico('ext', 13), 'Tab'),
     h('button', { class: 'btn sm ghost desk', title: 'close this VIEW only — the session keeps running in tmux', onclick: () => dropFrame(TERM.active) }, ico('x', 13), 'Close view'),
     cl && cl.state === 'limit' && act ? h('button', { class: 'btn sm primary', title: 'start the other account in this folder with a summary of where this one stopped', onclick: () => handoff({ name: TERM.active, account: cl.account, project: act.project }) }, '⇄ Hand off') : null,
-    cl && S.claude?.update ? h('button', { class: 'btn sm dirtybtn desk', title: `Claude Code ${S.claude.update.version} is out — install it (mise upgrade claude), then restart this session (same conversation, --resume)`, onclick: () => updateClaude({ name: TERM.active, project: act?.project }) }, ico('refresh', 13), S.claude.update.version) :
+    cl && S.claude?.update ? h('button', { class: 'btn sm dirtybtn desk', disabled: CLAUDE_UPGRADING, title: CLAUDE_UPGRADING ? 'mise upgrade claude is running…' : `Claude Code ${S.claude.update.version} is out — install it (mise upgrade claude), then restart this session (same conversation, --resume)`, onclick: () => updateClaude({ name: TERM.active, project: act?.project }) }, ico('refresh', 13), CLAUDE_UPGRADING ? 'installing…' : S.claude.update.version) :
     cl && cl.version && S.claude?.installed && cl.version !== S.claude.installed ? h('button', { class: 'btn sm dirtybtn desk', title: `running Claude Code ${cl.version}, ${S.claude.installed} is installed — restart this session (same conversation, --resume)`, onclick: () => restartSession({ name: TERM.active, project: act?.project }) }, ico('refresh', 13), S.claude.installed) : null,
     cl && cl.hooked ? h('button', { class: 'btn sm ghost desk', title: (S.settings.muted || []).includes(TERM.active) ? 'muted — click to get notifications again' : 'mute notifications from this session', onclick: () => api('claude-mute', { session: TERM.active, muted: !(S.settings.muted || []).includes(TERM.active) }).then(r => toast(r.muted.includes(TERM.active) ? 'muted' : 'unmuted')) }, ico((S.settings.muted || []).includes(TERM.active) ? 'bellOff' : 'bell', 14)) : null,
     act ? h('button', { class: 'btn sm danger', title: 'KILL this tmux session — the process is stopped (Ctrl-C, then kill)', onclick: () => killSession(TERM.active) }, ico('power', 13), 'Kill') : null,
@@ -674,12 +675,16 @@ function restartSession(it) {
   if (!confirm(`Restart Claude in ${it.name}?\n\nIt sends /exit, waits, then relaunches with --resume on the same conversation (picks up the installed update). Takes ~10 s.`)) return;
   act('Restart ' + it.project, api('claude-restart', { session: it.name }));
 }
-// mise install (Omarchy): Claude Code only says "Run: mise upgrade claude" — do that, then restart this session (it = null: just install)
+// mise install (Omarchy): Claude Code only says "Run: mise upgrade claude" — do that, then restart this session (it = null: just install).
+// One at a time: the download takes a while, and every extra click used to queue one more restart of the session.
 async function updateClaude(it) {
   const v = S.claude?.update?.version; if (!v) return;
+  if (CLAUDE_UPGRADING) { toast('mise upgrade claude is still running…'); return; }
   if (!confirm(`Update Claude Code to ${v}${it ? ` and restart ${it.name}` : ''}?\n\nRuns mise upgrade claude${it ? ', then /exit and a relaunch with --resume on the same conversation' : ''}. Other sessions get a restart button. Takes up to a minute.`)) return;
+  CLAUDE_UPGRADING = true; renderTermPanel();
   toast('mise upgrade claude …');
   const r = await act('mise upgrade claude → ' + v, api('claude-upgrade', {})).catch(() => null);
+  CLAUDE_UPGRADING = false; renderTermPanel();
   if (it && r?.ok) act('Restart ' + (it.project || it.name), api('claude-restart', { session: it.name }));
 }
 function handoff(it) {
