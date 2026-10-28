@@ -299,6 +299,8 @@ endpoint — the token is never sent anywhere else and never refreshed by the da
 **After a reboot.** Sessions are remembered (`state/claude-sessions.json`); a banner offers
 *Restore all* (`claude --resume <id>` in the same folder), or set *auto-restore* in Settings.
 The card also shows ↻ when a newer Claude Code is installed; one click restarts the session on it.
+Installed with mise (Omarchy), Claude Code can't update itself, so ↻ shows the newer release instead:
+one click runs `mise upgrade claude` and restarts the session (*Update Claude Code* in the palette just installs it).
 
 **Search.** `⌘K` then `? words` searches every past conversation on the machine; open one
 read-only and *Resume here*.

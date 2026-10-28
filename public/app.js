@@ -348,7 +348,7 @@ function renderTermPanel(force) {
   const extra = [...TERM.frames.keys()].filter(k => !known.has(k));
   // The list and the bar are rebuilt only when something they show actually changed. Rebuilding them on every
   // 3-second state tick blurred the terminal iframe (the focus bug) and made the sidebar flicker.
-  const key = JSON.stringify([TERM.active, TERM.showList, TERM.mode, TERM.focus, S3.all.map(x => [x.name, x.claude?.state, x.claude?.title, x.claude?.draft, x.claude?.model, x.claude?.effort, x.claude?.branch, x.claude?.worktree?.name, x.claude?.version, (S.settings.muted || []).includes(x.name), Math.floor((x.cpu || 0) / 10), x.ports.map(p => p.port)]), extra, [...TERM.frames.keys()], S.runtime.sessions.filter(s => s.name === TERM.active).map(s => s.project + (gitOf(byId()[s.project] || {})?.dirty || 0))]);
+  const key = JSON.stringify([TERM.active, TERM.showList, TERM.mode, TERM.focus, S3.all.map(x => [x.name, x.claude?.state, x.claude?.title, x.claude?.draft, x.claude?.model, x.claude?.effort, x.claude?.branch, x.claude?.worktree?.name, x.claude?.version, (S.settings.muted || []).includes(x.name), Math.floor((x.cpu || 0) / 10), x.ports.map(p => p.port)]), S.claude?.installed, S.claude?.update?.version, extra, [...TERM.frames.keys()], S.runtime.sessions.filter(s => s.name === TERM.active).map(s => s.project + (gitOf(byId()[s.project] || {})?.dirty || 0))]);
   const frames = $('#term-frames'); const chatOn = TERM.active && chatMode(TERM.active);
   for (const [k, f] of TERM.frames) { if (!f.isConnected) frames.append(f); f.classList.toggle('on', k === TERM.active && !chatOn); }
   $('#term-chat').classList.toggle('hidden', !chatOn);
@@ -414,6 +414,7 @@ function renderTermPanel(force) {
     h('button', { class: 'btn sm desk', title: 'open in new browser tab', onclick: () => openTermTab(TERM.active) }, ico('ext', 13), 'Tab'),
     h('button', { class: 'btn sm ghost desk', title: 'close this VIEW only — the session keeps running in tmux', onclick: () => dropFrame(TERM.active) }, ico('x', 13), 'Close view'),
     cl && cl.state === 'limit' && act ? h('button', { class: 'btn sm primary', title: 'start the other account in this folder with a summary of where this one stopped', onclick: () => handoff({ name: TERM.active, account: cl.account, project: act.project }) }, '⇄ Hand off') : null,
+    cl && S.claude?.update ? h('button', { class: 'btn sm dirtybtn desk', title: `Claude Code ${S.claude.update.version} is out — install it (mise upgrade claude), then restart this session (same conversation, --resume)`, onclick: () => updateClaude({ name: TERM.active, project: act?.project }) }, ico('refresh', 13), S.claude.update.version) :
     cl && cl.version && S.claude?.installed && cl.version !== S.claude.installed ? h('button', { class: 'btn sm dirtybtn desk', title: `running Claude Code ${cl.version}, ${S.claude.installed} is installed — restart this session (same conversation, --resume)`, onclick: () => restartSession({ name: TERM.active, project: act?.project }) }, ico('refresh', 13), S.claude.installed) : null,
     cl && cl.hooked ? h('button', { class: 'btn sm ghost desk', title: (S.settings.muted || []).includes(TERM.active) ? 'muted — click to get notifications again' : 'mute notifications from this session', onclick: () => api('claude-mute', { session: TERM.active, muted: !(S.settings.muted || []).includes(TERM.active) }).then(r => toast(r.muted.includes(TERM.active) ? 'muted' : 'unmuted')) }, ico((S.settings.muted || []).includes(TERM.active) ? 'bellOff' : 'bell', 14)) : null,
     act ? h('button', { class: 'btn sm danger', title: 'KILL this tmux session — the process is stopped (Ctrl-C, then kill)', onclick: () => killSession(TERM.active) }, ico('power', 13), 'Kill') : null,
@@ -672,6 +673,14 @@ function bgText(bg) {
 function restartSession(it) {
   if (!confirm(`Restart Claude in ${it.name}?\n\nIt sends /exit, waits, then relaunches with --resume on the same conversation (picks up the installed update). Takes ~10 s.`)) return;
   act('Restart ' + it.project, api('claude-restart', { session: it.name }));
+}
+// mise install (Omarchy): Claude Code only says "Run: mise upgrade claude" — do that, then restart this session (it = null: just install)
+async function updateClaude(it) {
+  const v = S.claude?.update?.version; if (!v) return;
+  if (!confirm(`Update Claude Code to ${v}${it ? ` and restart ${it.name}` : ''}?\n\nRuns mise upgrade claude${it ? ', then /exit and a relaunch with --resume on the same conversation' : ''}. Other sessions get a restart button. Takes up to a minute.`)) return;
+  toast('mise upgrade claude …');
+  const r = await act('mise upgrade claude → ' + v, api('claude-upgrade', {})).catch(() => null);
+  if (it && r?.ok) act('Restart ' + (it.project || it.name), api('claude-restart', { session: it.name }));
 }
 function handoff(it) {
   const to = it.account === 'company' ? 'personal' : 'company';
@@ -2198,6 +2207,7 @@ function paletteItems() {
     { kind: 'action', label: 'Projects', sub: 'all projects, filters, search  (p)', icon: '▤', hay: 'projects view page', run: () => setView('projects'), rank: 29 },
     { kind: 'action', label: 'Home', sub: 'stats · agents · running  (h)', icon: '⌂', hay: 'home dashboard', run: () => setView('home'), rank: 28 });
   items.push(...feat('paletteItems'));
+  if (S.claude?.update) items.push({ kind: 'action', label: 'Update Claude Code', sub: `${S.claude.installed || '?'} → ${S.claude.update.version} (mise upgrade claude)`, icon: '⬆', hay: 'update upgrade claude code version mise', run: () => updateClaude(null), rank: 0 });
   if ((S.claude?.restorable || []).length) items.push({ kind: 'action', label: 'Restore Claude sessions', sub: `${S.claude.restorable.length} from before the restart`, icon: '↺', hay: 'restore claude sessions resume', run: () => act('Restore all', api('claude-restore', {})), rank: 0 });
   const score = it => { if (!q) return 0; const hay = it.hay.toLowerCase(); if (hay.includes(q)) return 1; const w = q.split(/\s+/); return w.every(x => hay.includes(x)) ? 2 : (fuzzy(it.label.toLowerCase(), q) ? 3 : 0); };
   return items.map((it, i) => ({ ...it, s: score(it), i })).filter(it => !q || it.s).sort((a, b) => (q ? a.s - b.s : 0) || a.rank - b.rank || a.i - b.i).slice(0, 40);

@@ -1,6 +1,6 @@
 {
   "name": "beast-dash",
-  "version": "2.2.2",
+  "version": "2.2.3",
   "private": true,
   "description": "Self-hosted dashboard for a dev server: projects, processes, docker, git, tunnels and live Claude Code sessions — from your laptop or phone.",
   "main": "server.js",

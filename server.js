@@ -53,7 +53,7 @@ let lastStateJson = '';
 
 function stateObj() {
   const s = settings.get();
-  return { projects: projects.map(p => ({ ...p, git: gitStatus[p.id] || null })), runtime: { ...snapshot, manual: expose.manual() }, settings: s, host: { tsIp: TS_IP, tsName: expose.tailscaleName(), tailscale: TS_INFO, publicHost: s.publicHost || TS_IP || 'localhost', terminalPort: 7681, hostname: require('os').hostname(), devRoot: s.devRoot, user: process.env.USER || 'user', lastResume: LAST_RESUME, startedAt: STARTED_AT, build: build(), pushSubs: push.subscriptions().length, probe: probe.status(), stateErrors: corrupted() }, claude: { restorable: claude.restorable(), usage: usage.summary(), limits: limits.all(), installed: CLAUDE_VERSION, schedule: schedule.all(), tasks: tasks.all() }, health: health.all(), crashes: recentCrashes(), stats: sys.latest(), statsHistory: sys.history() };
+  return { projects: projects.map(p => ({ ...p, git: gitStatus[p.id] || null })), runtime: { ...snapshot, manual: expose.manual() }, settings: s, host: { tsIp: TS_IP, tsName: expose.tailscaleName(), tailscale: TS_INFO, publicHost: s.publicHost || TS_IP || 'localhost', terminalPort: 7681, hostname: require('os').hostname(), devRoot: s.devRoot, user: process.env.USER || 'user', lastResume: LAST_RESUME, startedAt: STARTED_AT, build: build(), pushSubs: push.subscriptions().length, probe: probe.status(), stateErrors: corrupted() }, claude: { restorable: claude.restorable(), usage: usage.summary(), limits: limits.all(), installed: CLAUDE_VERSION, update: CLAUDE_UPDATE, schedule: schedule.all(), tasks: tasks.all() }, health: health.all(), crashes: recentCrashes(), stats: sys.latest(), statsHistory: sys.history() };
 }
 let TS_IP = null, TS_INFO = null, LAST_RESUME = null, LAST_TICK = Date.now();
 // front-end build id = newest mtime of public/*: a client that sees it change reloads itself, so a PWA that sat open
@@ -170,12 +170,24 @@ function detectCrashes() {
   }
 }
 
-// Installed Claude Code version (the sessions report theirs from the transcript): a mismatch = "restart to update"
-let CLAUDE_VERSION = null, versionAt = 0;
-async function claudeVersion() {
-  if (Date.now() - versionAt < 10 * 60e3) return; versionAt = Date.now();
-  try { const link = fs.readlinkSync(path.join(process.env.HOME, '.local', 'bin', 'claude')); const m = link.match(/(\d+\.\d+\.\d+)$/); if (m) { CLAUDE_VERSION = m[1]; return; } } catch {}
+// Installed Claude Code version (the sessions report theirs from the transcript): a mismatch = "restart to update".
+// The native installer updates itself; a mise install (Omarchy) only prints "Run: mise upgrade claude", so there
+// CLAUDE_UPDATE = the newer release mise sees, and /api/claude-upgrade installs it.
+let CLAUDE_VERSION = null, CLAUDE_UPDATE = null, versionAt = 0, miseChecking = false, miseUpgrade = null;
+async function claudeVersion(force) {
+  if (!force && Date.now() - versionAt < 10 * 60e3) return; versionAt = Date.now();
+  try { const link = fs.readlinkSync(path.join(process.env.HOME, '.local', 'bin', 'claude')); const m = link.match(/(\d+\.\d+\.\d+)$/); if (m) { CLAUDE_VERSION = m[1]; CLAUDE_UPDATE = null; return; } } catch {}
   const r = await run('claude', ['--version'], { timeout: 8000 }); const m = r.stdout.match(/(\d+\.\d+\.\d+)/); if (m) CLAUDE_VERSION = m[1];
+  miseOutdated();   // not awaited: it may go to the network
+}
+// mise lists claude only when a newer release is out; its "current" has to be the claude found above, or mise's isn't the one in use
+async function miseOutdated() {
+  if (miseChecking) return; miseChecking = true;
+  try {
+    const r = await run('mise', ['outdated', 'claude', '--json'], { timeout: 30000, cwd: process.env.HOME });
+    const c = r.ok ? JSON.parse(r.stdout || '{}').claude : null;
+    CLAUDE_UPDATE = c && c.latest && c.latest !== c.current && c.current === CLAUDE_VERSION ? { version: c.latest, via: 'mise' } : null;
+  } catch {} finally { miseChecking = false; }
 }
 // Scheduled prompts: send when due and the session is not busy; push when a job finishes.
 async function runSchedule() {
@@ -707,6 +719,13 @@ async function api(req, res, url) {
     }
     case 'claude-restart': { // exit + relaunch with --resume in the same tmux (picks up an installed Claude Code update)
       const r = await actions.restartClaude(String(b.session || ''), claude.get(String(b.session || ''))); setTimeout(tick, 1500); setTimeout(tick, 5000); return json(res, r.ok ? 200 : 500, r);
+    }
+    case 'claude-upgrade': { // mise install: Claude Code can't update itself there. Install the newer release; sessions then get "restart"
+      if (CLAUDE_UPDATE?.via !== 'mise') return json(res, 400, { error: 'no Claude Code update to install' });
+      if (!miseUpgrade) miseUpgrade = run('mise', ['upgrade', 'claude'], { timeout: 5 * 60e3, cwd: process.env.HOME }).finally(() => { miseUpgrade = null; });
+      const r = await miseUpgrade; if (r.ok) CLAUDE_UPDATE = null;
+      await claudeVersion(true); pushState(true);
+      return json(res, r.ok ? 200 : 500, r.ok ? { ok: true, installed: CLAUDE_VERSION } : { error: (r.stderr || r.stdout).trim().split('\n').slice(-3).join('\n') || 'mise upgrade failed' });
     }
     case 'claude-mute': { const name = String(b.session || ''); const set = new Set(settings.get().muted || []); if (b.muted) set.add(name); else set.delete(name); settings.update({ muted: [...set] }); pushState(true); return json(res, 200, { ok: true, muted: [...set] }); }
     case 'unit': { const u = String(b.unit || ''); if (!/^[A-Za-z0-9@._-]+\.service$/.test(u) || !['restart', 'stop', 'start'].includes(b.action)) return json(res, 400, { error: 'bad unit/action' }); const r = await run('systemctl', ['--user', b.action, u], { timeout: 20000 }); setTimeout(tick, 1500); return json(res, r.ok ? 200 : 500, r.ok ? { ok: true } : { error: r.stderr.trim() || 'failed' }); }
