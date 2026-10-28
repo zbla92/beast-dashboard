@@ -47,7 +47,8 @@ your projects and it gives you:
   shaded). **Heavy processes** get their own card:
   what is keeping cores busy or holding GBs of memory, in words (`Android emulator · Pixel_8`,
   `vite · my-app`, `Gradle daemon`), with tips for known fixes and Stop / Kill. A push when the CPU
-  runs hot, memory runs out or a process pins several cores for 10+ minutes.
+  runs hot, memory runs out, a process pins several cores for 10+ minutes or the battery drops to
+  25 % and again to 10 % (once per discharge, quiet hours respected).
 - **Downloads** — `~/Downloads` on the server in a file explorer: preview images / PDFs / text,
   tick files and download one, or several (and folders) as one zip. Ask Claude to "drop the
   report in Downloads" and grab it from your phone.

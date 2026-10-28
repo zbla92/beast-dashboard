@@ -309,8 +309,10 @@ claude.onChange((ev, r, prev) => {
 
 async function statsTick() { try { const s = await sys.sample(); try { const table = await probe.procs(); s.hogs = hogs.sample(Date.now(), table); } catch (e) { s.hogs = []; } sys.tempsSample(s); systemAlerts(s); broadcast('stats', s); } catch (e) { console.error('stats failed', e); } }
 // Phone buzz when the machine itself is in trouble: CPU too hot, memory nearly gone, a process pinning many cores for
-// a long time. Each alert at most once per 30 min (per process: once per its life), under the 'system' toggle.
+// a long time, the battery running low. Each alert at most once per 30 min (per process: once per its life; battery:
+// at 25 % and 10 % once per discharge, lib/batalert.js), under the 'system' toggle and its quiet hours.
 const sysAlertAt = new Map(); let hotSince = null;
+const batAlert = require('./lib/batalert').createBatteryAlert();
 function systemAlerts(s) {
   const now = Date.now(); const once = (key, gap, fn) => { if (now - (sysAlertAt.get(key) || 0) < gap) return; sysAlertAt.set(key, now); if (pushAllowed('system')) fn(); };
   const t = s.cpu.temp; hotSince = t >= 90 ? (hotSince || now) : null;
@@ -318,6 +320,8 @@ function systemAlerts(s) {
   if (hotSince && now - hotSince > 60000) once('temp', 30 * 60e3, () => push.notify({ title: `🔥 ${host} CPU ${t.toFixed(0)}°C`, body: oneLine((s.hogs[0] ? 'Top: ' + s.hogs[0].name + ' · ' + s.hogs[0].cpu + '% CPU' : 'no single process to blame'), 80), url: '/?view=home', tag: 'sys-temp' }).catch(() => {}));
   const availPct = s.mem.total ? (s.mem.total - s.mem.used) / s.mem.total * 100 : 100;
   if (availPct < 6) once('mem', 30 * 60e3, () => push.notify({ title: `🧠 ${host} memory ${Math.round(100 - availPct)}% used`, body: oneLine(s.hogs.slice().sort((a, b) => b.rss - a.rss).slice(0, 2).map(x => x.name + ' ' + (x.rss / 2 ** 30).toFixed(1) + ' GB').join(' · ') || 'check Home', 80), url: '/?view=home', tag: 'sys-mem' }).catch(() => {}));
+  const b = s.battery, left = b?.minsLeft ? (b.minsLeft < 60 ? b.minsLeft + ' min' : Math.floor(b.minsLeft / 60) + ' h' + (b.minsLeft % 60 ? ' ' + b.minsLeft % 60 + ' min' : '')) + ' left · ' : '';
+  if (batAlert.check(b) && pushAllowed('system')) push.notify({ title: `🪫 ${host} battery ${b.pct}%`, body: left + (b.ac ? 'the charger can\'t keep up' : 'plug it in'), url: '/?view=home', tag: 'sys-battery' }).catch(() => {});   // in quiet hours the push is skipped, not saved for later
   for (const hg of s.hogs) if (hg.cpu >= 300 && hg.heavyFor > 10 * 60e3) once('hog-' + hg.pid, 24 * 3600e3, () => push.notify({ title: `🐷 ${hg.name} · ${hg.cpu}% CPU`, body: oneLine(`busy for ${Math.round(hg.heavyFor / 60e3)} min` + (hg.tip ? ' — ' + hg.tip : ''), 100), url: '/?view=home', tag: 'hog-' + hg.pid }).catch(() => {}));
 }
 
