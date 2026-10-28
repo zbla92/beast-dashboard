@@ -102,12 +102,12 @@ kbd { font-family: var(--mono); font-size: 10.5px; border: 1px solid var(--line2
 .rrow.st-ended .rdot, .rrow.st-unknown .rdot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--dim); }
 @keyframes breathe { 0%, 100% { box-shadow: 0 0 0 2px color-mix(in srgb, var(--st-work) 30%, transparent); } 50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--st-work) 0%, transparent); } }
 .rail-foot { display: flex; flex-direction: column; gap: 2px; padding: 8px 2px 0; border-top: 1px solid var(--line); }
-.rm { display: grid; grid-template-columns: 34px 1fr 34px; align-items: center; gap: 8px; border: 0; background: none; padding: 3px 8px; border-radius: 7px; cursor: pointer; color: var(--muted); font-size: 11.5px; }
+.rm { display: grid; grid-template-columns: 34px 1fr 40px; align-items: center; gap: 8px; border: 0; background: none; padding: 3px 8px; border-radius: 7px; cursor: pointer; color: var(--muted); font-size: 11.5px; }
 .rm:hover { background: var(--fill); color: var(--text); }
 .rm .rk { text-align: left; color: var(--dim); font-weight: 500; }
 .rm i { height: 4px; border-radius: 3px; background: var(--fill2); overflow: hidden; }
 .rm i b { display: block; height: 100%; border-radius: 3px; background: color-mix(in srgb, var(--cyan) 75%, var(--text)); transition: width .6s var(--ease); }
-.rm.warn i b { background: var(--amber); } .rm.hot i b { background: var(--red); }
+.rm.warn i b { background: var(--amber); } .rm.hot i b { background: var(--red); } .rm.ac i b { background: var(--green); }
 .rm .rv { text-align: right; }
 
 /* top bar of the main column */
@@ -446,7 +446,7 @@ input[type=checkbox] { accent-color: var(--accent); }
 /* machine + usage tiles */
 .stats { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); grid-auto-flow: dense; gap: 12px; }
 .tile { position: relative; display: flex; flex-direction: column; min-height: 104px; padding: 13px 15px 12px; border-radius: var(--r); background: var(--panel); overflow: hidden; }
-.tile[data-k="cpu"] { order: 1; } .tile[data-k="mem"] { order: 2; } .tile[data-k="gpu"] { order: 3; } .tile[data-k="net"] { order: 4; } .tile[data-k="disk"] { order: 5; } .tile[data-k="up"] { order: 6; }
+.tile[data-k="cpu"] { order: 1; } .tile[data-k="mem"] { order: 2; } .tile[data-k="gpu"] { order: 3; } .tile[data-k="net"] { order: 4; } .tile[data-k="disk"] { order: 5; } .tile[data-k="bat"], .tile[data-k="up"] { order: 6; }
 .tile[data-k="claude"] { order: 7; grid-column: span 2; } .tile[data-k="limits"] { order: 8; grid-column: span 4; }
 .tile canvas { position: absolute; left: 0; right: 0; bottom: 0; width: 100%; height: 40px; opacity: .85; pointer-events: none; }
 .tile .k { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12.5px; color: var(--muted); font-weight: 500; position: relative; z-index: 1; }
@@ -466,6 +466,15 @@ input[type=checkbox] { accent-color: var(--accent); }
 .tile .ring .rt { fill: var(--text); font-family: var(--sans); font-size: 12px; font-weight: 600; }
 .tile[data-k="disk"] canvas { display: none; } .tile[data-k="disk"] .s, .tile[data-k="disk"] .v { padding-right: 52px; } .tile[data-k="disk"] .k .temp { margin-right: 52px; }
 .tile[data-k="limits"] canvas { display: none; }
+/* battery: where the power comes from + a charge bar; with a GPU too the row is full, so Uptime starts the next one */
+.tile[data-k="bat"] canvas { display: none; }
+.tile .k .bchip { font-size: 11px; font-weight: 500; border: 1px solid; border-radius: 6px; padding: 0 6px; line-height: 17px; white-space: nowrap; }
+.bchip.ac { color: var(--green); background: color-mix(in srgb, var(--green) 12%, transparent); border-color: color-mix(in srgb, var(--green) 30%, transparent); }
+.bchip.dis { color: var(--amber); background: color-mix(in srgb, var(--amber) 12%, transparent); border-color: color-mix(in srgb, var(--amber) 30%, transparent); }
+.batbar { margin-top: 9px; height: 4px; border-radius: 3px; background: var(--fill2); overflow: hidden; position: relative; z-index: 1; }
+.batbar b { display: block; height: 100%; border-radius: 3px; background: var(--green); transition: width .6s var(--ease); }
+.tile.warn .batbar b { background: var(--amber); } .tile.hot .batbar b { background: var(--red); }
+@media (min-width: 1281px) { .stats.n7 .tile[data-k="limits"] { grid-column: span 3; } }
 .tile .lim { position: relative; z-index: 1; margin-top: 7px; display: flex; flex-direction: column; gap: 4px; }
 .limrow { display: grid; grid-template-columns: 44px 1fr 40px 54px; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
 .limrow .ll { text-transform: capitalize; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1131,6 +1140,7 @@ body.recording .ckeys > :not(.mic) { pointer-events: none; opacity: .4; }
   :root { --rail-w: 224px; }
   .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .tile[data-k="claude"] { grid-column: span 1; } .tile[data-k="limits"] { grid-column: span 2; }
+  .stats.n7 .tile[data-k="claude"] { grid-column: span 2; } .stats.n7 .tile[data-k="limits"] { grid-column: span 3; }
   .feat-home { grid-template-columns: 1fr; }
   .runtbl .ccmd, .runtbl th.ccmd { display: none; }
 }
@@ -1189,7 +1199,9 @@ body.recording .ckeys > :not(.mic) { pointer-events: none; opacity: .4; }
   .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .tile { min-height: 74px; padding: 10px 11px 9px; border-radius: 12px; }
   .tile .k { font-size: 11.5px; }
-  .tile .k .temp { font-size: 10px; padding: 0 4px; line-height: 15px; }
+  .tile .k .temp, .tile .k .bchip { font-size: 10px; padding: 0 4px; line-height: 15px; }
+  .tile .batbar { margin-top: 6px; }
+  .stats.n7 .tile[data-k="bat"] { grid-column: 1 / -1; } .stats.n7 .tile[data-k="bat"] .s { display: block; }   /* 7 tiles: Uptime fills the cell beside Disk */
   .tile .v { font-size: 18px; margin-top: 2px; } .tile .v small { font-size: 11px; margin-left: 3px; }
   .tile .s { display: none; }
   .tile canvas { height: 26px; }

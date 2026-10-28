@@ -541,28 +541,41 @@ function tempChip(t, what) {
   if (t == null || !(t > 0)) return null; const hue = Math.round(195 * (1 - Math.min(1, Math.max(0, (t - 35) / 60))));
   return h('span', { class: 'temp', style: `color:hsl(${hue} 45% 68%);background:hsl(${hue} 45% 68% / .12);border-color:hsl(${hue} 45% 68% / .3)`, title: (what || 'temperature') + ` ${t.toFixed(1)} °C` }, t.toFixed(0) + '°');
 }
-// 24 h history behind the CPU / GPU / Memory / Disk tiles: usage + temperatures, one point a minute (server keeps it)
+// battery: where the power comes from (chip) and what that means in time (line under the number)
+// draining = unplugged, or plugged into a charger too weak to keep up: that's when low charge matters
+const batDrain = b => !b.ac || b.status === 'Discharging';
+const batSrc = b => b.status === 'Charging' ? '⚡ charging' : b.ac && b.status === 'Discharging' ? '⚡ AC, draining' : b.ac ? '⚡ on AC' : 'on battery';
+function batChip(b) { return h('span', { class: 'bchip ' + (batDrain(b) ? 'dis' : 'ac'), title: `${b.name} · ${b.status}${b.ac ? ' · plugged in' : ' · unplugged'}` }, batSrc(b)); }
+function batLine(b) {
+  const tail = [b.watts ? b.watts + ' W' : null, b.health ? 'health ' + b.health + '%' : null, b.cycles ? b.cycles + ' cycles' : null].filter(Boolean);
+  const head = b.status === 'Discharging' ? (b.minsLeft ? fmtDur(b.minsLeft * 60000) + ' left' : 'on battery') : b.status === 'Charging' ? (b.minsLeft ? 'full in ' + fmtDur(b.minsLeft * 60000) : 'charging') : b.status === 'Not charging' ? 'plugged in, holding' : b.status === 'Full' ? 'full' : b.ac ? 'plugged in' : 'on battery';
+  return [head, ...tail].join(' · ');
+}
+// 24 h history behind the CPU / GPU / Memory / Disk / Battery tiles: usage + temperatures, one point a minute (server keeps it)
 const HIST24 = { data: [], at: 0 };
 async function sysModal(kind) {
   const m = $('#modal'); m.classList.remove('hidden');
   if (Date.now() - HIST24.at > 30000) { try { HIST24.data = await api('temps'); HIST24.at = Date.now(); } catch {} }
   const s = S.stats; const d = HIST24.data;
-  const series = {   // [label, column, colour, unit, min, max]
+  const series = {   // [label, column, colour, unit, min, max, shaded-while column]
     cpu: [['CPU usage', 4, 'rgb(76,201,222)', '%', 0, 100], ['CPU temp', 1, 'rgb(255,159,90)', '°C', 20, 95]],
     gpu: [['GPU usage', 5, 'rgb(91,211,156)', '%', 0, 100], ['GPU temp', 2, 'rgb(255,159,90)', '°C', 20, 95]],
     mem: [['Memory used', 6, 'rgb(157,140,255)', '%', 0, 100]],
     disk: [['NVMe temp', 3, 'rgb(255,159,90)', '°C', 20, 90]],
+    bat: [['Battery charge', 7, 'rgb(91,211,156)', '%', 0, 100, 8]],
   }[kind];
-  const titles = { cpu: 'CPU', gpu: 'GPU', mem: 'Memory', disk: 'Disk' };
+  const titles = { cpu: 'CPU', gpu: 'GPU', mem: 'Memory', disk: 'Disk', bat: 'Battery' };
+  const b = s.battery || {};
   const stat = (k, v) => h('div', { class: 'sst' }, h('div', { class: 'k' }, k), h('div', { class: 'v mono' }, v));
   const now = kind === 'cpu' ? [stat('now', s.cpu.pct.toFixed(0) + '%'), stat('temp', s.cpu.temp ? s.cpu.temp.toFixed(0) + '°' : '–'), stat('load', s.load.map(x => x.toFixed(2)).join(' ')), stat('cores', s.cpu.count)]
     : kind === 'gpu' ? [stat('now', (s.gpu?.util ?? 0) + '%'), stat('temp', (s.gpu?.temp ?? '–') + '°'), stat('power', s.gpu?.power ? s.gpu.power.toFixed(0) + ' W' : '–'), stat('vram', s.gpu ? fmtB(s.gpu.memUsed) + ' / ' + fmtB(s.gpu.memTotal) : '–')]
     : kind === 'mem' ? [stat('used', fmtB(s.mem.used)), stat('cache', fmtB(s.mem.cached)), stat('free', fmtB(s.mem.total - s.mem.used - s.mem.cached)), stat('swap', fmtB(s.mem.swapUsed || 0))]
+    : kind === 'bat' ? [stat('now', (b.pct ?? '–') + '%'), stat('power', b.ac ? 'AC' + (b.status === 'Charging' ? ', charging' : '') : 'battery'), stat(b.status === 'Charging' ? 'full in' : 'left', b.minsLeft ? fmtDur(b.minsLeft * 60000) : '–'), stat('health', b.health ? b.health + '%' + (b.cycles ? ' · ' + b.cycles + ' cyc' : '') : '–')]
     : [stat('used', fmtB(s.disks?.[0]?.used)), stat('free', fmtB(s.disks?.[0]?.avail)), stat('temp', s.temps?.nvme ? s.temps.nvme.toFixed(0) + '°' : '–')];
-  const charts = series.map(([label, col, colour, unit, lo, hi]) => { const vals = d.map(x => x[col]).filter(v => v != null); const mx = vals.length ? Math.max(...vals) : null, avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
-    return h('div', { class: 'schart' }, h('div', { class: 'sch-h' }, h('span', { class: 'sch-l' }, h('i', { style: 'background:' + colour }), label), h('span', { class: 'sp' }), h('span', { class: 'dim mono' }, mx != null ? `max ${mx.toFixed(0)}${unit} · avg ${avg.toFixed(0)}${unit}` : 'collecting…')), h('canvas', { 'data-col': col, 'data-colour': colour, 'data-lo': lo, 'data-hi': hi })); });
+  const charts = series.map(([label, col, colour, unit, lo, hi, band]) => { const vals = d.map(x => x[col]).filter(v => v != null); const mx = vals.length ? Math.max(...vals) : null, avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+    return h('div', { class: 'schart' }, h('div', { class: 'sch-h' }, h('span', { class: 'sch-l' }, h('i', { style: 'background:' + colour }), label), h('span', { class: 'sp' }), h('span', { class: 'dim mono' }, mx != null ? `max ${mx.toFixed(0)}${unit} · avg ${avg.toFixed(0)}${unit}` : 'collecting…')), h('canvas', { 'data-col': col, 'data-colour': colour, 'data-lo': lo, 'data-hi': hi, 'data-band': band })); });
   const box = h('div', { class: 'box settings sys' }, h('div', { class: 'sh' }, h('h3', null, titles[kind] + ' · last 24 h'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost icon', onclick: () => m.classList.add('hidden') }, ico('x', 15))),
-    h('div', { class: 'sbody' }, h('div', { class: 'sstats' }, now), charts, kind === 'cpu' ? h('div', { class: 'cores big' }, s.cpu.cores.map(c => h('i', { title: c.toFixed(0) + '%' }, h('b', { style: `width:${c}%` })))) : null, h('div', { class: 'hint' }, `${d.length} samples · one a minute · history starts when the dashboard started collecting`)));
+    h('div', { class: 'sbody' }, h('div', { class: 'sstats' }, now), charts, kind === 'cpu' ? h('div', { class: 'cores big' }, s.cpu.cores.map(c => h('i', { title: c.toFixed(0) + '%' }, h('b', { style: `width:${c}%` })))) : null, h('div', { class: 'hint' }, `${d.length} samples · one a minute · ${kind === 'bat' ? 'shaded: plugged in · ' : ''}history starts when the dashboard started collecting`)));
   m.replaceChildren(box); m.onclick = e => { if (e.target === m) m.classList.add('hidden'); };
   requestAnimationFrame(() => { for (const c of box.querySelectorAll('canvas')) drawHist(c, d); });
 }
@@ -575,15 +588,18 @@ function drawHist(c, d) {
   for (let i = 0; i <= 4; i++) { const v = lo + (hi - lo) * i / 4; ctx.beginPath(); ctx.moveTo(0, y(v)); ctx.lineTo(W, y(v)); ctx.stroke(); ctx.fillText(v.toFixed(0), 2, y(v) - 2); }
   for (let hh = 0; hh <= 24; hh += 6) { const t = t1 - hh * 3600e3; ctx.beginPath(); ctx.moveTo(x(t), 0); ctx.lineTo(x(t), H); ctx.stroke(); if (hh) ctx.fillText('-' + hh + 'h', x(t) + 3, H - 2); }
   if (d.length < 2) return;
-  ctx.beginPath(); let started = false;
-  for (const p of d) { if (p[col] == null) { started = false; continue; } const px = x(p[0]), py = y(p[col]); if (!started) { ctx.moveTo(px, py); started = true; } else ctx.lineTo(px, py); }
+  if (c.dataset.band) { const bc = +c.dataset.band; ctx.fillStyle = colour.replace('rgb', 'rgba').replace(')', ',.08)');   // a gap of 5+ min (server down) isn't shaded
+    for (let i = 0; i < d.length - 1; i++) if (d[i][bc] === 1 && d[i + 1][0] - d[i][0] < 5 * 60e3) ctx.fillRect(x(d[i][0]), 0, x(d[i + 1][0]) - x(d[i][0]) + .5, H); }
+  ctx.beginPath(); let started = false, sx = null, lx = null;   // sx/lx: where the last drawn run starts / ends
+  for (const p of d) { if (p[col] == null) { started = false; continue; } const px = x(p[0]), py = y(p[col]); if (!started) { ctx.moveTo(px, py); started = true; sx = px; } else ctx.lineTo(px, py); lx = px; }
+  if (sx == null) return;
   ctx.strokeStyle = colour; ctx.lineWidth = 1.6; ctx.lineJoin = 'round'; ctx.stroke();
-  ctx.lineTo(x(d[d.length - 1][0]), H); ctx.lineTo(x(d[0][0]), H); ctx.closePath(); ctx.fillStyle = colour.replace('rgb', 'rgba').replace(')', ',.12)'); ctx.fill();
+  ctx.lineTo(lx, H); ctx.lineTo(sx, H); ctx.closePath(); ctx.fillStyle = colour.replace('rgb', 'rgba').replace(')', ',.12)'); ctx.fill();
 }
 function renderStats() {
   const s = S.stats; const el = $('#stats'); if (!s) return;
   const tiles = [];
-  const DETAIL = { cpu: 'cpu', gpu: 'gpu', mem: 'mem', disk: 'disk' };
+  const DETAIL = { cpu: 'cpu', gpu: 'gpu', mem: 'mem', disk: 'disk', bat: 'bat' };
   const tile = (key, k, v, unit, sub, cls, extra) => h('div', { class: 'tile ' + (cls || '') + (DETAIL[key] ? ' clickable' : ''), 'data-k': key, title: DETAIL[key] ? 'click: 24 h history' : null, onclick: DETAIL[key] ? () => sysModal(DETAIL[key]) : null }, h('div', { class: 'k' }, h('span', null, k), extra?.right), h('div', { class: 'v' }, v, h('small', null, unit)), h('div', { class: 's' }, sub), extra?.body, h('canvas'));
   const cpuCls = s.cpu.pct > 85 ? 'hot' : s.cpu.pct > 60 ? 'warn' : '';
   tiles.push(tile('cpu', 'CPU', s.cpu.pct.toFixed(0), '%', `${s.cpu.count} cores · load ${s.load.map(x => x.toFixed(2)).join(' ')}`, cpuCls, { right: tempChip(s.cpu.temp, 'CPU (Tctl)'), body: h('div', { class: 'cores' }, s.cpu.cores.map(c => h('i', null, h('b', { style: `width:${c}%;background:${c > 85 ? 'var(--red)' : c > 50 ? 'var(--amber)' : 'var(--cyan)'}` })))) }));
@@ -592,26 +608,35 @@ function renderStats() {
   if (s.gpu) tiles.push(tile('gpu', 'GPU', s.gpu.util, '%', `${s.gpu.name.replace('NVIDIA GeForce ', '')} · ${fmtB(s.gpu.memUsed)}/${fmtB(s.gpu.memTotal)}${s.gpu.power ? ' · ' + s.gpu.power.toFixed(0) + 'W' : ''}`, s.gpu.util > 85 ? 'warn' : '', { right: tempChip(s.gpu.temp, 'GPU') }));
   tiles.push(tile('net', 'Network', fmtRate(s.net.rxRate), '↓', `↑ ${fmtRate(s.net.txRate)} · ${Object.keys(s.net.ifaces).filter(i => i !== 'tailscale0').join(', ')} + tailscale0`, '', { right: tempChip(s.temps?.nic, 'ethernet controller') }));
   const d = s.disks?.[0]; if (d) { const pct = d.used / d.size * 100; tiles.push(tile('disk', 'Disk ' + d.mount, fmtB(d.used), '/ ' + fmtB(d.size), `${fmtB(d.avail)} free · ${d.fs}`, pct > 90 ? 'hot' : pct > 75 ? 'warn' : '', { right: tempChip(s.temps?.nvme, 'hottest NVMe drive'), body: ring(pct) })); }
+  const b = s.battery;   // only on a machine with one; low only counts while draining
+  if (b) { const cls = !batDrain(b) ? '' : b.pct <= 10 ? 'hot' : b.pct <= 25 ? 'warn' : ''; tiles.push(tile('bat', 'Battery', b.pct, '%', batLine(b), cls, { right: batChip(b), body: h('div', { class: 'batbar' }, h('b', { style: `width:${b.pct}%` })) })); }
   const u = S.claude?.usage;
   if (u) tiles.push(tile('claude', 'Claude today', usd(u.total.today), 'API-equiv.', `${acctL('personal')} ${usd(u.personal.today)} · ${acctL('company')} ${usd(u.company.today)} · yesterday ${usd(u.total.yesterday)} · 7d ${usd(u.total.week)}`, '', { right: h('span', { class: 'dim', style: 'font-size:10.5px', title: 'What these tokens would cost at API list price. On a subscription nothing is billed per token; this measures how much work the sessions did.' }, 'est.') }));
   const lt = limitsTile(S.claude?.limits || {}); if (lt) tiles.push(lt);
   const hs = $('#hogs'); if (hs) { const hg = hogsTile(s); hs.replaceChildren(...(hg ? [hg] : [])); }   // own section: on the phone it sits above the agents
   tiles.push(tile('up', 'Uptime', fmtUp(s.uptime), '', `${S.runtime.sessions.length} sessions · ${S.runtime.external.length} procs · ${S.runtime.containers.filter(c => c.state === 'running').length}/${S.runtime.containers.length} containers`));
   el.replaceChildren(...tiles);
+  el.classList.toggle('n7', tiles.filter(t => !['claude', 'limits'].includes(t.dataset.k)).length > 6);   // GPU + battery: one machine tile more than a row holds
   drawSparks();
 }
 // rail footer (desktop): the machine at a glance on every view, click for the 24 h history. Built once, then only
 // the numbers change (a rebuilt button would swallow a click that spans a stats tick).
 function renderRailFoot() {
   const s = S.stats; const rf = $('#rail-foot'); if (!s || !rf) return;
-  const rows = [['cpu', 'CPU', s.cpu.pct, s.cpu.temp], ['mem', 'RAM', s.mem.used / s.mem.total * 100, null], s.gpu ? ['gpu', 'GPU', s.gpu.util, s.gpu.temp] : null].filter(Boolean);
-  if (rf.children.length !== rows.length) rf.replaceChildren(...rows.map(([k, l]) => h('button', { class: 'rm', 'data-k': k, onclick: () => sysModal(k) }, h('span', { class: 'rk' }, l), h('i', null, h('b')), h('span', { class: 'rv' }))));
-  rows.forEach(([k, l, v, t], i) => { const b = rf.children[i]; b.className = 'rm' + (v > 85 ? ' hot' : v > 60 ? ' warn' : ''); b.title = `${l} ${v.toFixed(0)}%${t ? ' · ' + t.toFixed(0) + ' °C' : ''} — click: 24 h history`; b.querySelector('b').style.width = Math.min(100, Math.max(2, v)) + '%'; b.querySelector('.rv').textContent = v.toFixed(0) + '%'; });
+  const bt = s.battery;
+  const rows = [['cpu', 'CPU', s.cpu.pct, s.cpu.temp], ['mem', 'RAM', s.mem.used / s.mem.total * 100, null], s.gpu ? ['gpu', 'GPU', s.gpu.util, s.gpu.temp] : null, bt ? ['bat', 'BAT', bt.pct, null] : null].filter(Boolean);
+  if ([...rf.children].map(c => c.dataset.k).join() !== rows.map(r => r[0]).join()) rf.replaceChildren(...rows.map(([k, l]) => h('button', { class: 'rm', 'data-k': k, onclick: () => sysModal(k) }, h('span', { class: 'rk' }, l), h('i', null, h('b')), h('span', { class: 'rv' }))));
+  rows.forEach(([k, l, v, t], i) => {
+    const b = rf.children[i]; const bat = k === 'bat';   // battery: low is the bad end, and only while unplugged
+    b.className = 'rm' + (bat ? (!batDrain(bt) ? ' ac' : v <= 10 ? ' hot' : v <= 25 ? ' warn' : '') : v > 85 ? ' hot' : v > 60 ? ' warn' : '');
+    b.title = bat ? `Battery ${v}% · ${batLine(bt)} — click: 24 h history` : `${l} ${v.toFixed(0)}%${t ? ' · ' + t.toFixed(0) + ' °C' : ''} — click: 24 h history`;
+    b.querySelector('b').style.width = Math.min(100, Math.max(2, v)) + '%'; b.querySelector('.rv').textContent = (bat && bt.ac ? '⚡' : '') + v.toFixed(0) + '%';
+  });
 }
 // Heavy processes: only when something keeps a core busy or holds a lot of memory. One row per process — what it is
 // (in words), its project, CPU as a share of the whole machine, memory, for how long, a tip when there's a known fix,
 // and Stop / Kill for your own processes.
-const fmtDur = ms => { const m = Math.round(ms / 60000); return m < 1 ? '<1 min' : m < 60 ? m + ' min' : Math.floor(m / 60) + ' h ' + (m % 60 ? (m % 60) + ' min' : ''); };
+const fmtDur = ms => { const m = Math.round(ms / 60000); return m < 1 ? '<1 min' : m < 60 ? m + ' min' : Math.floor(m / 60) + ' h' + (m % 60 ? ' ' + (m % 60) + ' min' : ''); };
 function hogsTile(s) {
   const list = s.hogs || []; if (!list.length) return null;
   const cores = s.cpu.count || 1; const hot = list.some(x => x.level === 'hot');

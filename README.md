@@ -41,8 +41,10 @@ your projects and it gives you:
   `socat`, so `http://100.x.y.z:5173` just works from any of your devices.
 - **Recap** — what happened today / yesterday / the day before, per project: your commits, the
   Claude sessions that ran (title, what you asked, files edited) and what they cost.
-- **System** — CPU (per core + temperature), memory, GPU, disk, network; each tile opens a
-  24-hour detail (usage + temperature charts, per-core bars). **Heavy processes** get their own card:
+- **System** — CPU (per core + temperature), memory, GPU, disk, network and, on a laptop, the
+  battery (charge, on AC or on battery, time left, health); each tile opens a 24-hour detail
+  (usage + temperature charts, per-core bars, battery charge with the plugged-in stretches
+  shaded). **Heavy processes** get their own card:
   what is keeping cores busy or holding GBs of memory, in words (`Android emulator · Pixel_8`,
   `vite · my-app`, `Gradle daemon`), with tips for known fixes and Stop / Kill. A push when the CPU
   runs hot, memory runs out or a process pins several cores for 10+ minutes.
