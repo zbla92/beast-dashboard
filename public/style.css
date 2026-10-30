@@ -1083,6 +1083,7 @@ body.term-open { overflow: hidden; }
 .turn.user.queued .who { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; } .turn.user.queued .who .sp { flex: 1; }
 .turn.user.shell pre { margin: 4px 0 0; }
 .ttext { white-space: pre-wrap; word-break: break-word; }
+.ttext a { text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; }
 .ttext code { font-family: var(--mono); font-size: 12.5px; background: var(--fill2); padding: 1px 5px; border-radius: 5px; }
 .ttext .mh { display: block; margin-top: 8px; font-weight: 600; }
 .ttext .mli { display: block; padding-left: 10px; }

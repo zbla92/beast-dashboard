@@ -1929,6 +1929,14 @@ function mdLite(t) {
     let x = esc(p);
     // pipe tables: header row + separator row + body rows
     x = x.replace(/(?:^|\n)((?:\|[^\n]*\|\s*\n)+)/g, (m, block) => { const rows = block.trim().split('\n').map(r => r.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim())); if (rows.length < 2 || !rows[1].every(c => /^:?-{2,}:?$/.test(c))) return m; const head = rows[0], body = rows.slice(2); return '\n<table class="mtbl"><thead><tr>' + head.map(c => '<th>' + c + '</th>').join('') + '</tr></thead><tbody>' + body.map(r => '<tr>' + r.map(c => '<td>' + c + '</td>').join('') + '</tr>').join('') + '</tbody></table>\n'; });
+    // links: [text](url) and bare URLs, http(s) only so a link can't run script here; `code` spans are matched first and left for the rule below
+    x = x.replace(/(`[^`\n]+`)|\[([^\]\n]+)\]\((https?:\/\/[^\s()<]+)\)|https?:\/\/(?:(?!&quot;|&gt;|&lt;)[^\s<])+/g, (m, code, txt, url) => {
+      if (code) return m;
+      const a = (href, label) => `<a href="${href}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+      if (txt) return a(url, txt);
+      let u = m; while (/[.,;:!?'*\]]$/.test(u) || (u.endsWith(')') && (u.match(/\(/g) || []).length < (u.match(/\)/g) || []).length)) u = u.slice(0, -1);   // trailing punctuation isn't part of the URL
+      return a(u, u) + m.slice(u.length);
+    });
     x = x.replace(/`([^`\n]+)`/g, '<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>').replace(/^(#{1,4}) (.+)$/gm, '<b class="mh">$2</b>').replace(/^[-*] (.+)$/gm, '<span class="mli">• $1</span>').replace(/^(\d+)\. (.+)$/gm, '<span class="mli"><span class="mnum">$1.</span> $2</span>');
     return x.replace(/\n(?=<table)/g, '').replace(/(<\/table>)\n/g, '$1').replace(/\n/g, '<br>');
   }).join('');
