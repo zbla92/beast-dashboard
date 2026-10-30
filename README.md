@@ -6,7 +6,7 @@
 
 Close the laptop. The agents keep working. Your phone tells you when one needs you.
 
-![version](https://img.shields.io/badge/version-3.3.1-6366f1?style=flat-square)
+![version](https://img.shields.io/badge/version-3.4.0-6366f1?style=flat-square)
 ![zero dependencies](https://img.shields.io/badge/npm%20dependencies-0-22d3ee?style=flat-square)
 ![self-hosted](https://img.shields.io/badge/self--hosted-no%20cloud-ff6b95?style=flat-square)
 ![license](https://img.shields.io/badge/license-MIT-64748b?style=flat-square)
