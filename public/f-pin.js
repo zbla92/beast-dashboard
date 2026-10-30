@@ -7,7 +7,7 @@
   const BAND = 60;            // at least the pin's height: a question this close to the top edge is on screen and the pin would cover it
   const textOf = q => trim1((q.querySelector(':scope > .ttext')?.textContent || '').replace(/\s+/g, ' ').trim(), MAX) || 'your message';
 
-  function questionAt(conv, top, bottom) {
+  function questionAt(conv, top) {
     const us = conv.querySelectorAll(':scope > .turn.user');
     let i = us.length - 1;
     while (i >= 0 && us[i].getBoundingClientRect().top >= top + BAND) i--;
@@ -15,9 +15,6 @@
     const q = us[i];
     if (q.getBoundingClientRect().bottom > top) return null;   // still on screen, even if only its end
     if (q.matches('.pending, .queued, .shell')) return null;   // not (yet) a question with a reply below it; never look past it to an older one
-    const next = us[i + 1], after = us[i + 2];
-    // the next question and all of its reply fit on screen: that exchange is what you're reading (typically: the bottom of the chat)
-    if (next && (after ? after.getBoundingClientRect().top : conv.getBoundingClientRect().bottom) <= bottom) return null;
     return q;
   }
 
@@ -33,7 +30,7 @@
     const update = () => {
       raf = 0;
       if (!scroller.isConnected) { st.stop(); return; }
-      const r = scroller.getBoundingClientRect(), q = r.height ? questionAt(conv, r.top, r.bottom) : null;   // no height: Terminal view, panel closed
+      const r = scroller.getBoundingClientRect(), q = r.height ? questionAt(conv, r.top) : null;   // no height: Terminal view, panel closed
       if (q === cur) return;
       cur = q; pin.classList.toggle('hidden', !q);
       if (!q) return;
