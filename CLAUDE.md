@@ -11,7 +11,7 @@ A live dashboard that runs Claude sessions and terminals all day. People use it 
 - Anthropic endpoints (`lib/limits.js`): poll at most every 15 min, back off on 429.
 - Session order in the UI is fixed (alphabetical by tmux name) — never sort by state.
 - `state/` and `state-backups/` are runtime state; don't edit by hand. Claude hooks post to `/api/hook` — keep that endpoint stable.
-- Plans for multi-step work go in `docs/<topic>/PLAN.md` + `PROGRESS.md`, in English.
+- Plans for multi-step work go in `docs/<topic>/PLAN.md` + `PROGRESS.md`, in English. They stay local (gitignored) and are never committed: the dashboard shows any committed plan as a plan card to everyone who clones the repo.
 
 ## Checks
 

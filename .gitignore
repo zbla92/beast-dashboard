@@ -8,3 +8,5 @@ whisper/.venv/
 whisper/whisper.env
 probe/target/
 CLAUDE.local.md
+docs/*/PLAN.md
+docs/*/PROGRESS.md
