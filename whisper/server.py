@@ -20,7 +20,18 @@ Configuration: environment, usually from whisper/whisper.env (see whisper.env.ex
 """
 import io, json, os, re, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import av
 from faster_whisper import WhisperModel, decode_audio
+
+# faster-whisper (1.2.1) decodes with av.open(..., metadata_errors="ignore"); newer PyAV (19) dropped that argument and
+# raises TypeError, so every recording failed. Retry without it — older PyAV still gets it.
+_av_open = av.open
+def _av_open_compat(*a, **kw):
+    try: return _av_open(*a, **kw)
+    except TypeError as e:
+        if 'metadata_errors' not in kw or 'metadata_errors' not in str(e): raise
+        kw.pop('metadata_errors'); return _av_open(*a, **kw)
+av.open = _av_open_compat
 
 MODEL = os.environ.get('WHISPER_MODEL', 'large-v3-turbo')
 PORT = int(os.environ.get('WHISPER_PORT', '8790'))
