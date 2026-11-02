@@ -1,7 +1,7 @@
 // Back / Forward through pages and chats — drives an isolated beast-dash copy in headless Chromium (desktop + phone).
 // Not part of `node --test` (the repo has no dependencies): Playwright comes from outside the repo.
 //   1. boot an isolated copy (BD_TEST=1, own state, loopback) on a free port — NEVER the live dashboard's port
-//   2. PW=/path/to/node_modules/playwright node docs/back-forward/browser-check.js <port> [name filter]
+//   2. PW=/path/to/node_modules/playwright node test/browser/back-forward.js <port> [name filter]
 //      NO_NAV_API=1 hides window.navigation (Safari / Firefox without the Navigation API)
 // Terminal iframes (ttyd) are stubbed and every POST /api/* is answered locally, so real sessions are never touched.
 const { chromium } = require(process.env.PW || 'playwright');

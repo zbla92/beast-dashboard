@@ -2066,7 +2066,8 @@ function leaveChats() {
   if (busy()) { navTo(); return; }
   const H = LAYERS.hist; let j = LAYERS.depth;
   while (j > 0 && H[j] && H[j].loc && H[j].loc.t != null) j--;
-  if (j < LAYERS.depth && H[j] && sameLoc(H[j].loc, curLoc())) goBack(LAYERS.depth - j); else navTo();
+  const room = window.navigation && navigation.currentEntry ? navigation.currentEntry.index : history.length - 1;
+  if (j < LAYERS.depth && LAYERS.depth - j <= room && H[j] && sameLoc(H[j].loc, curLoc())) goBack(LAYERS.depth - j); else navTo();
 }
 function layerForward() {
   LAYERS.fwd = true; history.forward(); clearTimeout(LAYERS.fwdTimer);
