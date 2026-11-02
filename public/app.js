@@ -670,7 +670,8 @@ function renderHeader() {
   $('#tunnel-count').textContent = S.runtime.exposures.length;
   $('#proj-count').textContent = S.projects.filter(p => !p.hidden).length;
   { const open = (S.claude?.tasks || []).filter(t => t.status !== 'done').length; const tc = $('#task-count'); if (tc) { tc.textContent = open; tc.classList.toggle('hot', open > 0); } }
-  const need = S.runtime.sessions.filter(s => s.claude && s.claude.needsYou).length; const nb = $('#need-count'); if (nb) { nb.textContent = need; nb.classList.toggle('hidden', !need); }
+  // the same sessions the Inbox lists (snoozed ones and the ones you marked Seen there don't count)
+  const need = FEAT.inbox?.count ? FEAT.inbox.count() : S.runtime.sessions.filter(s => s.claude && s.claude.needsYou).length; const nb = $('#need-count'); if (nb) { nb.textContent = need; nb.classList.toggle('hidden', !need); }
   // phone tab bar badges
   const tbn = (id, n) => { const e = $(id); if (e) { e.textContent = n > 99 ? '99+' : n; e.classList.toggle('hidden', !n); } };
   tbn('#tb-need', need); tbn('#tb-sess', S.runtime.sessions.length); tbn('#tb-tasks', (S.claude?.tasks || []).filter(t => t.status !== 'done').length);
