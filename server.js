@@ -454,6 +454,8 @@ function oneLine(t, n = 80) {
 }
 // State transitions worth a phone buzz: Claude finished / needs permission / hit an error. At most one per session per 30 s.
 const pushGate = require('./lib/pushgate').createPushGate();
+// A chat that finishes while you read it isn't waiting for you: no done buzz, and it is marked seen right away.
+const watching = require('./lib/watching').createWatching();
 // Should this event buzz? Respects the per-event toggles, quiet hours and muted sessions from settings.
 function pushAllowed(kind, tmux) {
   const n = settings.get().notify || {}; if (n[kind] === false) return false;
@@ -499,7 +501,9 @@ claude.onChange((ev, r, prev) => {
     : r.state === 'error' ? oneLine(r.lastMessage || 'API error', 80)
     : oneLine(r.title || r.lastPrompt || r.lastMessage || 'finished', 80);
   const skipQuick = r.state === 'needs-you' && turn != null && turn < 20000;
-  if (!skipQuick && !pushGate.blocked(r.tmux, kind, now) && pushAllowed(kind, r.tmux)) { pushGate.sent(r.tmux, kind, now); push.notify({ title, body, url: `/?term=${encodeURIComponent(r.tmux)}`, tag: r.tmux, session: r.tmux, kind, since: r.since }).then(res => { if (res.sent) console.log(`push: ${title} -> ${res.sent}`); }); }
+  const watched = r.state === 'needs-you' && watching.watched(r.tmux, now);
+  if (watched) setTimeout(() => { claude.seen(r.tmux); pushState(true); }, 0);   // after the other listeners saw needs-you
+  if (!skipQuick && !watched && !pushGate.blocked(r.tmux, kind, now) && pushAllowed(kind, r.tmux)) { pushGate.sent(r.tmux, kind, now); push.notify({ title, body, url: `/?term=${encodeURIComponent(r.tmux)}`, tag: r.tmux, session: r.tmux, kind, since: r.since }).then(res => { if (res.sent) console.log(`push: ${title} -> ${res.sent}`); }); }
   broadcast('ding', { tmux: r.tmux, state: r.state, title });
   setTimeout(tick, 150);
 });
@@ -1133,6 +1137,7 @@ async function api(req, res, url) {
     }
     case 'dismiss-crash': { dismissedCrash.add(String(b.key || '')); pushState(true); return json(res, 200, { ok: true }); }
     case 'claude-seen': { const r = claude.seen(String(b.session || '')); setTimeout(tick, 100); return json(res, 200, r); }
+    case 'watching': { const r = watching.report(b.id, b.session); return json(res, r.ok ? 200 : 400, r); }   // the chat this tab is reading, or null
     case 'savefile': { // editor save; refuses if the file changed since it was loaded
       const p = await roots.rootOf(b.id); if (!p) return json(res, 404, { error: 'no project' });
       if (typeof b.path !== 'string' || typeof b.text !== 'string') return json(res, 400, { error: 'path + text' });

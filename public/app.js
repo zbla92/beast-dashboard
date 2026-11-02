@@ -333,6 +333,27 @@ setInterval(() => {
   if (TERM.open && TERM.active && chatMode(TERM.active)) renderChatPane(false);
   if (UI.drawer && String(UI.drawer).startsWith('session:') && SESS.tab === 'transcript') renderSessionDrawer(false);
 }, 2000);
+// Tell the server which chat you are reading (lib/watching.js): one that finishes under your eyes gets no done buzz
+// and is marked seen. Only while this tab is visible, focused and was used in the last 10 min, so a laptop left open
+// on a chat still buzzes the phone.
+const WATCH = { id: 't' + Math.random().toString(36).slice(2, 12), sent: null, at: 0, input: Date.now() };
+for (const ev of ['pointerdown', 'keydown', 'wheel', 'touchstart']) document.addEventListener(ev, () => { WATCH.input = Date.now(); }, { capture: true, passive: true });
+function watchingNow() {
+  if (document.hidden || !document.hasFocus() || Date.now() - WATCH.input > 10 * 60e3 || !$('#modal').classList.contains('hidden')) return null;
+  if (UI.drawer) return UI.drawer === 'session:' + SESS.name && SESS.tab === 'transcript' && claudeOf(SESS.name) ? SESS.name : null;
+  return TERM.open && !TERM.showList && TERM.active && claudeOf(TERM.active) ? TERM.active : null;
+}
+function syncWatch() {
+  const s = watchingNow(), now = Date.now();
+  if (s === WATCH.sent && (!s || now - WATCH.at < 10000)) return;
+  WATCH.sent = s; WATCH.at = now;
+  const body = JSON.stringify({ id: WATCH.id, session: s });
+  if (!s && navigator.sendBeacon) navigator.sendBeacon('/api/watching', new Blob([body], { type: 'application/json' }));   // survives the tab going away
+  else api('watching', { id: WATCH.id, session: s }).catch(() => { WATCH.sent = undefined; });
+}
+setInterval(syncWatch, 3000);
+document.addEventListener('visibilitychange', syncWatch);
+for (const ev of ['focus', 'blur', 'pagehide']) window.addEventListener(ev, syncWatch);
 document.addEventListener('visibilitychange', () => { if (document.hidden) liveStream(null); if (!document.hidden) { renderChatPane(false); if (UI.drawer && String(UI.drawer).startsWith('session:')) renderSessionDrawer(false); } });
 const FRAME_IDLE_MS = 10 * 60e3;   // hidden iframes are dropped after this: each one is a tmux client fighting over the pane size
 function openTerm(session) {
