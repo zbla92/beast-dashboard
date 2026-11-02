@@ -357,12 +357,12 @@ for (const ev of ['focus', 'blur', 'pagehide']) window.addEventListener(ev, sync
 document.addEventListener('visibilitychange', () => { if (document.hidden) liveStream(null); if (!document.hidden) { renderChatPane(false); if (UI.drawer && String(UI.drawer).startsWith('session:')) renderSessionDrawer(false); } });
 const FRAME_IDLE_MS = 10 * 60e3;   // hidden iframes are dropped after this: each one is a tmux client fighting over the pane size
 function openTerm(session) {
-  if (!TERM.open) pushLayer('term');
   if (TERM.active) TERM.lastUsed.set(TERM.active, Date.now());
   TERM.open = true; TERM.showList = false; ensureFrame(session); TERM.active = session; TERM.lastUsed.set(session, Date.now());
   const cl = claudeOf(session); if (cl && (cl.state === 'needs-you' || cl.state === 'error')) api('claude-seen', { session }).catch(() => {});
   renderTermPanel(true); renderChatPane(true); renderRail();
   const f = TERM.frames.get(session); if (f && !chatMode(session)) setTimeout(() => f.focus(), 50);   // focus ONLY here, never on a state tick
+  navTo();   // each chat you open is a history entry: Back returns to the one before
 }
 function openTermTab(session) { window.open(termUrl(session), '_blank'); }
 // phone bugs are invisible from the desk: ship JS errors (with what was open) to the server journal, a few per minute at most
@@ -382,7 +382,7 @@ function maybeReload() {
   if (safeToReload()) { try { sessionStorage.setItem('bd.updated', '1'); } catch {} location.replace(contextUrl()); return; }
   if (!$('#newbuild')) document.body.append(h('button', { id: 'newbuild', class: 'btn primary', onclick: () => location.replace(contextUrl()) }, ico('refresh', 14), 'Dashboard updated — reload'));
 }
-function closeTermPanel(pop = true) { if (!TERM.open) return; if (TERM.active) TERM.lastUsed.set(TERM.active, Date.now()); TERM.open = false; renderTermPanel(); renderRail(); if (pop) popLayer(); if (TOUCH) requestAnimationFrame(() => window.scrollTo(0, TERM.pageY || 0)); }
+function closeTermPanel(pop = true) { if (!TERM.open) return; if (TERM.active) TERM.lastUsed.set(TERM.active, Date.now()); TERM.open = false; renderTermPanel(); renderRail(); if (pop) leaveChats(); if (TOUCH) requestAnimationFrame(() => window.scrollTo(0, TERM.pageY || 0)); }
 // iOS: with the keyboard up, a touch-scroll on anything that is not itself scrollable moves the whole page under the
 // fixed panel (the "content behind" scroll). Only the chat list, the session list and textareas may scroll.
 document.addEventListener('touchmove', e => {
@@ -1095,7 +1095,7 @@ function renderRunning() {
     h('span', { class: 'sp' }),
     h('label', { class: 'dim', style: 'font-size:12px;display:inline-flex;gap:6px;align-items:center;cursor:pointer' }, h('input', { type: 'checkbox', checked: RUN.stopped, onchange: e => { RUN.stopped = e.target.checked; renderRunning(); } }), 'stopped containers'),
     counts.dev ? h('button', { class: 'btn sm danger', title: 'stop every dev server started from the dashboard', onclick: async () => { if (!confirm('Stop all ' + counts.dev + ' dev servers?')) return; for (const r of rows.filter(r => r.kind === 'dev')) await act('Stop ' + r.what, api('stop', { session: r.session })); } }, gl('■ Stop all dev')) : null));
-  if (!shown.length) { el.append(h('div', { class: 'tsempty' }, rows.length ? 'Nothing of this kind.' : 'Nothing running. Start a dev server from ', h('a', { href: '#', onclick: ev => { ev.preventDefault(); setView('projects'); } }, 'Projects'), ' (▶) or open a shell.')); return; }
+  if (!shown.length) { el.append(h('div', { class: 'tsempty' }, rows.length ? 'Nothing of this kind.' : 'Nothing running. Start a dev server from ', h('a', { href: '#', onclick: ev => { ev.preventDefault(); goView('projects'); } }, 'Projects'), ' (▶) or open a shell.')); return; }
   const tbl = h('table', { class: 'runtbl' },
     h('thead', null, h('tr', null, h('th', { class: 'ck' }), h('th', { class: 'cname' }, 'Project'), h('th', { class: 'cwhat' }, 'What'), h('th', { class: 'ccmd' }, 'Command'), h('th', null, 'Ports'), h('th', { class: 'num' }, 'CPU'), h('th', { class: 'num' }, 'Mem'), h('th', { class: 'num' }, 'Up'), h('th', { class: 'cact' }))),
     h('tbody', null, shown.map(r => h('tr', { class: 'rr ' + r.kind + (r.dead ? ' dead' : ''), style: `--org:${orgColor(r.org)}`, title: r.title || (r.id ? 'open project details' : ''), onclick: ev => { if (ev.target.closest('a,button')) return; if (r.id) openDrawer(r.id, r.kind === 'docker' ? 'docker' : 'logs', r.session || null); } },
@@ -1995,44 +1995,151 @@ async function openTranscriptFile(hh) {
 }
 
 // ---------- drawer ----------
-// A layer (drawer, terminal panel, palette, #modal dialog) pushes a history entry, so the phone's back gesture / browser
-// Back closes the layer instead of leaving the dashboard. Closing from the UI pops that entry again so history stays clean.
+// ---------- history: Back / Forward walk through pages, chats and overlays ----------
+// Every entry stores the place it shows (loc): the page (UI.view) and the chat on screen (t: a session, '' = the phone's
+// session list, null = panel closed). A navigation (navTo: a page, a chat) pushes an entry; the user's Back / Forward
+// land on another entry and put its page and chat back (applyLoc). Overlays (drawer, #modal dialog, palette, the
+// phone's Code steps) push an entry too: Back closes them, and closing them from the UI pops that entry again.
 // history.back() is async and a pushState() before it lands ends up on the wrong entry, hence the handover and the queue.
-const LAYERS = { depth: 0, closing: false, modal: false, queued: 0, fwd: false, timer: 0, fwdTimer: 0, reuse: false };
+// LAYERS.hist mirrors our entries (index = depth): what is on top, and which page the chats were opened from.
+const LAYERS = { depth: 0, closing: false, modal: false, queue: [], fwd: false, pend: null, skip: 0, timer: 0, fwdTimer: 0, skipTimer: 0, reuse: false, back: false, restoring: 0, hist: [], boot: null };
 const modalOpen = () => !$('#modal').classList.contains('hidden');
+const OVERLAY_OPEN = { drawer: () => !!UI.drawer, modal: modalOpen, palette: () => PAL.open };   // the Code steps are judged by FEAT.code
+const VIEWS = ['home', 'projects', 'tasks', 'code'];
+function curLoc() { return { v: UI.view, t: TERM.open ? (IS_PHONE && TERM.showList ? '' : TERM.active || '') : null }; }
+const sameLoc = (a, b) => !!a && !!b && a.v === b.v && a.t === b.t;
+const isEntry = s => !!s && typeof s === 'object' && typeof s.depth === 'number' && typeof s.bd === 'string';
+const isPage = st => !!st && (st.bd === 'nav' || st.bd === 'base');
+const busy = () => LAYERS.closing || LAYERS.fwd || !!LAYERS.skip;
+// is there an entry after this one? Navigation API where there is one; otherwise only right after the user's Back
+const canForward = () => window.navigation && typeof navigation.canGoForward === 'boolean' ? navigation.canGoForward : LAYERS.back;
+function writeEntry(name, push) {   // the entry at LAYERS.depth, carrying the place on screen now
+  const st = { bd: name, depth: LAYERS.depth, loc: curLoc() };
+  try { if (push) history.pushState(st, ''); else history.replaceState(st, ''); } catch {}
+  if (push) LAYERS.hist.length = LAYERS.depth;
+  LAYERS.hist[LAYERS.depth] = st;
+}
+// a reload keeps the entries (same document, popstate still fires): carry on from the one we are on, and put its place
+// back once the first state is in (firstState)
+if (isEntry(history.state)) { LAYERS.depth = history.state.depth; LAYERS.hist[LAYERS.depth] = history.state; LAYERS.boot = history.state; } else writeEntry('base', false);
 function pushLayer(name) {
-  if (LAYERS.modal && !modalOpen()) { LAYERS.modal = false; return; }   // close(); openTerm(x) in one tick: the dialog's entry becomes this layer's
-  if (LAYERS.closing || LAYERS.fwd) { LAYERS.queued++; return; }        // a history step is on its way: settleLayers() pushes after it lands
+  if (LAYERS.restoring) return;   // putting an entry's place back: that entry is already there
+  if (LAYERS.modal && !modalOpen()) { LAYERS.modal = false; writeEntry(name, false); return; }   // close(); openTerm(x) in one tick: the dialog's entry becomes this one
+  if (busy()) { LAYERS.queue.push(name); return; }        // a history step is on its way: settleLayers() pushes after it lands
   // Chrome's history intervention: after the user's Back a pushState needs a new gesture, or the next Back jumps over the
   // entry below it and leaves the page. navigator.userActivation can't tell (isActive stays true for 5 s after a tap), so
   // until the next gesture a layer steps forward onto the entry that Back left behind: same history, nothing to skip.
-  if (LAYERS.reuse) { LAYERS.reuse = false; LAYERS.depth++; layerForward(); return; }
-  LAYERS.depth++; history.pushState({ bd: name, depth: LAYERS.depth }, '');
+  if (LAYERS.reuse && canForward()) { LAYERS.reuse = false; LAYERS.pend = name; LAYERS.depth++; layerForward(); return; }
+  LAYERS.reuse = false; LAYERS.depth++; writeEntry(name, true);
 }
+// a navigation: a page or a chat. One entry when the place changed; the chat you are already on adds nothing.
+function navTo() {
+  if (LAYERS.restoring) return;
+  if (busy()) { if (!LAYERS.queue.includes('nav')) LAYERS.queue.push('nav'); return; }   // decided once the step lands
+  const top = LAYERS.hist[LAYERS.depth];
+  if (top && sameLoc(top.loc, curLoc())) return;
+  // an overlay closed without popping its entry (openFromUrl, Code taking over the drawer): this page takes it over
+  if (top && !(LAYERS.modal && !modalOpen()) && OVERLAY_OPEN[top.bd] && !OVERLAY_OPEN[top.bd]()) { writeEntry('nav', false); return; }
+  pushLayer('nav');
+}
+function goView(v, keepQuery) { setView(v, keepQuery); navTo(); }
+// the place changed without a navigation (a deep link's page, Code taking over the drawer's entry): the entry we are on carries it
+function retop(name) { if (busy() || LAYERS.restoring) return; const top = LAYERS.hist[LAYERS.depth]; writeEntry(name || (top && top.bd) || 'base', false); }
 for (const t of ['click', 'keydown']) window.addEventListener(t, e => { if (e.isTrusted && e.key !== 'Escape') LAYERS.reuse = false; }, true);
 function popLayer() {
-  if (LAYERS.queued) { LAYERS.queued--; return; }   // opened and closed again while a history step was on its way: nothing was pushed
-  if (LAYERS.fwd) { setTimeout(popLayer, 50); return; }   // back() before a forward() lands counts from the entry below: that leaves the page
-  if (LAYERS.depth > 0 && !LAYERS.closing) { LAYERS.closing = true; history.back(); clearTimeout(LAYERS.timer); LAYERS.timer = setTimeout(() => { if (LAYERS.closing) { LAYERS.closing = false; settleLayers(); } }, 1000); }
+  for (let i = LAYERS.queue.length - 1; i >= 0; i--) if (LAYERS.queue[i] !== 'nav') { LAYERS.queue.splice(i, 1); return; }   // opened and closed again while a history step was on its way: nothing was pushed
+  if (LAYERS.fwd || LAYERS.skip) { setTimeout(popLayer, 50); return; }   // back() before a forward() lands counts from the entry below: that leaves the page
+  if (isPage(LAYERS.hist[LAYERS.depth])) return;   // a page or chat came on top of this layer: its entry stays below, Back skips it
+  goBack(1);
 }
-function layerForward() { LAYERS.fwd = true; history.forward(); clearTimeout(LAYERS.fwdTimer); LAYERS.fwdTimer = setTimeout(() => { if (LAYERS.fwd) { LAYERS.fwd = false; settleLayers(); } }, 1000); }
-function settleLayers() { let n = LAYERS.queued; LAYERS.queued = 0; while (n-- > 0) pushLayer('layer'); syncModalLayer(); }
+// our own step back over n entries (closing a layer, the chats, Code steps): popstate takes the depth from the entry it lands on
+function goBack(n) {
+  n = Math.min(n, LAYERS.depth);
+  if (!(n > 0) || busy()) return;
+  LAYERS.closing = true; history.go(-n); clearTimeout(LAYERS.timer);
+  LAYERS.timer = setTimeout(() => { if (LAYERS.closing) { LAYERS.closing = false; settleLayers(); } }, 1000);
+}
+// closing the chats from the UI (✕, Esc, back arrow, the terminal's dashboard key): back to the entry they were opened
+// from, so Back goes on with the pages before it and Forward brings the chats back. Not there (a reload): a new entry.
+function leaveChats() {
+  if (LAYERS.restoring) return;
+  if (busy()) { navTo(); return; }
+  const H = LAYERS.hist; let j = LAYERS.depth;
+  while (j > 0 && H[j] && H[j].loc && H[j].loc.t != null) j--;
+  if (j < LAYERS.depth && H[j] && sameLoc(H[j].loc, curLoc())) goBack(LAYERS.depth - j); else navTo();
+}
+function layerForward() {
+  LAYERS.fwd = true; history.forward(); clearTimeout(LAYERS.fwdTimer);
+  LAYERS.fwdTimer = setTimeout(() => {   // nothing after this entry after all: push the layer the normal way
+    if (!LAYERS.fwd) return;
+    LAYERS.fwd = false; LAYERS.depth = Math.max(0, LAYERS.depth - 1); LAYERS.reuse = false;
+    const n = LAYERS.pend; LAYERS.pend = null;
+    if (n) LAYERS.queue.unshift(n); else if (modalOpen()) LAYERS.modal = false;   // the dialog lost its entry: syncModalLayer gives it a new one
+    settleLayers();
+  }, 1000);
+}
+function settleLayers() { if (busy()) return; const q = LAYERS.queue.splice(0); for (const n of q) { if (n === 'nav') navTo(); else pushLayer(n); } syncModalLayer(); }
 // #modal is one layer whoever owns it: every dialog shows and hides it, so one observer sees all of them, however they close
 // (X, Cancel, backdrop, Escape, a successful action). A dialog replacing another never changes the class, so no second entry.
-function syncModalLayer() { const open = modalOpen(); if (LAYERS.closing || LAYERS.fwd || open === LAYERS.modal) return; LAYERS.modal = open; if (open) pushLayer('modal'); else popLayer(); }
+function syncModalLayer() { const open = modalOpen(); if (busy() || open === LAYERS.modal) return; LAYERS.modal = open; if (open) pushLayer('modal'); else popLayer(); }
 new MutationObserver(syncModalLayer).observe($('#modal'), { attributes: true, attributeFilter: ['class'] });
-window.addEventListener('popstate', () => {
-  if (LAYERS.fwd) { LAYERS.fwd = false; settleLayers(); return; }   // our own layerForward()
-  if (LAYERS.closing) { LAYERS.closing = false; LAYERS.depth = Math.max(0, LAYERS.depth - 1); settleLayers(); return; }   // our own popLayer()
-  LAYERS.depth = Math.max(0, LAYERS.depth - 1); LAYERS.reuse = true;
-  if (PAL.open) closePalette(false);
-  else if (modalOpen()) {   // Back = Escape: the dialog's own listener runs (confirmBox resolves false), the global handler hides the rest
-    LAYERS.modal = false; document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
-    // Escape only closed something inside it (project picker, subagent detail, recording): back onto the same entry. A
-    // pushState here has no user gesture, and Chrome would then make the next Back jump over the entry below.
-    if (modalOpen()) { LAYERS.modal = true; LAYERS.depth++; LAYERS.reuse = false; layerForward(); }
+// a chat that has ended since: its entry shows the page without it
+const goneChat = t => !!t && t !== 'shell' && S.runtime.sessions.length > 0 && !S.runtime.sessions.some(s => s.name === t);
+// put an entry's place back: the page, then the chat (or the phone's session list, or no panel)
+function applyLoc(loc) {
+  if (!loc) return;
+  LAYERS.restoring++;
+  try {
+    if (VIEWS.includes(loc.v) && loc.v !== UI.view) setView(loc.v);
+    if (loc.t == null || goneChat(loc.t)) closeTermPanel(false);
+    else if (loc.t === '') { if (!TERM.open || !TERM.showList) { TERM.open = true; TERM.showList = true; renderTermPanel(true); renderRail(); } }
+    else if (!TERM.open || TERM.active !== loc.t || TERM.showList) openTerm(loc.t);
+  } finally { LAYERS.restoring--; }
+}
+// Back left these entries (top first): close the overlays they had open, top first, as before. True when that was all
+// (Escape only closed something inside the dialog; the Code view took its own step back).
+function closeOverlays(left) {
+  const one = left.length === 1; let n = left.filter(x => !isPage(x)).length;
+  while (n-- > 0) {
+    if (PAL.open) closePalette(false);
+    else if (modalOpen()) {   // Back = Escape: the dialog's own listener runs (confirmBox resolves false), the global handler hides the rest
+      LAYERS.modal = false; document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      // Escape only closed something inside it (project picker, subagent detail, recording): back onto the same entry. A
+      // pushState here has no user gesture, and Chrome would then make the next Back jump over the entry below.
+      if (modalOpen()) { if (one) { LAYERS.modal = true; LAYERS.depth++; LAYERS.reuse = false; layerForward(); return true; } $('#modal').classList.add('hidden'); }
+    }
+    else if (UI.drawer) closeDrawer(false);
+    else if (left[0] && left[0].bd === 'term' && TERM.open) closeTermPanel(false);   // an entry from before pages were entries (a reload onto an update)
+    else if (one && (!left[0] || left[0].bd === 'code' || left[0].bd === 'layer') && UI.view === 'code' && !TERM.open) { if (feat('back').some(Boolean)) return true; break; }
+    else break;
   }
-  else if (UI.drawer) closeDrawer(false); else if (TERM.open) closeTermPanel(false); else feat('back');
+  return false;
+}
+// the entry the user's Back / Forward landed on: its place back. An overlay entry whose overlay is gone (closed from the
+// UI, then Forward), a Code step that can't be redone, or an ended chat is passed over in the same direction when the
+// browser can (Back never below the first entry); otherwise it just shows its page.
+function land(st, dir) {
+  if (!st.loc && !isPage(st)) return;   // an entry from before pages were entries: the overlays were all it had
+  const dead = !!st.loc && goneChat(st.loc.t);
+  const stale = dead || (OVERLAY_OPEN[st.bd] ? !OVERLAY_OPEN[st.bd]() : st.bd === 'code' && dir > 0);
+  applyLoc(st.loc);
+  if (!stale) return;
+  if (dir < 0 ? LAYERS.depth > 0 : !(window.navigation && navigation.canGoForward === false)) {   // no Navigation API: try (nothing after it = no popstate, the timer ends the wait)
+    LAYERS.skip = dir; if (dir < 0) history.back(); else history.forward(); clearTimeout(LAYERS.skipTimer);
+    LAYERS.skipTimer = setTimeout(() => { if (LAYERS.skip) { LAYERS.skip = 0; settleLayers(); } }, 1000);
+  }
+}
+window.addEventListener('popstate', e => {
+  const st = isEntry(e.state) ? e.state : (LAYERS.hist[0] || { bd: 'base', depth: 0, loc: null });   // no state: the first entry (a deep link cleared it)
+  if (LAYERS.fwd) { LAYERS.fwd = false; LAYERS.depth = st.depth; const n = LAYERS.pend; LAYERS.pend = null; if (n) writeEntry(n, false); else LAYERS.hist[st.depth] = st; settleLayers(); return; }   // our own layerForward(): the entry becomes the new layer
+  if (LAYERS.closing) { LAYERS.closing = false; LAYERS.depth = st.depth; LAYERS.hist[st.depth] = st; settleLayers(); return; }   // our own goBack()
+  // the user's Back / Forward (or our step over a stale entry, which goes on the same way)
+  LAYERS.skip = 0;
+  const from = LAYERS.depth, back = st.depth < from;
+  const left = back ? Array.from({ length: from - st.depth }, (_, i) => LAYERS.hist[from - i]) : [];   // top first; unknown (from before a reload) count as layers
+  LAYERS.depth = st.depth; LAYERS.reuse = true; LAYERS.back = back; LAYERS.hist[st.depth] = st;
+  if (!(back && closeOverlays(left))) land(st, back ? -1 : 1);
+  settleLayers();
 });
 function openDrawer(id, tab = 'overview', logTarget = null) { const was = UI.drawer; UI.drawer = id; UI.tab = tab; UI.logTarget = logTarget; $('#drawer').classList.add('open'); $('#scrim').classList.remove('hidden'); renderDrawer(true); if (!was) pushLayer('drawer'); }
 const CMSG = new Map();
@@ -2515,7 +2622,7 @@ function taskModal(t, projectId) {
   body.addEventListener('dragover', ev => ev.preventDefault()); body.addEventListener('drop', ev => { ev.preventDefault(); [...(ev.dataTransfer?.files || [])].forEach(upload); });
   for (const i of [title, body]) i.addEventListener('keydown', ev => { ev.stopPropagation(); if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) saveBtn.click(); });
   drawFiles();
-  const saveBtn = h('button', { class: 'btn primary', onclick: async () => { if (!title.value.trim()) { title.focus(); return; } const data = { title: title.value, body: body.value, project: sel.value, files }; await act(t ? 'Task updated' : 'Task added', t ? api('task-update', { id: t.id, ...data }) : api('task', data)); m.classList.add('hidden'); if (UI.view !== 'tasks') setView('tasks'); } }, t ? 'Save' : 'Add task');
+  const saveBtn = h('button', { class: 'btn primary', onclick: async () => { if (!title.value.trim()) { title.focus(); return; } const data = { title: title.value, body: body.value, project: sel.value, files }; await act(t ? 'Task updated' : 'Task added', t ? api('task-update', { id: t.id, ...data }) : api('task', data)); m.classList.add('hidden'); if (UI.view !== 'tasks') goView('tasks'); } }, t ? 'Save' : 'Add task');
   const box = h('div', { class: 'box settings task' },
     h('div', { class: 'sh' }, h('h3', null, t ? 'Edit task' : 'New task'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost icon', onclick: () => m.classList.add('hidden') }, ico('x', 15))),
     h('div', { class: 'sbody' },
@@ -2652,17 +2759,17 @@ function ding(state) {
     notes.forEach((f, i) => { const o = ctx.createOscillator(); const g = ctx.createGain(); o.type = 'sine'; o.frequency.value = f; g.gain.setValueAtTime(0.0001, t + i * 0.16); g.gain.exponentialRampToValueAtTime(0.18, t + i * 0.16 + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + i * 0.16 + 0.15); o.connect(g).connect(ctx.destination); o.start(t + i * 0.16); o.stop(t + i * 0.16 + 0.16); });
   } catch {}
 }
-$('#search').addEventListener('input', e => { UI.q = e.target.value.trim(); if (UI.q && UI.view !== 'projects') setView('projects', true); else renderMain(); });
-for (const b of document.querySelectorAll('#nav .navb')) b.onclick = () => { if (TERM.open) closeTermPanel(); if (UI.drawer) closeDrawer(); setView(b.dataset.view); };
+$('#search').addEventListener('input', e => { UI.q = e.target.value.trim(); if (UI.q && UI.view !== 'projects') goView('projects', true); else renderMain(); });
+for (const b of document.querySelectorAll('#nav .navb')) b.onclick = () => { if (TERM.open) closeTermPanel(false); if (UI.drawer) closeDrawer(); goView(b.dataset.view); };
 if ($('#btn-inbox')) $('#btn-inbox').onclick = () => FEAT.inbox?.open?.();
 if ($('#btn-newterm')) $('#btn-newterm').onclick = () => newSessionModal();
 if ($('#btn-downloads-m')) $('#btn-downloads-m').onclick = () => downloadsModal();
 for (const b of document.querySelectorAll('#tabbar .tb')) b.onclick = () => {
-  if (b.dataset.view) { if (UI.view === b.dataset.view) window.scrollTo({ top: 0, behavior: 'smooth' }); setView(b.dataset.view); return; }
+  if (b.dataset.view) { if (UI.view === b.dataset.view) window.scrollTo({ top: 0, behavior: 'smooth' }); goView(b.dataset.view); return; }
   if (b.dataset.act === 'inbox') FEAT.inbox?.open?.();
-  if (b.dataset.act === 'sessions') { if (!TERM.open) pushLayer('term'); TERM.open = true; TERM.showList = true; renderTermPanel(true); }
+  if (b.dataset.act === 'sessions') { TERM.open = true; TERM.showList = true; renderTermPanel(true); navTo(); }
 };
-$('#btn-shell').onclick = () => { if (TERM.open) return closeTermPanel(); pushLayer('term'); TERM.open = true; if (!TERM.active) { const c = S.runtime.sessions.find(x => x.name.startsWith('claude-')) || S.runtime.sessions[0]; if (c) { ensureFrame(c.name); TERM.active = c.name; } } renderTermPanel(); };
+$('#btn-shell').onclick = () => { if (TERM.open) return closeTermPanel(); TERM.open = true; if (!TERM.active) { const c = S.runtime.sessions.find(x => x.name.startsWith('claude-')) || S.runtime.sessions[0]; if (c) { ensureFrame(c.name); TERM.active = c.name; } } renderTermPanel(); navTo(); };
 $('#btn-settings').onclick = settingsModal;
 // ---------- downloads (~/Downloads on the server) ----------
 // Claude drops finished reports/files there. Same explorer as a project's Files tab (tree + preview), plus
@@ -2713,7 +2820,7 @@ document.addEventListener('keydown', e => {
   const typing = ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT' || ae.isContentEditable);
   if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); PAL.open ? closePalette() : openPalette(); return; }
   if (PAL.open) return;   // the palette handles its own keys
-  if (e.key === 'Escape') { if (!$('#modal').classList.contains('hidden')) $('#modal').classList.add('hidden'); else if (UI.menuOpen) closeMenu(); else if (UI.drawer) closeDrawer(); else if (TERM.open) closeTermPanel(); else if (UI.q) { $('#search').value = ''; UI.q = ''; renderMain(); } else if (UI.view === 'code' && FEAT.code?.back(true)) {} else if (UI.view === 'projects' || UI.view === 'tasks' || UI.view === 'code') setView('home'); } // drawer before term: the Changes drawer can sit on top of the terminal
+  if (e.key === 'Escape') { if (!$('#modal').classList.contains('hidden')) $('#modal').classList.add('hidden'); else if (UI.menuOpen) closeMenu(); else if (UI.drawer) closeDrawer(); else if (TERM.open) closeTermPanel(); else if (UI.q) { $('#search').value = ''; UI.q = ''; renderMain(); } else if (UI.view === 'code' && FEAT.code?.back(true)) {} else if (UI.view === 'projects' || UI.view === 'tasks' || UI.view === 'code') goView('home'); } // drawer before term: the Changes drawer can sit on top of the terminal
   if (typing || !TERM.open || UI.drawer || UI.menuOpen || (IS_PHONE && TERM.showList) || document.body.classList.contains('recording') || !$('#modal').classList.contains('hidden')) return;
   const pane = $('#term-chat'); const reply = pane && !pane.classList.contains('hidden') && pane.dataset.chat === TERM.active && pane.querySelector('.creply');
   if (!reply || reply.disabled) return;
@@ -2738,14 +2845,14 @@ function paletteItems() {
     { kind: 'action', label: 'New shell', sub: 'bash in the dev folder (tmux sh-N)', icon: '$', hay: 'shell bash terminal new', run: newShell, rank: 30 },
     { kind: 'action', label: 'Terminals panel', sub: 'full-screen terminal view', icon: '⛶', hay: 'terminals panel', run: () => $('#btn-shell').click(), rank: 31 },
     { kind: 'action', label: 'Tunnels', sub: 'exposed ports', icon: '⇄', hay: 'tunnels ports expose socat', run: () => { UI.showTunnels = true; renderTunnels(); }, rank: 32 },
-    { kind: 'action', label: 'Tasks', sub: `${(S.claude?.tasks || []).filter(t => t.status !== 'done').length} open`, icon: '☑', hay: 'tasks todo backlog', run: () => setView('tasks'), rank: 30 },
+    { kind: 'action', label: 'Tasks', sub: `${(S.claude?.tasks || []).filter(t => t.status !== 'done').length} open`, icon: '☑', hay: 'tasks todo backlog', run: () => goView('tasks'), rank: 30 },
     { kind: 'action', label: 'New task', sub: 'write yourself a prompt-style task', icon: '＋', hay: 'new task add todo', run: () => taskModal(null), rank: 30 },
     { kind: 'action', label: 'Settings', sub: '', icon: '⚙', hay: 'settings config push notifications', run: settingsModal, rank: 33 },
     { kind: 'action', label: 'Rescan projects', sub: '', icon: '↻', hay: 'rescan projects', run: () => act('Rescan', api('rescan', {})), rank: 34 },
     { kind: 'action', label: 'Search conversations', sub: 'type ? followed by words — every session, both accounts', icon: '🔍', hay: 'search conversations transcripts find', run: () => setTimeout(() => openPalette('search'), 0), rank: 27 },
     ...(FEAT.newproj ? [{ kind: 'action', label: 'New project', sub: 'make a folder, git init, then start a chat in it', icon: '＋', hay: 'new project create folder repo init', run: () => FEAT.newproj.open(), rank: 29 }] : []),
-    { kind: 'action', label: 'Projects', sub: 'all projects, filters, search', icon: '▤', hay: 'projects view page', run: () => setView('projects'), rank: 29 },
-    { kind: 'action', label: 'Home', sub: 'stats · agents · running', icon: '⌂', hay: 'home dashboard', run: () => setView('home'), rank: 28 });
+    { kind: 'action', label: 'Projects', sub: 'all projects, filters, search', icon: '▤', hay: 'projects view page', run: () => goView('projects'), rank: 29 },
+    { kind: 'action', label: 'Home', sub: 'stats · agents · running', icon: '⌂', hay: 'home dashboard', run: () => goView('home'), rank: 28 });
   items.push(...feat('paletteItems'));
   if (S.claude?.update) items.push({ kind: 'action', label: 'Update Claude Code', sub: `${S.claude.installed || '?'} → ${S.claude.update.version} (mise upgrade claude)`, icon: 'arrowUp', hay: 'update upgrade claude code version mise', run: () => updateClaude(null), rank: 0 });
   if ((S.claude?.restorable || []).length) items.push({ kind: 'action', label: 'Restore Claude sessions', sub: `${S.claude.restorable.length} from before the restart`, icon: '↺', hay: 'restore claude sessions resume', run: () => restoreClaude(), rank: 0 });
@@ -2753,7 +2860,7 @@ function paletteItems() {
   return items.map((it, i) => ({ ...it, s: score(it), i })).filter(it => !q || it.s).sort((a, b) => (q ? a.s - b.s : 0) || a.rank - b.rank || a.i - b.i).slice(0, 40);
 }
 function fuzzy(hay, q) { let i = 0; for (const c of hay) if (c === q[i]) i++; return i === q.length; }
-function openPalette(mode) { if (!PAL.open) pushLayer('palette'); PAL.open = true; PAL.q = mode === 'search' ? '? ' : ''; PAL.idx = 0; $('#palette').classList.remove('hidden'); renderPalette(); setTimeout(() => { const i = $('#pal-in'); if (i) { i.value = PAL.q; i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }, 0); }
+function openPalette(mode) { const was = PAL.open; PAL.open = true; if (!was) pushLayer('palette'); PAL.q = mode === 'search' ? '? ' : ''; PAL.idx = 0; $('#palette').classList.remove('hidden'); renderPalette(); setTimeout(() => { const i = $('#pal-in'); if (i) { i.value = PAL.q; i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }, 0); }
 // "? words" in the palette = search every conversation (both accounts) for those words
 let searchTimer = null, searchRes = null, searchQ = '';
 function paletteSearch(q) {
@@ -2812,15 +2919,16 @@ let firstDone = false;
 function firstState() {
   if (firstDone) return; firstDone = true;
   const q = new URLSearchParams(location.search); const t = q.get('term'); const sess = q.get('session');
-  if (t) { history.replaceState(null, '', location.pathname); openTerm(t); }
-  else if (sess && q.get('view') !== 'code') { history.replaceState(null, '', location.pathname); openSession(sess, q.get('tab') || 'transcript'); }
-  else if (['chat', 'resume'].includes(q.get('new'))) { history.replaceState(null, '', location.pathname); newSessionModal(q.get('new') === 'chat' ? 'new' : 'resume', q.get('text') || '', { project: q.get('project') || null, account: q.get('account') || null }); }
-  else if (['projects', 'home', 'tasks'].includes(q.get('view'))) { history.replaceState(null, '', location.pathname); setView(q.get('view')); }
-  else if (q.get('newtask')) { history.replaceState(null, '', location.pathname); setView('tasks'); taskModal(null, q.get('newtask') === '1' ? null : q.get('newtask')); }
-  else if (q.get('settings')) { history.replaceState(null, '', location.pathname); settingsModal(); }
-  else if (q.get('downloads')) { history.replaceState(null, '', location.pathname); downloadsModal(); }
-  else if (q.get('schedule')) { history.replaceState(null, '', location.pathname); scheduleDialog(q.get('schedule'), ''); }
-  else if (q.get('drawer')) { history.replaceState(null, '', location.pathname); openDrawer(q.get('drawer'), q.get('tab') || 'overview'); }   // ?drawer=<project id>&tab=<key>
+  if (!location.search && LAYERS.boot) applyLoc(LAYERS.boot.loc);   // a reload: the page and chat this entry showed
+  else if (t) { history.replaceState(history.state, '', location.pathname); openTerm(t); }
+  else if (sess && q.get('view') !== 'code') { history.replaceState(history.state, '', location.pathname); openSession(sess, q.get('tab') || 'transcript'); }
+  else if (['chat', 'resume'].includes(q.get('new'))) { history.replaceState(history.state, '', location.pathname); newSessionModal(q.get('new') === 'chat' ? 'new' : 'resume', q.get('text') || '', { project: q.get('project') || null, account: q.get('account') || null }); }
+  else if (['projects', 'home', 'tasks'].includes(q.get('view'))) { history.replaceState(history.state, '', location.pathname); setView(q.get('view')); retop(); }
+  else if (q.get('newtask')) { history.replaceState(history.state, '', location.pathname); setView('tasks'); retop(); taskModal(null, q.get('newtask') === '1' ? null : q.get('newtask')); }
+  else if (q.get('settings')) { history.replaceState(history.state, '', location.pathname); settingsModal(); }
+  else if (q.get('downloads')) { history.replaceState(history.state, '', location.pathname); downloadsModal(); }
+  else if (q.get('schedule')) { history.replaceState(history.state, '', location.pathname); scheduleDialog(q.get('schedule'), ''); }
+  else if (q.get('drawer')) { history.replaceState(history.state, '', location.pathname); openDrawer(q.get('drawer'), q.get('tab') || 'overview'); }   // ?drawer=<project id>&tab=<key>
   else feat('deepLink', q);   // ?inbox=1, ?emu=1 …
   pushStatus();
   takePendingOpen();
@@ -2836,7 +2944,7 @@ function openFromUrl(u) {
     if (!firstDone) { setTimeout(() => openFromUrl(u), 400); return; }   // first state not here yet (cold start)
     openTerm(term);
   } else if (qq.get('session')) openSession(qq.get('session'), 'transcript');
-  else if (qq.get('view')) setView(qq.get('view'));
+  else if (qq.get('view')) goView(qq.get('view'));
 }
 let takingOpen = false, lastOpenAt = 0;
 async function takePendingOpen() {

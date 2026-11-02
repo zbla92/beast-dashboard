@@ -530,8 +530,10 @@ FEAT.code = (() => {
     function leave() {
       if (panel || !C.layers) { if (!panel && C.step !== 'scope') C.step = 'scope'; return; }
       const n = C.layers; C.layers = 0; C.step = 'scope'; C.from = null; C.fromTerm = null; C.prev = null;
-      if (LAYERS.closing) return;
-      LAYERS.depth = Math.max(0, LAYERS.depth - (n - 1)); LAYERS.closing = true; history.go(-n); setTimeout(() => { LAYERS.closing = false; }, 400);
+      // step back only over Code entries still on top: not when Back / Forward already left them (putting an entry's
+      // place back), nor under a page or chat opened on top of them (those stay below; Back passes them)
+      let k = 0; while (k < n && LAYERS.hist[LAYERS.depth - k]?.bd === 'code') k++;
+      if (!LAYERS.restoring) goBack(k);
     }
 
     function back(fromButton) {
@@ -569,7 +571,8 @@ FEAT.code = (() => {
       saveScope();
       C.step = 'scope';
       if (o.file && C.focus) { const root = o.root || C.focus; C.file = { root, rel: o.file, kind: 'head', mode: 'head', f: null }; const f = (det.get(root)?.data?.files || []).find(x => x.rel === o.file); if (f) refine(root, o.file); else loadDetail(root).then(() => refine(root, o.file)); }
-      const reuse = (UI.drawer ? 1 : 0) + (TERM.open ? 1 : 0);
+      // Code is a page: the chat you came from keeps its entry below (Back returns to it); a drawer's entry is taken over
+      const reuse = UI.drawer && LAYERS.hist[LAYERS.depth]?.bd === 'drawer' ? 1 : 0;
       if (UI.drawer) closeDrawer(false);
       if (TERM.open) closeTermPanel(false);
       let need = phone() && C.prev ? C.layers : 0;
@@ -578,12 +581,16 @@ FEAT.code = (() => {
         if (C.scope) { C.step = 'list'; need++; }
         if (C.file) { C.step = 'view'; need++; }
       }
-      const have = (phone() ? C.layers : 0) + reuse;
-      for (let i = have; i < need; i++) pushLayer('code');
-      if (have > need) { const n = have - need; LAYERS.depth = Math.max(0, LAYERS.depth - (n - 1)); LAYERS.closing = true; history.go(-n); setTimeout(() => { LAYERS.closing = false; }, 400); }
-      C.layers = phone() ? need : 0;
       keyL = keyM = keyR = '';
-      setView('code');
+      setView('code');   // before the entries: they carry the Code page
+      if (phone()) {
+        const have = C.layers + reuse;
+        if (reuse && have <= need) retop('code');   // the drawer's entry becomes the top Code step
+        for (let i = have; i < need; i++) pushLayer('code');
+        if (have > need) goBack(have - need);
+      }
+      C.layers = phone() ? need : 0;
+      navTo();   // no Code step entry (desktop, nothing picked): one entry for the page; takes over a closed drawer's
     }
 
     return { C, paint, back, open, openPath, refine, leave, reset: () => { keyL = keyM = keyR = ''; } };
