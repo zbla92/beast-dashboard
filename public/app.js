@@ -1840,7 +1840,7 @@ function scheduleDialog(name, draft) {
   const chips = h('div', { class: 'chips' }, presets.map(([l, d]) => { const t = Date.now() + d; return h('button', { class: 'chip', 'data-at': Math.round(t / 60e3), onclick: () => setAt(t) }, l); }));
   const msgs = h('div', { class: 'smsgs' });
   const addMsg = text => { const ta = h('textarea', { class: 'creply', rows: 3, placeholder: msgs.children.length ? 'next message — sent once Claude finishes the previous one' : 'message for Claude…' }); ta.value = text || '';
-    const w = h('div', { class: 'smsg' }, h('div', { class: 'smsg-n' }, h('span', { class: 'n' }, String(msgs.children.length + 1)), msgs.children.length ? h('button', { class: 'x', title: 'remove this message', onclick: () => { w.remove(); renum(); } }, ico('x', 13)) : null), ta); msgs.append(w); ta.addEventListener('keydown', ev => ev.stopPropagation()); return ta; };
+    const w = h('div', { class: 'smsg' }, h('div', { class: 'smsg-n' }, h('span', { class: 'n' }, String(msgs.children.length + 1)), msgs.children.length ? h('button', { class: 'x', title: 'remove this message', onclick: () => { w.remove(); renum(); } }, ico('x', 13)) : null), ta); msgs.append(w); ta.addEventListener('keydown', ev => { if (ev.key !== 'Escape') ev.stopPropagation(); }); return ta; };   // Esc still closes the dialog
   const renum = () => { [...msgs.children].forEach((w, i) => { w.querySelector('.n').textContent = String(i + 1); }); };
   const first = addMsg(draft);
   const box = h('div', { class: 'box settings sched' },
