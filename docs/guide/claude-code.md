@@ -20,7 +20,7 @@ shell*): a bash in tmux.
 
 ## Chat sessions
 
-**＋ Session** (or `s`) opens *New session*: type a prompt and press **Start
+**＋ Session** opens *New session*: type a prompt and press **Start
 chat**. The dashboard starts a small runner in tmux (`claude-chat-<date>-<time>`) that keeps one
 headless `claude -p` process (stream-json) behind a unix socket, in the project it guessed, on the
 account you picked. Messages, Stop, questions Claude asks and permission prompts all go through
@@ -50,7 +50,7 @@ the list of files, `+/−` and a diff. The chat shows *3 files changed +42 −7*
 **Diff** and **Undo**; Undo puts back only the files that turn changed (and **Redo** brings them
 back), it is refused while Claude is working, and a file the snapshot could not hold (too large) is
 left alone and reported. *Changes by turn…* in the session menu lists them all. Checkpoints are kept
-for 14 days. The **Files** button beside the chat opens a side panel (`f`) with the repos the session
+for 14 days. The **Files** button beside the chat opens a side panel with the repos the session
 edited, their pending changes and a file or diff viewer; **± WIP** adds a brief of the pending
 work to the message you are writing. On the diffs, a click on a line opens a comment box; the
 comments go to the **review tray** (a pill at the bottom, also in the palette), from which they are

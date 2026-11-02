@@ -524,7 +524,7 @@ function renderTermPanel(force) {
   trackVV(300);
   el.classList.toggle('showlist', TERM.showList); el.classList.toggle('focus', TERM.focus); document.body.classList.toggle('focus', !!TERM.focus);
   if (!$('#term-list')) {
-    el.append(h('aside', { class: 'termside' }, h('div', { class: 'termside-head' }, h('button', { class: 'btn sm ghost back', title: 'back to dashboard — all sessions keep running (Esc)', onclick: closeTermPanel }, ico('back'), 'Dashboard'), h('span', { class: 'sp' }), h('button', { class: 'btn sm', title: 'new session — new chat (the project is guessed) or resume a past conversation  (s)', onclick: () => newSessionModal() }, ico('plus', 13), 'Session'), h('button', { class: 'btn sm ghost icon desk', title: 'focus mode — hide the session list (for screen sharing)', onclick: () => setFocus(true) }, ico('sidebar', 15))), h('div', { id: 'term-list' })),
+    el.append(h('aside', { class: 'termside' }, h('div', { class: 'termside-head' }, h('button', { class: 'btn sm ghost back', title: 'back to dashboard — all sessions keep running (Esc)', onclick: closeTermPanel }, ico('back'), 'Dashboard'), h('span', { class: 'sp' }), h('button', { class: 'btn sm', title: 'new session — new chat (the project is guessed) or resume a past conversation', onclick: () => newSessionModal() }, ico('plus', 13), 'Session'), h('button', { class: 'btn sm ghost icon desk', title: 'focus mode — hide the session list (for screen sharing)', onclick: () => setFocus(true) }, ico('sidebar', 15))), h('div', { id: 'term-list' })),
       h('section', { class: 'termmain' }, h('div', { class: 'termbar', id: 'term-bar' }), h('div', { class: 'termframes', id: 'term-frames' }, h('div', { class: 'chatpane hidden', id: 'term-chat' }))));
   }
   const S3 = termSessions(); const known = new Set(S.runtime.sessions.map(s => s.name));
@@ -2681,23 +2681,18 @@ function sleepModal() {
 if ($('#btn-downloads')) $('#btn-downloads').onclick = downloadsModal;   // guarded: a phone may still hold an older index.html
 $('#scrim').onclick = closeDrawer;
 document.addEventListener('keydown', e => {
-  const typing = document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA' || document.activeElement.tagName === 'SELECT');
+  const ae = document.activeElement;
+  const typing = ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT' || ae.isContentEditable);
   if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); PAL.open ? closePalette() : openPalette(); return; }
   if (PAL.open) return;   // the palette handles its own keys
-  if (e.key === '/' && !typing) { e.preventDefault(); $('#search').focus(); }
   if (e.key === 'Escape') { if (!$('#modal').classList.contains('hidden')) $('#modal').classList.add('hidden'); else if (UI.menuOpen) closeMenu(); else if (UI.drawer) closeDrawer(); else if (TERM.open) closeTermPanel(); else if (UI.q) { $('#search').value = ''; UI.q = ''; renderMain(); } else if (UI.view === 'code' && FEAT.code?.back(true)) {} else if (UI.view === 'projects' || UI.view === 'tasks' || UI.view === 'code') setView('home'); } // drawer before term: the Changes drawer can sit on top of the terminal
-  // dashboard-level shortcuts (not while typing): t = terminals, n = next session that needs you, s = new shell
-  if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
-  if (!$('#modal').classList.contains('hidden')) return;
-  if (e.key === 't') { e.preventDefault(); $('#btn-shell').click(); }
-  if (e.key === 'd') { e.preventDefault(); downloadsModal(); }
-  if (e.key === 'p') { e.preventDefault(); setView('projects'); }
-  if (e.key === 'h') { e.preventDefault(); setView('home'); }
-  if (e.key === 'n') { e.preventDefault(); const c = termSessions().claude.find(x => x.claude?.needsYou) || termSessions().claude[0]; if (c) openTerm(c.name); }
-  if (e.key === 's' && !TERM.open) { e.preventDefault(); newSessionModal(); }
-  if (TERM.open && $('#modal').classList.contains('hidden') && feat('termKey', e).includes(true)) { e.preventDefault(); return; }
-  if (!TERM.open && $('#modal').classList.contains('hidden') && feat('key', e).includes(true)) { e.preventDefault(); return; }   // never replace an open modal (unsaved Settings …)   // feature shortcuts: i = inbox, a = android
-  if (/^[1-9]$/.test(e.key) && TERM.open) { const o = termOrder(); if (o[+e.key - 1]) openTerm(o[+e.key - 1]); }
+  if (typing || !TERM.open || UI.drawer || UI.menuOpen || (IS_PHONE && TERM.showList) || document.body.classList.contains('recording') || !$('#modal').classList.contains('hidden')) return;
+  const pane = $('#term-chat'); const reply = pane && !pane.classList.contains('hidden') && pane.dataset.chat === TERM.active && pane.querySelector('.creply');
+  if (!reply || reply.disabled) return;
+  if ((e.metaKey || e.ctrlKey) && !e.altKey && (e.key === 'v' || e.key === 'V')) { reply.focus(); return; }
+  if (e.key === ' ' && ae && ae.closest('button, a, [role=button]')) return;
+  if (e.key.length !== 1 || e.isComposing || e.metaKey || (e.ctrlKey && !e.altKey) || (e.altKey && /^[a-z0-9]$/i.test(e.key))) return;
+  e.preventDefault(); reply.focus(); const end = reply.value.length; reply.setRangeText(e.key, end, end, 'end'); reply.dispatchEvent(new Event('input'));
 });
 window.addEventListener('resize', drawSparks);
 
@@ -2721,8 +2716,8 @@ function paletteItems() {
     { kind: 'action', label: 'Rescan projects', sub: '', icon: '↻', hay: 'rescan projects', run: () => act('Rescan', api('rescan', {})), rank: 34 },
     { kind: 'action', label: 'Search conversations', sub: 'type ? followed by words — every session, both accounts', icon: '🔍', hay: 'search conversations transcripts find', run: () => setTimeout(() => openPalette('search'), 0), rank: 27 },
     ...(FEAT.newproj ? [{ kind: 'action', label: 'New project', sub: 'make a folder, git init, then start a chat in it', icon: '＋', hay: 'new project create folder repo init', run: () => FEAT.newproj.open(), rank: 29 }] : []),
-    { kind: 'action', label: 'Projects', sub: 'all projects, filters, search  (p)', icon: '▤', hay: 'projects view page', run: () => setView('projects'), rank: 29 },
-    { kind: 'action', label: 'Home', sub: 'stats · agents · running  (h)', icon: '⌂', hay: 'home dashboard', run: () => setView('home'), rank: 28 });
+    { kind: 'action', label: 'Projects', sub: 'all projects, filters, search', icon: '▤', hay: 'projects view page', run: () => setView('projects'), rank: 29 },
+    { kind: 'action', label: 'Home', sub: 'stats · agents · running', icon: '⌂', hay: 'home dashboard', run: () => setView('home'), rank: 28 });
   items.push(...feat('paletteItems'));
   if (S.claude?.update) items.push({ kind: 'action', label: 'Update Claude Code', sub: `${S.claude.installed || '?'} → ${S.claude.update.version} (mise upgrade claude)`, icon: 'arrowUp', hay: 'update upgrade claude code version mise', run: () => updateClaude(null), rank: 0 });
   if ((S.claude?.restorable || []).length) items.push({ kind: 'action', label: 'Restore Claude sessions', sub: `${S.claude.restorable.length} from before the restart`, icon: '↺', hay: 'restore claude sessions resume', run: () => restoreClaude(), rank: 0 });

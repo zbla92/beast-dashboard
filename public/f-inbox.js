@@ -146,7 +146,7 @@
       if (!banner) {
         banner = h('section', { class: 'ibx-banner', 'data-slot': 'hero' },
           h('h2', { class: 'ibx-bt' }), h('div', { class: 'ibx-hrows' }),
-          h('button', { class: 'btn ibx-go', title: 'reply to each of them here  (i)', onclick: openInbox }, ico('chat', 15), 'Reply in Inbox'));
+          h('button', { class: 'btn ibx-go', title: 'reply to each of them here', onclick: openInbox }, ico('chat', 15), 'Reply in Inbox'));
         banner._key = '';
       }
       const t = n === 1 ? 'One agent needs you' : `${n} agents need you`;
@@ -162,9 +162,8 @@
     },
     paletteItems() {
       const n = waiting().length;
-      return [{ kind: 'action', label: 'Inbox', sub: n ? `${n} need${n === 1 ? 's' : ''} you  (i)` : 'nothing waiting  (i)', icon: '✓', hay: 'inbox reply needs you waiting permission', run: openInbox, rank: n ? 1 : 28 }];
+      return [{ kind: 'action', label: 'Inbox', sub: n ? `${n} need${n === 1 ? 's' : ''} you` : 'nothing waiting', icon: '✓', hay: 'inbox reply needs you waiting permission', run: openInbox, rank: n ? 1 : 28 }];
     },
-    key(e) { if (e.key !== 'i') return false; if (alive()) close(); else openInbox(); return true; },
     deepLink(q) { if (!q.get('inbox')) return false; history.replaceState(null, '', location.pathname); openInbox(); return true; },
     onState() { if (alive()) render(); },
   };

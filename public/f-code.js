@@ -267,7 +267,7 @@ FEAT.code = (() => {
         h('span', { class: 'wsp' }),
         h('button', { class: 'btn sm ghost', title: 'add the work in progress of these repos to the message draft', onclick: () => addWip(C.ws?.session) }, '+ WIP'),
         h('button', { class: 'btn sm ghost icon', title: 'open the full Code view for this session', onclick: () => FEAT.code.open({ session: C.ws?.session }) }, ico('full', 15)),
-        h('button', { class: 'btn sm ghost icon', title: 'close the panel  (f)', onclick: () => toggleWs(false) }, ico('x', 15)));
+        h('button', { class: 'btn sm ghost icon', title: 'close the panel', onclick: () => toggleWs(false) }, ico('x', 15)));
       return h('div', { class: 'cvh' },
         phone() ? h('button', { class: 'btn ghost icon cvback', 'aria-label': 'back', onclick: () => back(true) }, ico('back', 18)) : null,
         h('div', { class: 'cvh-t' }, h('b', null, s.title || s.id), h('span', { class: 'cvh-n' }, sum)),
@@ -380,7 +380,7 @@ FEAT.code = (() => {
       if (!C.scope) {
         const ek = 'empty:' + (panel ? wsErr(TERM.active) : '');
         if (keyM === ek) return; keyM = ek;
-        if (panel) { const err = wsErr(TERM.active); paneM.replaceChildren(h('div', { class: 'cvh' }, h('div', { class: 'cvh-t' }, h('b', null, 'Files of this session')), h('span', { class: 'wsp' }), h('button', { class: 'btn sm ghost icon', title: 'close the panel  (f)', onclick: () => toggleWs(false) }, ico('x', 15))), h('div', { class: 'cvhint' }, h('b', null, err ? 'Could not read this session' : 'Reading this session…'), err ? h('span', null, err) : null)); return; }
+        if (panel) { const err = wsErr(TERM.active); paneM.replaceChildren(h('div', { class: 'cvh' }, h('div', { class: 'cvh-t' }, h('b', null, 'Files of this session')), h('span', { class: 'wsp' }), h('button', { class: 'btn sm ghost icon', title: 'close the panel', onclick: () => toggleWs(false) }, ico('x', 15))), h('div', { class: 'cvhint' }, h('b', null, err ? 'Could not read this session' : 'Reading this session…'), err ? h('span', null, err) : null)); return; }
         paneM.replaceChildren(h('div', { class: 'cvhint' }, panel ? h('b', null, 'Reading this session…') : [h('b', null, 'Pick a set or a repo'), h('span', null, 'Work in progress lists every repo with pending changes or unpushed commits. Click one to see its files, commits and diffs.')]));
         return;
       }
@@ -653,7 +653,7 @@ FEAT.code = (() => {
     const cl = sessOf(name)?.claude; if (!cl) return null;
     queueMicrotask(paintPanel);
     const b = badge(name);
-    return h('button', { class: 'btn sm ghost cvfiles' + (WS.on && !phone() ? ' on' : ''), title: 'every repo of this session with its pending changes — side panel  (f)', onclick: () => phone() ? V.open({ session: name }) : toggleWs() },
+    return h('button', { class: 'btn sm ghost cvfiles' + (WS.on && !phone() ? ' on' : ''), title: 'every repo of this session with its pending changes — side panel', onclick: () => phone() ? V.open({ session: name }) : toggleWs() },
       ico('folder', 14), h('span', { class: 'desk' }, 'Files'), b ? h('span', { class: 'pill' + (b.files ? ' warn' : '') }, b.files ? `${plural(b.repos, 'repo')} · ${b.files}` : plural(b.repos, 'repo')) : null);
   }
 
@@ -677,16 +677,6 @@ FEAT.code = (() => {
 
   function onState() { if (UI.view !== 'code' && (V.C.layers || V.C.step !== 'scope')) V.leave(); repaint(); }
 
-  function key(e) {
-    if (e.key === 'c' && UI.view !== 'code') { V.leave(); setView('code'); return true; }
-    return false;
-  }
-
-  function termKey(e) {
-    if (e.key === 'f' && TERM.active && sessOf(TERM.active)?.claude && !phone()) { toggleWs(); return true; }
-    return false;
-  }
-
   function deepLink(q) {
     if (q.get('view') !== 'code') return false;
     history.replaceState(null, '', location.pathname);
@@ -695,5 +685,5 @@ FEAT.code = (() => {
     return true;
   }
 
-  return { open: V.open, back: V.back, onState, key, termKey, deepLink, termBar, termBarKey, toolOpen, openAbs, togglePanel: toggleWs, state: V.C, panel: P.C };
+  return { open: V.open, back: V.back, onState, deepLink, termBar, termBarKey, toolOpen, openAbs, togglePanel: toggleWs, state: V.C, panel: P.C };
 })();

@@ -60,12 +60,12 @@
     <button class="navb" data-view="tasks"><svg class="ico" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="m8.5 12.5 2.5 2.5 4.5-5.5"/></svg><span class="nl">Tasks</span> <span class="n" id="task-count">0</span></button>
   </nav>
   <div class="nav nav2">
-    <button class="navb" id="btn-inbox" title="Claude sessions waiting for you, each with a reply box  (i)"><svg class="ico" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 13.5 6.5 6a1.5 1.5 0 0 1 1.4-1h8.2a1.5 1.5 0 0 1 1.4 1L20 13.5V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M4 13.5h4.5l1 2h5l1-2H20"/></svg><span class="nl">Inbox</span> <span class="n need hidden" id="need-count">0</span></button>
-    <button class="navb" id="btn-downloads" title="Downloads on the server (~/Downloads) — files Claude drops for you  (d)"><svg class="ico" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/></svg><span class="nl">Downloads</span></button>
+    <button class="navb" id="btn-inbox" title="Claude sessions waiting for you, each with a reply box"><svg class="ico" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 13.5 6.5 6a1.5 1.5 0 0 1 1.4-1h8.2a1.5 1.5 0 0 1 1.4 1L20 13.5V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M4 13.5h4.5l1 2h5l1-2H20"/></svg><span class="nl">Inbox</span> <span class="n need hidden" id="need-count">0</span></button>
+    <button class="navb" id="btn-downloads" title="Downloads on the server (~/Downloads) — files Claude drops for you"><svg class="ico" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/></svg><span class="nl">Downloads</span></button>
   </div>
   <div class="rail-head">
-    <button class="rail-t" id="btn-shell" title="Open the sessions: terminal / chat for every tmux session  (t)">Sessions <span class="n" id="term-count">0</span></button>
-    <button class="rail-add" id="btn-newterm" title="New session — new chat or resume a past conversation  (s)" aria-label="New session"><svg class="ico" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+    <button class="rail-t" id="btn-shell" title="Open the sessions: terminal / chat for every tmux session">Sessions <span class="n" id="term-count">0</span></button>
+    <button class="rail-add" id="btn-newterm" title="New session — new chat or resume a past conversation" aria-label="New session"><svg class="ico" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
   </div>
   <div class="rail-list" id="rail-list"></div>
   <div class="rail-foot" id="rail-foot"></div>
@@ -75,7 +75,7 @@
 <header class="top">
   <div class="mbrand"><img class="logo" src="/icon.svg" alt="" aria-hidden="true"><span class="title">beast</span><span class="mdot" id="mdot"></span></div>
   <h1 class="vtitle" id="vtitle">Home</h1>
-  <div class="search"><svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg><input id="search" placeholder="Filter projects, ports, branches  ( / )" autocomplete="off"></div>
+  <div class="search"><svg class="icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg><input id="search" placeholder="Filter projects, ports, branches" autocomplete="off"></div>
   <div class="topbtns">
     <button class="btn ghost kbtn" id="btn-palette" title="Jump to any session or project  (⌘K / Ctrl+K)"><svg class="ico" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg><span class="kl">Jump to…</span><kbd>⌘K</kbd></button>
     <button class="btn ghost icon mobi" id="btn-downloads-m" title="Downloads" aria-label="Downloads"><svg class="ico" viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/></svg></button>

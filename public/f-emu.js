@@ -48,7 +48,7 @@
   function tile() {
     if (!EMU.tile) {
       const img = h('img', { class: 'emu-thumb', alt: '', draggable: 'false' });
-      EMU.tile = { el: h('button', { class: 'emu-tile', type: 'button', title: 'Open the Android emulator  (a)', onclick: () => openModal() },
+      EMU.tile = { el: h('button', { class: 'emu-tile', type: 'button', title: 'Open the Android emulator', onclick: () => openModal() },
         h('span', { class: 'emu-thumbwrap' }, img), h('span', { class: 'emu-tinfo' }, h('b', { class: 'emu-tname' }), h('span', { class: 'emu-tsub dim' })), h('span', { class: 'emu-tgo' }, 'Open ›')), img, name: null, sub: null };
       EMU.tile.name = EMU.tile.el.querySelector('.emu-tname'); EMU.tile.sub = EMU.tile.el.querySelector('.emu-tsub');
       setInterval(thumb, 5000);
@@ -191,8 +191,7 @@
 
   FEAT.emu = {
     homeTiles() { poll(); return usable().length ? [tile().el] : []; },
-    paletteItems() { return [{ kind: 'action', label: 'Android emulator', sub: usable().length ? 'live screen + touch  (a)' : 'start an AVD  (a)', icon: '📱', hay: 'android emulator phone avd adb screen', run: () => openModal(), rank: 26 }]; },
-    key(e) { if (e.key === 'a') { openModal(); return true; } return false; },
+    paletteItems() { return [{ kind: 'action', label: 'Android emulator', sub: usable().length ? 'live screen + touch' : 'start an AVD', icon: '📱', hay: 'android emulator phone avd adb screen', run: () => openModal(), rank: 26 }]; },
     deepLink(q) { if (!q.get('emu')) return false; try { history.replaceState(null, '', location.pathname); } catch {} openModal(); return true; },
   };
 })();

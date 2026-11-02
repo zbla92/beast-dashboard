@@ -9,7 +9,7 @@ your projects and it gives you:
   means *waiting on you*, cool means *the machine is working*.
 - **Inbox** — every session that waits for you (done, permission prompt, error, usage limit) in one
   sheet, each with a reply box and the mic; permission prompts get Allow / Deny. Home leads with
-  *"2 agents need you"* and their last message; `i` opens it.
+  *"2 agents need you"* and their last message; click it to open it.
 
 - **Every project on one screen** — discovered automatically (git repos, `package.json`,
   `pyproject`, `docker-compose`, Makefiles), grouped by the top-level folder they live in, with
