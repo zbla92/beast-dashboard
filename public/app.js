@@ -287,9 +287,11 @@ function fillLive(el, turn) {
   }
   const sc = el.closest('.cscroll'); if (sc && sc.scrollHeight - sc.scrollTop - sc.clientHeight < 160) sc.scrollTop = sc.scrollHeight;
 }
-const ASKC = { rid: null, el: null };
-function askCard(name, req, done) {
-  if (ASKC.rid === req.rid && ASKC.el) return ASKC.el;
+// one card per conversation box: the chat pane and the session drawer can show the same request, and a shared node
+// would move into whichever rendered last (a closed drawer keeps it, and the chat loses its Allow / Deny)
+const ASKC = new WeakMap();   // box -> { rid, el }
+function askCard(box, name, req, done) {
+  const kept = ASKC.get(box); if (kept && kept.rid === req.rid) return kept.el;
   let sending = false, card;
   const reply = async (decision, answers, message) => {
     if (sending) return; sending = true; card.classList.add('busy');
@@ -321,7 +323,7 @@ function askCard(name, req, done) {
     card = h('div', { class: 'turn assistant cmenu ask' }, h('div', { class: 'who' }, gl('⚠ Claude is asking')), ...blocks,
       h('div', { class: 'askrow' }, submit, h('button', { class: 'btn sm ghost', onclick: () => reply('deny', null, 'The user dismissed the question without answering.') }, 'Skip')));
   }
-  Object.assign(ASKC, { rid: req.rid, el: card });
+  ASKC.set(box, { rid: req.rid, el: card });
   return card;
 }
 // Poll while a conversation is on screen (panel chat or session drawer): the transcript grows while Claude writes
@@ -1280,7 +1282,11 @@ function openMenu(ev, items) {
     m.append(h('div', { class: 'mi' + (it.cur ? ' cur' : '') + (it.disabled ? ' dis' : '') + (it.danger ? ' danger' : ''), title: it.title, onclick: () => { closeMenu(); it.onclick?.(); } }, h('span', { class: 'ico' }, gico(it.icon || '')), h('span', { class: 'k' }, it.label), it.sub ? h('span', { class: 'c' }, it.sub) : null));
   }
   const r = ev.currentTarget.getBoundingClientRect(), pad = 8;
-  m.style.left = m.style.top = '0px'; m.style.maxWidth = Math.min(440, innerWidth - pad * 2) + 'px'; m.style.maxHeight = Math.min(innerHeight * .7, innerHeight - pad * 2) + 'px';
+  m.style.left = m.style.top = '0px'; m.style.maxWidth = Math.min(440, innerWidth - pad * 2) + 'px';
+  // height: up to 70 % of the window. A menu a little taller (the session menu under Options) gets its whole height
+  // when that fits under or over the button with a finger-wide strip still free to tap away; a long list scrolls as before
+  const need = m.scrollHeight + m.offsetHeight - m.clientHeight, room = Math.max(innerHeight - r.bottom, r.top) - 6 - 48;
+  m.style.maxHeight = Math.min(Math.max(innerHeight * .7, need <= room ? need : 0), innerHeight - pad * 2) + 'px';
   const w = m.offsetWidth, mh = m.offsetHeight, x = r.left + w > innerWidth - pad ? r.right - w : r.left;
   m.style.left = Math.max(pad, Math.min(x, innerWidth - w - pad)) + 'px';
   const below = r.bottom + 6, above = r.top - mh - 6;
@@ -1475,7 +1481,7 @@ function renderConversation(box, name, t, o) {
   if (liveEl && lv) { liveEl.insertBefore(h('div', { class: 'ltools' }), liveEl.children[1]); liveEl.insertBefore(h('div', { class: 'ttext ltext hidden' }), liveEl.children[2]); fillLive(liveEl, lv.turn); }
   if (lv && lv.error && !busy) items.push(h('div', { class: 'turn assistant' }, h('div', { class: 'who' }, gl('⚠ chat runner')), h('div', { class: 'mono dim' }, lv.error)));
   const ask = cl.mode === 'chat' ? (lv ? lv.pending[0] : cl.ask) : null;
-  if (ask) items.push(askCard(name, ask, () => { for (const ms of [300, 1200]) setTimeout(o.refresh, ms); }));
+  if (ask) items.push(askCard(box, name, ask, () => { for (const ms of [300, 1200]) setTimeout(o.refresh, ms); }));
   if (cl.menu) items.push(menuCard(name, cl.menu, () => { for (const ms of [500, 1500, 3000]) setTimeout(o.refresh, ms); }));
   syncChildren(conv, items);
   feat('conversation', name, conv, box);
