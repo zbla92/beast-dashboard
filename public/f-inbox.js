@@ -72,7 +72,7 @@
     const chatBtn = h('button', { class: 'btn ibx-btn', title: 'open the chat', onclick: () => { close(); openTerm(name); } }, ico('chat', 15), 'Open chat');
     const seenBtn = h('button', { class: 'btn ghost ibx-btn', title: 'mark as seen — hides it until the state changes', onclick: () => {
       const cl = claudeOf(name); if (cl) IBX.seen.set(name, cl.since);
-      api('claude-seen', { session: name }).catch(() => {}); render();
+      api('claude-seen', { session: name }).catch(() => {}); render(); renderHeader();   // the tab title / badges count what the Inbox lists
     } }, 'Seen');
     const badge = h('span', { class: 'ibx-badge' }), msg = h('div', { class: 'ibx-msg' }), more = h('button', { class: 'ibx-more hidden', onclick: () => { const x = msg.classList.toggle('open'); more.textContent = x ? 'less' : 'more'; } }, 'more');
     const title = h('span', { class: 'ibx-proj' }), tag = h('span', { class: 'badge tag acc' }), av = h('span', { class: 'ibx-av' });
@@ -139,6 +139,7 @@
 
   FEAT.inbox = {
     open: openInbox,
+    count: () => waiting().length,   // app.js: tab title, Inbox badge, phone tab bar
     // Home hero (app.js puts data-slot="hero" tiles above the agents): who waits for you, one line each; a row opens
     // that session, the button opens the Inbox with a reply box per session. Same node every time — only its rows change.
     homeTiles() {
