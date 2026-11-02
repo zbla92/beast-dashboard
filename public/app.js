@@ -1280,7 +1280,11 @@ function openMenu(ev, items) {
     m.append(h('div', { class: 'mi' + (it.cur ? ' cur' : '') + (it.disabled ? ' dis' : '') + (it.danger ? ' danger' : ''), title: it.title, onclick: () => { closeMenu(); it.onclick?.(); } }, h('span', { class: 'ico' }, gico(it.icon || '')), h('span', { class: 'k' }, it.label), it.sub ? h('span', { class: 'c' }, it.sub) : null));
   }
   const r = ev.currentTarget.getBoundingClientRect(), pad = 8;
-  m.style.left = m.style.top = '0px'; m.style.maxWidth = Math.min(440, innerWidth - pad * 2) + 'px'; m.style.maxHeight = Math.min(innerHeight * .7, innerHeight - pad * 2) + 'px';
+  m.style.left = m.style.top = '0px'; m.style.maxWidth = Math.min(440, innerWidth - pad * 2) + 'px';
+  // height: up to 70 % of the window. A menu a little taller (the session menu under Options) gets its whole height
+  // when that fits under or over the button with a finger-wide strip still free to tap away; a long list scrolls as before
+  const need = m.scrollHeight + m.offsetHeight - m.clientHeight, room = Math.max(innerHeight - r.bottom, r.top) - 6 - 48;
+  m.style.maxHeight = Math.min(Math.max(innerHeight * .7, need <= room ? need : 0), innerHeight - pad * 2) + 'px';
   const w = m.offsetWidth, mh = m.offsetHeight, x = r.left + w > innerWidth - pad ? r.right - w : r.left;
   m.style.left = Math.max(pad, Math.min(x, innerWidth - w - pad)) + 'px';
   const below = r.bottom + 6, above = r.top - mh - 6;
