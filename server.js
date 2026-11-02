@@ -191,16 +191,16 @@ const STARTED_AT = Date.now();
 
 function broadcast(event, data) { const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`; for (const res of clients) res.write(msg); }
 let base = null, baseSeq = 0;
+const isObjOrArr = x => x !== null && typeof x === 'object';
 function diffOps(a, b, p = [], ops = []) {
   if (a === b) return ops;
-  if (b === undefined) { ops.push([p]); return ops; }
-  const isObj = x => x !== null && typeof x === 'object';
-  if (isObj(a) && isObj(b) && Array.isArray(a) === Array.isArray(b) && (!Array.isArray(a) || a.length === b.length)) {
-    for (const k of Object.keys(b)) diffOps(a[k], b[k], [...p, k], ops);
+  if (b === undefined) { ops.push([p.slice()]); return ops; }
+  if (isObjOrArr(a) && isObjOrArr(b) && Array.isArray(a) === Array.isArray(b) && (!Array.isArray(a) || a.length === b.length)) {
+    for (const k of Object.keys(b)) { p.push(k); diffOps(a[k], b[k], p, ops); p.pop(); }
     if (!Array.isArray(a)) for (const k of Object.keys(a)) if (!Object.hasOwn(b, k)) ops.push([[...p, k]]);
     return ops;
   }
-  ops.push([p, b]);
+  ops.push([p.slice(), b]);
   return ops;
 }
 function pushState(force) {
@@ -225,23 +225,40 @@ async function refreshGitOne(id) { const r = await wip.refreshOne(id); if (r && 
 // Watch each repo's .git directory (index = staging, HEAD/refs = commits, checkouts, pulls) so the branch, ahead/behind
 // and dirty counts update the moment something happens, instead of on the next poll. Working-tree edits still come
 // from the poll (watching whole trees would mean watching node_modules too).
-const gitWatchers = new Map(); const gitDebounce = new Map();
+const gitWatchers = new Map(); const gitDebounce = new Map(); const gitRewatch = new Map();
+function gitWatchDirs(gitDir) {
+  const dirs = [''];
+  const walk = rel => { let ents; try { ents = fs.readdirSync(path.join(gitDir, rel), { withFileTypes: true }); } catch { return; } dirs.push(rel); for (const e of ents) if (e.isDirectory()) walk(rel + '/' + e.name); };
+  for (const d of ['refs', 'reftable']) if (isDir(path.join(gitDir, d))) dirs.push(d);
+  walk('refs/heads'); walk('refs/remotes');
+  try { const wts = fs.readdirSync(path.join(gitDir, 'worktrees'), { withFileTypes: true }); dirs.push('worktrees'); for (const e of wts) if (e.isDirectory()) dirs.push('worktrees/' + e.name); } catch {}
+  return dirs;
+}
+const isDir = f => { try { return fs.statSync(f).isDirectory(); } catch { return false; } };
+function unwatchGit(id) { for (const w of gitWatchers.get(id) || []) { try { w.close(); } catch {} } gitWatchers.delete(id); }
 function watchGit() {
   const want = new Set(projects.filter(p => p.isGit).map(p => p.id));
-  for (const [id, w] of gitWatchers) if (!want.has(id)) { try { w.close(); } catch {} gitWatchers.delete(id); }
+  for (const id of [...gitWatchers.keys()]) if (!want.has(id)) unwatchGit(id);
   for (const p of projects) {
     if (!p.isGit || gitWatchers.has(p.id)) continue;
-    try {
-      const w = fs.watch(path.join(p.path, '.git'), { recursive: true }, (ev, name) => {
-        if (name && /\.lock$|^objects\/|^logs\//.test(name)) return;   // object writes and reflog noise; index/HEAD/refs are what matter
-        const wt = name && name.match(/^worktrees\/([^/]+)\//);
-        if (wt) { const dir = wip.worktreeGitDir(p.path, wt[1]); if (dir) wip.bump(p.id + '~' + roots.hashOf(dir), 400); return; }
-        clearTimeout(gitDebounce.get(p.id));
-        gitDebounce.set(p.id, setTimeout(() => refreshGitOne(p.id).then(() => pushState(false)).catch(() => {}), 400));
-      });
-      w.on('error', () => { try { w.close(); } catch {} gitWatchers.delete(p.id); });
-      gitWatchers.set(p.id, w);
-    } catch (e) { /* recursive watch unsupported or repo gone: the poll still covers it */ }
+    const gitDir = path.join(p.path, '.git'); const group = []; const dirs = gitWatchDirs(gitDir); const watched = new Set(dirs);
+    const onEvent = (sub, ev, file) => {
+      const name = file && (sub ? sub + '/' + file : String(file));
+      if (ev === 'rename' && name && !name.endsWith('.lock') && (sub || name === 'worktrees') && (watched.has(name) !== isDir(path.join(gitDir, name)))) { clearTimeout(gitRewatch.get(p.id)); gitRewatch.set(p.id, setTimeout(() => { gitRewatch.delete(p.id); unwatchGit(p.id); watchGit(); refreshGitOne(p.id).then(() => pushState(false)).catch(() => {}); }, 1000)); }
+      if (name && /\.lock$|^objects\/|^logs\//.test(name)) return;   // object writes and reflog noise; index/HEAD/refs are what matter
+      const wt = name && name.match(/^worktrees\/([^/]+)\//);
+      if (wt) { const dir = wip.worktreeGitDir(p.path, wt[1]); if (dir) wip.bump(p.id + '~' + roots.hashOf(dir), 400); return; }
+      clearTimeout(gitDebounce.get(p.id));
+      gitDebounce.set(p.id, setTimeout(() => refreshGitOne(p.id).then(() => pushState(false)).catch(() => {}), 400));
+    };
+    for (const dir of dirs) {
+      try {
+        const w = fs.watch(dir ? path.join(gitDir, dir) : gitDir, (ev, file) => onEvent(dir, ev, file));
+        w.on('error', () => unwatchGit(p.id));
+        group.push(w);
+      } catch {}
+    }
+    if (group.length) gitWatchers.set(p.id, group);
   }
 }
 
