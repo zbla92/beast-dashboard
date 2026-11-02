@@ -35,6 +35,7 @@ test('bad ids and session names are refused; the number of tabs is capped', () =
   assert.strictEqual(w.report({}, 'claude-chat-1').ok, false);
   assert.strictEqual(w.report('tab-aaaaaa', '../etc').ok, false);
   assert.strictEqual(w.report('tab-aaaaaa', 42).ok, false);
+  assert.strictEqual(w.report('tab-aaaaaa', 'c'.repeat(65)).ok, false);
   for (let i = 0; i < 100; i++) assert.strictEqual(w.report('tab-' + String(i).padStart(6, '0'), 'claude-chat-1', 0).ok, true);
   assert.strictEqual(w.report('tab-overflow', 'claude-chat-1', 0).ok, false);
   assert.strictEqual(w.report('tab-000001', 'claude-chat-2', 0).ok, true);   // a known tab can still update

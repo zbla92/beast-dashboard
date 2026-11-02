@@ -336,7 +336,7 @@ setInterval(() => {
 // Tell the server which chat you are reading (lib/watching.js): one that finishes under your eyes gets no done buzz
 // and is marked seen. Only while this tab is visible, focused and was used in the last 10 min, so a laptop left open
 // on a chat still buzzes the phone.
-const WATCH = { id: 't' + Math.random().toString(36).slice(2, 12), sent: null, at: 0, input: Date.now() };
+const WATCH = { id: 't' + Math.random().toString(36).slice(2, 12).padEnd(10, '0'), sent: null, at: 0, input: Date.now() };
 for (const ev of ['pointerdown', 'keydown', 'wheel', 'touchstart']) document.addEventListener(ev, () => { WATCH.input = Date.now(); }, { capture: true, passive: true });
 function watchingNow() {
   if (document.hidden || !document.hasFocus() || Date.now() - WATCH.input > 10 * 60e3 || !$('#modal').classList.contains('hidden')) return null;
@@ -348,8 +348,8 @@ function syncWatch() {
   if (s === WATCH.sent && (!s || now - WATCH.at < 10000)) return;
   WATCH.sent = s; WATCH.at = now;
   const body = JSON.stringify({ id: WATCH.id, session: s });
-  if (!s && navigator.sendBeacon) navigator.sendBeacon('/api/watching', new Blob([body], { type: 'application/json' }));   // survives the tab going away
-  else api('watching', { id: WATCH.id, session: s }).catch(() => { WATCH.sent = undefined; });
+  const beaconed = !s && !!navigator.sendBeacon && (() => { try { return navigator.sendBeacon('/api/watching', body); } catch { return false; } })();   // survives the tab going away
+  if (!beaconed) api('watching', { id: WATCH.id, session: s }).catch(() => { WATCH.sent = undefined; });
 }
 setInterval(syncWatch, 3000);
 document.addEventListener('visibilitychange', syncWatch);
