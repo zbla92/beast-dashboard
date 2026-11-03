@@ -147,3 +147,8 @@ test('planNames uses the topic, or the project name when topics clash', () => {
   const list = [mk('api/auth', 'api'), mk('web/auth', 'web'), mk('web/ui', 'web')];
   assert.deepStrictEqual([...plan2.planNames(list, projects)], ['storefront-api', 'storefront-web', 'ui']);
 });
+
+test('answerHead names the question, what it blocks and quotes it, ending on a new line for the answer', () => {
+  assert.strictEqual(plan2.answerHead({ id: 'q3', q: 'Keep the prod copy?', blocks: ['T64', 'T71'] }), 'Answer to q3 (blocks T64, T71): "Keep the prod copy?"\n');
+  assert.strictEqual(plan2.answerHead({ id: 'q1', q: 'Ship it?', blocks: [] }), 'Answer to q1: "Ship it?"\n');
+});

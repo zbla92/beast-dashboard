@@ -8,8 +8,8 @@
     } catch { return {}; }
   };
   const OPEN = readOpen();
-  const EXP = { q: {}, tasks: {}, menu: false };
-  const PV = { phone: false, ctx: null, rerender: null };
+  const EXP = { q: {}, tasks: {}, phases: {}, menu: false };
+  const PV = { phone: false, ctx: null, rerender: null, seen: null };
   const VIEW = {};
   const PH = { name: null };
   const ST = { sums: [], busy: false, again: false, sig: '', skey: null, was: false, timer: 0 };
@@ -107,15 +107,23 @@
         h('i', { class: 'fp2-wdot' }),
         h('span', { class: 'fp2-wq' }, w.q),
         w.blocks && w.blocks.length ? h('span', { class: 'fp2-wb' }, 'blocks ' + w.blocks.join(', ')) : null,
-        own ? h('button', { class: 'fp2-link', onclick: ev => { ev.stopPropagation(); answerInSession(); } }, 'Answer →')
+        own ? h('button', { class: 'fp2-link', onclick: ev => { ev.stopPropagation(); answerInSession(w); } }, 'Answer →')
           : p.sessions.length ? h('button', { class: 'fp2-link', onclick: ev => { ev.stopPropagation(); openTerm(p.sessions[0]); } }, 'Open session →') : null),
       open && w.detail ? h('div', { class: 'fp2-qd' }, w.detail) : null);
   }
 
-  function answerInSession() {
+  const answerHead = w => `Answer to ${w.id}${w.blocks && w.blocks.length ? ' (blocks ' + w.blocks.join(', ') + ')' : ''}: "${w.q}"\n`;
+
+  function answerInSession(w) {
     if (isPhone()) { PH.name = null; sync(true); }
     const box = $('#term-chat:not(.hidden) textarea');
-    if (box) { box.focus(); return; }
+    if (box) {
+      const head = answerHead(w);
+      if (!box.value.startsWith(head)) { box.value = head + box.value; box.dispatchEvent(new Event('input')); }
+      box.focus();
+      box.setSelectionRange(box.value.length, box.value.length);
+      return;
+    }
     const frame = TERM.frames.get(TERM.active);
     if (frame) frame.focus();
   }
@@ -153,8 +161,9 @@
     const open = !!EXP.tasks[key];
     const isNext = !!(p.next && p.next.id === t.id);
     const steps = p.now && p.now.id === t.id ? p.now.steps || [] : [];
-    const shown = t.status === 'done' ? evs.filter(e => e.type !== 'start') : evs;
-    return h('div', { class: 'fp2-task ' + t.status + (open ? ' open' : '') },
+    const shown = t.status === 'done' ? open ? evs.filter(e => e.type !== 'start') : [] : evs;
+    const cur = currentId(p) === t.id;
+    return h('div', { class: 'fp2-task ' + t.status + (open ? ' open' : '') + (cur ? ' cur' : '') },
       h('button', { class: 'fp2-task-h', onclick: () => { EXP.tasks[key] = !open; rerender(); } },
         taskIcon(t.status), h('span', { class: 'fp2-id' }, t.id), h('span', { class: 'fp2-task-t' }, t.title), isNext ? h('span', { class: 'fp2-nx' }, 'next') : null, modelChip(t.model)),
       isNext && p.nextNote ? h('div', { class: 'fp2-qd' }, p.nextNote) : null,
@@ -163,16 +172,26 @@
       open ? h('div', { class: 'fp2-task-b' }, t.body ? h('div', { class: 'fp2-body-t' }, t.body) : h('div', { class: 'dim' }, 'No task card.')) : null);
   }
 
+  const currentId = p => (p.now && p.now.id) || (p.next && p.next.id) || null;
+
   function steps(p, d, rerender) {
     const b = bucketEvents(d.timeline, d.phases);
     const wrap = h('div', { class: 'fp2-sec' });
     wrap.append(h('div', { class: 'fp2-sec-h' }, 'Steps', h('span', { class: 'fp2-sp' }), b.created ? h('span', { class: 'dim' }, 'started ' + clock(b.created.ts)) : null));
     for (const ph of d.phases) {
-      const done = ph.total && ph.done >= ph.total ? (b.phase[ph.n] || []).filter(e => e.type === 'phase').pop() : null;
-      wrap.append(h('div', { class: 'fp2-ph' },
-        h('div', { class: 'fp2-ph-h' }, h('span', { class: 'fp2-pn' }, h('span', null, 'P' + ph.n), ' ', h('b', null, ph.name)), h('span', { class: 'dim' }, `${ph.done}/${ph.total}${done ? ' · done ' + clock(done.ts) : ''}`)),
-        (b.phase[ph.n] || []).filter(e => e.type !== 'phase').length ? h('div', { class: 'fp2-evs ph' }, b.phase[ph.n].filter(e => e.type !== 'phase').map(eventLine)) : null,
-        ph.tasks.map(t => taskRow(p, t, b.task[t.id] || [], rerender))));
+      const complete = !!ph.total && ph.done >= ph.total;
+      const done = complete ? (b.phase[ph.n] || []).filter(e => e.type === 'phase').pop() : null;
+      const key = p.id + '|' + ph.n;
+      const folded = complete && !ph.tasks.some(t => t.id === currentId(p)) && !EXP.phases[key];
+      const count = h('span', { class: 'dim' }, `${ph.done}/${ph.total}${done ? ' · done ' + clock(done.ts) : ''}`);
+      const title = h('span', { class: 'fp2-pn' }, h('span', null, 'P' + ph.n), ' ', h('b', null, ph.name));
+      const head = complete
+        ? h('button', { class: 'fp2-ph-h fold', onclick: () => { EXP.phases[key] = folded; rerender(); } }, taskIcon('done'), title, count, h('span', { class: 'fp2-chev' + (folded ? '' : ' on') }, ico('chevronDown', 14)))
+        : h('div', { class: 'fp2-ph-h' }, title, count);
+      const evs = (b.phase[ph.n] || []).filter(e => e.type !== 'phase');
+      wrap.append(h('div', { class: 'fp2-ph' + (folded ? ' folded' : '') }, head,
+        folded ? null : evs.length ? h('div', { class: 'fp2-evs ph' }, evs.map(eventLine)) : null,
+        folded ? null : ph.tasks.map(t => taskRow(p, t, b.task[t.id] || [], rerender))));
     }
     return wrap;
   }
@@ -219,7 +238,11 @@
       sw.replaceChildren(...[switcher(c.list, c.names, c.shown.id, c.own && c.own.id, rerender)].filter(Boolean));
       body.replaceChildren(...panelBody(c.shown, !!c.own && c.own.id === c.shown.id, rerender));
       body.scrollTop = same ? top : 0;
+      const cur = body.querySelector('.fp2-task.cur');
+      const seen = c.shown.id + '|' + currentId(c.shown);
+      if (cur && PV.seen !== seen) { PV.seen = seen; requestAnimationFrame(() => { body.scrollTop += cur.getBoundingClientRect().top - body.getBoundingClientRect().top - 48; }); }
     };
+    PV.seen = null;
     PV.rerender = rerender;
     return h('div', { id: 'fp2-panel', class: 'fp2-panel' + (phone ? ' sheet' : '') },
       phone ? h('div', { class: 'fp2-grab' }) : null,
@@ -336,5 +359,5 @@
   setInterval(() => { if (!document.hidden) load(); }, 60000);
   addEventListener('resize', () => sync());
 
-  FEAT.plan2 = { onState, termShown, termBarKey, termItem, plan: onPlan, live, cardChips, planFor, readOpen, ringMarkup, bucketEvents, orgPlans, planNames };
+  FEAT.plan2 = { onState, termShown, termBarKey, termItem, plan: onPlan, live, cardChips, planFor, readOpen, ringMarkup, bucketEvents, orgPlans, planNames, answerHead };
 })();
