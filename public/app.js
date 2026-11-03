@@ -2761,7 +2761,7 @@ function renderLiveDot() {
   if (md) { md.className = 'mdot on'; md.title = 'connected · ' + (S.host?.hostname || ''); }
 }
 function liveUp() { LIVE.lastMsg = Date.now(); if (LIVE.connected) return; LIVE.connected = true; feat('live'); LIVE.retry = 0; LIVE.offlineSince = 0; if (LIVE.base) renderHeader(); else renderLiveDot(); }
-function liveDown() { LIVE.connected = false; if (!LIVE.offlineSince) LIVE.offlineSince = Date.now(); renderLiveDot(); }
+function liveDown() { feat('liveDown'); LIVE.connected = false; if (!LIVE.offlineSince) LIVE.offlineSince = Date.now(); renderLiveDot(); }
 function retryLive() { if (LIVE.timer) return; const ms = LIVE_BACKOFF[Math.min(LIVE.retry++, LIVE_BACKOFF.length - 1)]; LIVE.timer = setTimeout(() => { LIVE.timer = null; reconnect(); }, ms); }
 function applyState(d) { if (d.host && d.host.build) { if (!S.build) S.build = d.host.build; else if (S.build !== d.host.build) { S.build = d.host.build; newBuild(); } } Object.assign(S, { projects: d.projects, wip: d.wip || S.wip, runtime: d.runtime, settings: d.settings, host: d.host, claude: d.claude || S.claude, health: d.health || S.health || {}, crashes: d.crashes || [] }); render(); }
 function applyOps(root, ops) {
@@ -2771,7 +2771,7 @@ function applyOps(root, ops) {
     if (val.length) o[p[p.length - 1]] = val[0]; else delete o[p[p.length - 1]];
   }
 }
-function reconnect() { try { UI.es && UI.es.close(); } catch {} clearTimeout(LIVE.timer); LIVE.timer = null; LIVE.base = null; LIVE.seq = null; LIVE.lastMsg = Date.now(); connect(); }
+function reconnect() { feat('reconnect'); try { UI.es && UI.es.close(); } catch {} clearTimeout(LIVE.timer); LIVE.timer = null; LIVE.connected = false; LIVE.base = null; LIVE.seq = null; LIVE.lastMsg = Date.now(); connect(); }
 function connect() {
   const es = new EventSource('/api/events');
   es.onopen = liveUp;

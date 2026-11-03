@@ -1,0 +1,9 @@
+.conn { position: fixed; z-index: 46; top: env(safe-area-inset-top, 0px); left: var(--rail-w); right: 0; display: flex; align-items: center; justify-content: center; gap: 12px; min-height: 28px; padding: 3px 12px; box-sizing: border-box; font-size: 12.5px; font-weight: 500; color: var(--text); background: color-mix(in srgb, var(--accent) 22%, var(--panel2)); border-bottom: 1px solid var(--line2); box-shadow: 0 6px 18px -8px rgba(0,0,0,.55); pointer-events: none; transform: translateY(-120%); opacity: 0; visibility: hidden; transition: transform .18s var(--ease), opacity .18s, visibility 0s .18s; }
+.conn.on { transform: none; opacity: 1; visibility: visible; transition-delay: 0s; }
+.conn-t { font-variant-numeric: tabular-nums; }
+.conn[data-kind="unreachable"], .conn[data-kind="offline"] { background: color-mix(in srgb, var(--red) 26%, var(--panel2)); }
+.conn[data-kind="connected"] { background: color-mix(in srgb, var(--green) 24%, var(--panel2)); }
+.conn-r { pointer-events: auto; height: 22px; padding: 0 12px; border: 1px solid var(--line2); border-radius: 11px; background: var(--fill2); color: var(--text); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.conn-r:hover { background: var(--panel3); }
+.conn-r[hidden] { display: none; }
+@media (max-width: 900px) { .conn { left: 0; } }
