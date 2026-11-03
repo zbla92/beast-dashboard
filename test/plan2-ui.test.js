@@ -27,11 +27,48 @@ test('planFor maps a tmux session to its active plan and ignores archived ones',
   assert.strictEqual(plan2.planFor(sums, 'claude-z'), null);
 });
 
-test('sinceText reports minutes then hours', () => {
-  const now = Date.parse('2026-11-03T12:00:00Z');
-  assert.match(plan2.sinceText('2026-11-03T11:48:00Z', now), /\(12 min\)$/);
-  assert.match(plan2.sinceText('2026-11-03T08:00:00Z', now), /\(4 h\)$/);
-  assert.strictEqual(plan2.sinceText('', now), '');
+const ev = (type, o = {}) => ({ ts: '2026-11-03T10:00:00.000Z', type, ...o });
+const phases = [
+  { n: 1, name: 'A', tasks: [{ id: 'T1' }, { id: 'T2' }] },
+  { n: 2, name: 'B', tasks: [{ id: 'T3' }] },
+];
+
+test('bucketEvents puts task events on their task and phase events on the phase', () => {
+  const b = plan2.bucketEvents([
+    ev('create', { text: 'x' }), ev('start', { task: 'T1' }), ev('done', { task: 'T1' }),
+    ev('phase', { phase: 1, text: 'A' }), ev('note', { task: 'T2', text: 'n' }),
+  ], phases);
+  assert.strictEqual(b.created.text, 'x');
+  assert.deepStrictEqual([...b.task.T1.map(e => e.type)], ['start', 'done']);
+  assert.deepStrictEqual([...b.task.T2.map(e => e.type)], ['note']);
+  assert.deepStrictEqual([...b.phase[1].map(e => e.type)], ['phase']);
+});
+
+test('bucketEvents places a task-less note under the task being worked on, else under the phase', () => {
+  const b = plan2.bucketEvents([
+    ev('note', { text: 'early' }), ev('start', { task: 'T3' }), ev('note', { text: 'mid' }),
+    ev('done', { task: 'T3' }), ev('note', { text: 'late' }),
+  ], phases);
+  assert.deepStrictEqual([...b.phase[1].map(e => e.text)], ['early']);
+  assert.deepStrictEqual([...b.task.T3.map(e => e.text || e.type)], ['start', 'mid', 'done']);
+  assert.deepStrictEqual([...b.phase[2].map(e => e.text)], ['late']);
+});
+
+test('bucketEvents keeps ask and answer under the task in progress when the question was asked', () => {
+  const b = plan2.bucketEvents([
+    ev('start', { task: 'T1' }), ev('ask', { q: 'q1', text: 'why' }), ev('start', { task: 'T2' }), ev('answer', { q: 'q1', text: 'because' }),
+  ], phases);
+  assert.deepStrictEqual([...b.task.T1.map(e => e.type)], ['start', 'ask', 'answer']);
+  assert.deepStrictEqual([...b.task.T2.map(e => e.type)], ['start']);
+  const c = plan2.bucketEvents([ev('ask', { q: 'q2', text: 'w' }), ev('start', { task: 'T3' }), ev('answer', { q: 'q2' })], phases);
+  assert.deepStrictEqual([...c.phase[1].map(e => e.type)], ['ask']);
+  assert.deepStrictEqual([...c.task.T3.map(e => e.type)], ['start', 'answer']);
+});
+
+test('bucketEvents files events of a task missing from the plan under the last phase', () => {
+  const b = plan2.bucketEvents([ev('start', { task: 'T3' }), ev('done', { task: 'T3' }), ev('start', { task: 'T9' }), ev('note', { text: 'x' })], phases);
+  assert.deepStrictEqual([...b.phase[2].map(e => e.type)], ['start', 'note']);
+  assert.strictEqual(b.task.T9, undefined);
 });
 
 test('ringMarkup clamps the arc between empty and full', () => {
@@ -80,4 +117,33 @@ test('a new session name or cwd triggers a reload, an unchanged list does not', 
   p.onState();
   await new Promise(r => setImmediate(r));
   assert.strictEqual(calls, 2);
+});
+
+const projects = [
+  { id: 'api', name: 'storefront-api', org: 'acme' },
+  { id: 'web', name: 'storefront-web', org: 'acme' },
+  { id: 'solo', name: 'solo', org: '' },
+  { id: 'other', name: 'other', org: 'zed' },
+];
+const mk = (id, projectId, extra = {}) => ({ id, topic: id.split('/')[1], projectId, archived: null, sessions: [], ...extra });
+
+test('orgPlans lists the own plan first, then the other active plans of the same org by topic', () => {
+  const own = mk('web/checkout', 'web');
+  const sums = [mk('api/zeta', 'api'), own, mk('api/alpha', 'api'), mk('api/old', 'api', { archived: '2026-11-01' }), mk('other/x', 'other'), mk('solo/s', 'solo')];
+  assert.deepStrictEqual([...plan2.orgPlans(sums, projects, own, 'web').map(p => p.id)], ['web/checkout', 'api/alpha', 'api/zeta']);
+});
+
+test('orgPlans without an own plan uses the session project org, and groups project-less plans by repo dir', () => {
+  const sums = [mk('api/a', 'api'), mk('web/b', 'web'), mk('other/x', 'other')];
+  assert.deepStrictEqual([...plan2.orgPlans(sums, projects, null, 'web').map(p => p.id)], ['api/a', 'web/b']);
+  assert.strictEqual(plan2.orgPlans(sums, projects, null, 'nope').length, 0);
+  const loose = [mk('dir/a', null), mk('dir/b', null), mk('else/c', null)];
+  assert.deepStrictEqual([...plan2.orgPlans(loose, projects, loose[0], undefined).map(p => p.id)], ['dir/a', 'dir/b']);
+  const solo = [mk('solo/s', 'solo'), mk('solo/t', 'solo'), mk('api/a', 'api')];
+  assert.deepStrictEqual([...plan2.orgPlans(solo, projects, solo[0], 'solo').map(p => p.id)], ['solo/s', 'solo/t']);
+});
+
+test('planNames uses the topic, or the project name when topics clash', () => {
+  const list = [mk('api/auth', 'api'), mk('web/auth', 'web'), mk('web/ui', 'web')];
+  assert.deepStrictEqual([...plan2.planNames(list, projects)], ['storefront-api', 'storefront-web', 'ui']);
 });
