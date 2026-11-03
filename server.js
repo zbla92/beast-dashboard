@@ -38,6 +38,7 @@ const pastedDir = () => path.join(settings.get().devRoot, '.pasted');
 const push = require('./lib/push');
 // Feature routes: plans, worktrees, subagents, Android emulator (stable API)
 const plans = require('./lib/plans');
+const planStore = require('./lib/plans2').createPlanStore();
 const worktrees = require('./lib/worktrees');
 const roots = require('./lib/roots');
 const edits = require('./lib/edits');
@@ -642,6 +643,7 @@ function uiVersion() { let v = 0; let fl = []; try { fl = fs.readdirSync(PUBLIC)
 // ~/Downloads on the server, browsed with the same file explorer as a project's Files tab (id "_downloads")
 const DOWNLOADS = { id: '_downloads', name: 'downloads', path: path.join(require('os').homedir(), 'Downloads'), isGit: false, parent: null, rel: '' };
 const fsRoot = async id => { if (id !== '_downloads') return roots.rootOf(id); try { fs.mkdirSync(DOWNLOADS.path, { recursive: true }); } catch {} return DOWNLOADS; };   // a fresh server may have no ~/Downloads yet
+const planSessions = () => Object.values(claude.all()).filter(r => r && !r.gone && r.cwd).map(r => ({ name: r.tmux, cwd: r.cwd }));
 async function api(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean).slice(1); // after 'api'
   const m = req.method;
@@ -766,7 +768,15 @@ async function api(req, res, url) {
     res.writeHead(200, { 'content-type': type, 'cache-control': 'private, max-age=3600', ...(/html|svg/.test(type) ? { 'content-security-policy': 'sandbox' } : {}) }); return fs.createReadStream(fp).pipe(res);
   }
   // ---- v1.4 features ----
-  if (m === 'GET' && parts[0] === 'plans' && !parts[1]) return json(res, 200, plans.summary(projects));
+  if (m === 'GET' && parts[0] === 'plans' && !parts[1]) {
+    if (url.searchParams.get('v') !== '2') return json(res, 200, plans.summary(projects));
+    return json(res, 200, { plans: planStore.summaries({ projects, sessions: planSessions(), archived: url.searchParams.get('archived') === '1' }), legacy: plans.summary(projects) });
+  }
+  if (m === 'GET' && parts[0] === 'plan' && parts[2]) {
+    const segs = parts.slice(1).map(s => { try { return decodeURIComponent(s); } catch { return ''; } });
+    const r = planStore.detail(segs.join('/'), { projects, sessions: planSessions() });
+    return json(res, r.error ? 404 : 200, r);
+  }
   if (m === 'GET' && parts[0] === 'plan' && parts[1]) {
     const p = proj(parts[1]); if (!p) return json(res, 404, { error: 'no project' });
     const topic = url.searchParams.get('topic') || ''; if (!/^[\w.-]+$/.test(topic)) return json(res, 400, { error: 'bad topic' });
@@ -1288,6 +1298,7 @@ async function bindTailnet(port) {
   await tick();
   history.refresh(true).catch(e => console.error('history', e));
   setPace();   // starts at the calm pace; the first client speeds it up
+  planStore.watch(ev => broadcast('plan', ev));
   if (!TEST) {
     limits.start(() => pushState(false));   // plan limits (5 h / 7 d / Fable) per account, every minute
     setInterval(() => runSchedule().catch(e => console.error('schedule', e)), 5000);

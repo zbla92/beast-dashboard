@@ -25,7 +25,8 @@ TMP="$(mktemp -d /tmp/bd-gate-XXXX)"
 (cd "$REPO" && tar --exclude=./state --exclude=./state-backups --exclude=./.git -cf - .) | (cd "$TMP" && tar -xf -)
 mkdir -p "$TMP/state" && printf '{"port": %s, "autoExpose": false}\n' "$PORT" > "$TMP/state/settings.json"
 cp "$REPO/state/claude-sessions.json" "$TMP/state/" 2>/dev/null   # read-only copy: lets /api/subagents resolve the live sessions' transcripts
-(cd "$TMP" && BD_TEST=1 exec node server.js > "$TMP/server.log" 2>&1) & PID=$!
+PLANS="$TMP/plans-store"; cp -r "$TMP/test/fixtures/plans/store" "$PLANS"
+(cd "$TMP" && BD_TEST=1 BEAST_PLANS_DIR="$PLANS" exec node server.js > "$TMP/server.log" 2>&1) & PID=$!
 cleanup() { kill "$PID" 2>/dev/null; sleep 0.3; kill -9 "$PID" 2>/dev/null; rm -rf "$TMP"; rm -f /tmp/gate-$$.*; }
 trap cleanup EXIT
 B="http://127.0.0.1:$PORT"
@@ -48,6 +49,20 @@ CLS="$(printf '%s' "$STATE" | node -e 'const d=JSON.parse(require("fs").readFile
 json /api/plans
 PL="$(jq_ 'Object.entries(d).map(([k,v])=>k+"\t"+v[0].topic)[0]')"
 if [ -n "$PL" ]; then json "/api/plan/${PL%%$'\t'*}?topic=${PL#*$'\t'}"; else ok "no plans to open (none found)"; fi
+json "/api/plans?v=2"
+[ "$(jq_ 'd.plans.some(p=>p.id==="demo-app/search-v2"&&p.repoDir==="demo-app"&&Array.isArray(p.sessions))&&typeof d.legacy==="object"')" = true ] && ok "plans v2 summary lists the fixture plan" || fail "plans v2 summary shape"
+json "/api/plan/demo-app/search-v2"
+[ "$(jq_ 'd.id==="demo-app/search-v2"&&d.phases.length>0&&Array.isArray(d.timeline)')" = true ] && ok "plans v2 detail shape" || fail "plans v2 detail shape"
+ARCH="$(ls "$PLANS/demo-app/_archive" | head -1)"
+json "/api/plan/demo-app/_archive/$ARCH"
+json "/api/plan/demo-app/nope" 404
+for bad in "demo-app/%2e%2e" "%2e%2e/%2e%2e/etc" "demo-app/..%2f..%2f..%2fetc" "%2e%2e%2f%2e%2e/x" "demo-app/search-v2/../x/y/z"; do
+  r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' "$B/api/plan/$bad")"; [ "$r" = 404 ] && ok "plan traversal $bad -> 404" || fail "plan traversal $bad -> $r"
+done
+r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' --path-as-is "$B/api/plan/../../../etc/passwd")"; [[ "$r" == 4* ]] && ok "plan raw traversal -> $r" || fail "plan raw traversal -> $r"
+curl -s -N -m 4 "$B/api/events" > /tmp/gate-$$.sse 2>/dev/null & SSEPID=$!
+sleep 1; printf '\n' >> "$PLANS/demo-app/search-v2/events.jsonl"; wait $SSEPID 2>/dev/null
+grep -q 'event: plan' /tmp/gate-$$.sse && grep -q '"id":"demo-app/search-v2"' /tmp/gate-$$.sse && ok "SSE event: plan after a plan change" || fail "no plan event on /api/events"
 json /api/worktrees
 [ -n "$GITP" ] && json "/api/worktrees/$GITP"
 json "/api/usage/models?days=7"
