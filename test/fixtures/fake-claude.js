@@ -31,7 +31,7 @@ function toolResult(id, content, isError) { emit({ type: 'user', message: { role
 function ask(request) { const rid = 'req-' + ++n; emit({ type: 'control_request', request_id: rid, request: { subtype: 'can_use_tool', ...request } }); return new Promise(r => waiting.set(rid, r)); }
 function done(subtype = 'success', reason = 'completed') { emit({ type: 'result', subtype, terminal_reason: reason, duration_ms: 1, modelUsage: { 'fake-model': { contextWindow: 1000000 } } }); }
 
-async function turn(text, uuid) {
+async function turn(text, uuid, content = text) {
   aborted = false;
   remember(uuid);
   if (text === '/clear') {
@@ -49,7 +49,7 @@ async function turn(text, uuid) {
     replay('<command-name>/compact</command-name>\n            <command-message>compact</command-message>\n            <command-args></command-args>', uuid);
     done(); return;
   }
-  if (!/^noecho/.test(text)) replay(text, uuid);
+  if (!/^noecho/.test(text)) replay(content, uuid);
   emit({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed', resetsAt: 1793275200, unifiedWindows: { five_hour: { utilization: 0.07 }, seven_day: { utilization: 0.3 } } } });
   if (text === 'crash') { process.stderr.write('boom: fake crash\n'); process.exit(3); }
   if (text === 'slow') {
@@ -117,12 +117,13 @@ process.stdin.on('data', d => {
     if (o.type === 'control_request' && o.request.subtype === 'initialize') { emit({ type: 'control_response', response: { subtype: 'success', request_id: o.request_id, response: { commands: [] } } }); continue; }
     if (o.type !== 'user') continue;
     if (!inited) { inited = true; emit({ type: 'system', subtype: 'init', model: 'fake-model', claude_code_version: process.env.FAKE_VERSION || '9.9.9', capabilities: ['interrupt_receipt_v1'] }); }
-    const text = o.message.content;
-    if (o.uuid && seen.has(o.uuid)) { if (REPLAY) emit({ type: 'user', message: { role: 'user', content: text }, parent_tool_use_id: null, isReplay: true, uuid: o.uuid }); continue; }
+    const raw = o.message.content, text = Array.isArray(raw) ? raw[raw.length - 1].text : raw;
+    if (process.env.FAKE_INPUT) fs.appendFileSync(process.env.FAKE_INPUT, JSON.stringify(raw) + '\n');
+    if (o.uuid && seen.has(o.uuid)) { if (REPLAY) emit({ type: 'user', message: { role: 'user', content: raw }, parent_tool_use_id: null, isReplay: true, uuid: o.uuid }); continue; }
     if (text === 'hook') { emit({ type: 'control_request', request_id: 'h1', request: { subtype: 'hook_callback' } }); continue; }
     if (busyNow && !aborted) { inbox.push({ text, uuid: o.uuid }); continue; }
     busyNow = true;
-    busy = busy.then(() => { busyNow = true; return turn(text, o.uuid); }).finally(() => { busyNow = false; });
+    busy = busy.then(() => { busyNow = true; return turn(text, o.uuid, raw); }).finally(() => { busyNow = false; });
   }
 });
 let busyNow = false;

@@ -37,6 +37,13 @@ The chat header shows a **context meter** and a menu: *New chat here*,
 another project or folder), mute, copy the attach command, *Kill session*. A chat that is waiting
 on a question or a permission prompt pushes to your phone.
 
+A message that starts with **`!`** is a shell command, as in Claude Code's terminal: the box
+turns into shell mode, Enter runs it with your login shell in the chat's folder, and a card in the
+chat shows the output live, with Stop while it runs (10 min limit, `BD_HL_SHELL_MS`) and × to
+drop it. Claude doesn't answer it; the command and its output go along with your next message, in
+the same `<bash-input>` / `<bash-stdout>` form the terminal uses. There is no input to type into,
+so commands that ask for something (logins, `sudo`, prompts) belong in a terminal.
+
 **Resume** in New session lists every past conversation of both accounts (title, first and last
 prompt, the projects it touched, grouped by day) and opens one as a chat.
 **Fork chat** (session menu, when Claude is not in a turn) starts a new chat from the conversation

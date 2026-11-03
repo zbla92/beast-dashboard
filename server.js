@@ -1185,6 +1185,13 @@ async function api(req, res, url) {
       if (!isChat(b.session)) return json(res, 404, { error: 'not a chat session' });
       const r = await headless.answer(b.session, b.rid, b.decision, b.answers, b.message); setTimeout(tick, 300); return json(res, r.ok ? 200 : 409, r);
     }
+    case 'hl-shell': case 'hl-shell-stop': case 'hl-shell-drop': {
+      const isCmd = parts[0] === 'hl-shell', cmd = typeof b.cmd === 'string' ? b.cmd.trim() : '';
+      if (isCmd ? !cmd || cmd.length > 10000 : typeof b.id !== 'string' || !/^s-\d+$/.test(b.id)) return json(res, 400, { error: isCmd ? 'cmd must be 1..10000 chars' : 'bad command id' });
+      if (!isChat(b.session)) return json(res, 400, { error: 'shell commands run in the terminal for terminal sessions' });
+      const r = isCmd ? await headless.shell(b.session, cmd) : parts[0] === 'hl-shell-stop' ? await headless.shellStop(b.session, b.id) : await headless.shellDrop(b.session, b.id);
+      return json(res, r.ok ? 200 : 409, r);
+    }
     case 'choose': { if (isChat(b.session)) return json(res, 400, { error: 'chat sessions answer through hl-answer' }); const r = await claude.choose(String(b.session || ''), b.index, b.label); setTimeout(tick, 400); return json(res, r.ok ? 200 : 409, r); }
     case 'answer': {
       if (isChat(b.session)) {

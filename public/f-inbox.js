@@ -39,8 +39,10 @@
     ta.value = loadDraft(name);
     const grow = () => { ta.style.height = '40px'; if (ta.value) ta.style.height = Math.min(Math.max(40, ta.scrollHeight), 140) + 'px'; saveDraft(name, ta.value); };
     const sentTag = h('span', { class: 'ibx-sent hidden' }, 'sent ✓');
+    let shelling = false;
     const send = async () => {
       const v = ta.value.trim(); if (!v) return;
+      if (claudeOf(name)?.mode === 'chat' && FEAT.shell && FEAT.shell.is(v)) { if (shelling) return; shelling = true; ta.value = ''; grow(); try { if (await FEAT.shell.run(name, v)) sentTag.classList.remove('hidden'); else if (!ta.value) { ta.value = v; grow(); } } finally { shelling = false; } return; }
       // never type Enter-terminated text into a permission menu (Enter would confirm the highlighted "Yes")
       if (claudeOf(name)?.state === 'permission') { toast(claudeOf(name)?.menu ? 'Claude is asking something: pick an option above' : 'Still at the permission prompt: use Allow / Deny', 'err'); return; }
       ta.value = ''; grow();

@@ -85,6 +85,13 @@ r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: appli
 r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"id":"gate-tab-1","session":"claude-gate-nope"}' "$B/api/watching")"
 r2="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"id":"gate-tab-1","session":"../x"}' "$B/api/watching")"
 [ "$r $r2" = "200 400" ] && ok "POST watching -> 200, bad session -> 400" || fail "POST watching -> $r, bad session -> $r2"
+hlpost() { curl -s -m 5 -o /tmp/gate-$$.body -w '%{http_code}' -X POST -H 'content-type: application/json' -d "$2" "$B/api/$1"; }
+r="$(hlpost hl-shell '{"session":"claude-gate-nope","cmd":"echo hi"}')"
+[ "$r" = 400 ] && grep -q 'run in the terminal for terminal sessions' /tmp/gate-$$.body && ok "POST hl-shell non-chat session -> 400" || fail "POST hl-shell non-chat session -> $r $(head -c 200 /tmp/gate-$$.body)"
+r="$(hlpost hl-shell '{"session":"claude-gate-nope","cmd":"   "}') $(hlpost hl-shell '{"session":"claude-gate-nope"}') $(hlpost hl-shell-stop '{"session":"claude-gate-nope","id":"../x"}') $(hlpost hl-shell-drop '{"session":"claude-gate-nope","id":5}')"
+[ "$r" = "400 400 400 400" ] && ok "POST hl-shell / -stop / -drop bad input -> 400" || fail "POST hl-shell bad input -> $r"
+r="$(hlpost hl-shell-stop '{"session":"claude-gate-nope","id":"s-1"}') $(hlpost hl-shell-drop '{"session":"claude-gate-nope","id":"s-1"}')"
+[ "$r" = "400 400" ] && ok "POST hl-shell-stop / -drop non-chat session -> 400" || fail "POST hl-shell-stop / -drop non-chat session -> $r"
 
 echo "== guards"
 post403() { local r; r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' "$@" -d '{"id":"nope"}' "$B/api/worktree-prune")"; [ "$r" = 403 ]; }
@@ -95,6 +102,9 @@ r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: appli
 [ "$r" = 404 ] && ok "same-origin POST passes the guard (404 unknown project)" || fail "same-origin POST -> $r"
 r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -H "Origin: http://127.0.0.1:$PORT" -d '{"org":"..","name":"x"}' "$B/api/project-new")"
 [ "$r" = 400 ] && ok "POST project-new bad org -> 400" || fail "POST project-new bad org -> $r"
+for h in "Sec-Fetch-Site: cross-site" "Origin: https://evil.example"; do
+  r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -H "$h" -d '{"session":"claude-gate-nope","cmd":"id"}' "$B/api/hl-shell")"
+  [ "$r" = 403 ] && ok "POST hl-shell with $h -> 403" || fail "POST hl-shell with $h -> $r"; done
 for ep in kill unexpose; do r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -H "Origin: $B" -d '{"pid":1}' "$B/api/$ep")"
   [ "$r" = 403 ] && ok "POST $ep of an unlisted pid -> 403" || fail "POST $ep of an unlisted pid -> $r"; done
 r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X OPTIONS -H "Origin: http://127.0.0.1:7681" -H 'Sec-Fetch-Site: same-site' "$B/api/paste-image")"
