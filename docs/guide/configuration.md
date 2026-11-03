@@ -24,8 +24,14 @@ Everything lives in `state/` (gitignored) and is edited through ⚙ Settings, wh
 | `notify` | all on | which events push, quiet hours |
 | `serverName` | hostname | name in system push titles (*"myserver CPU 92 °C"*) |
 | `voiceLangs` | `[]` | languages the mic toggles between, e.g. `["en", "de"]` (first = default); empty = auto |
+| `deviceCache` | `true` | over HTTPS, phones and laptops keep the app files and open without waiting for the network; `false` clears that cache on every device (read on each request, no restart) |
 
 Per-project overrides (hide, rename, custom commands, pin) are set from the card's ⋯ menu.
+
+**Cached app.** On HTTPS the service worker keeps the app shell, scripts, styles and fonts on the
+device, so the page paints at once and a new version is fetched in the background (the page reloads
+into it when idle, as before). If one device looks broken: ⚙ Settings → **Cached app on this device →
+Clear**, or open `/?reset-cache`. Plain HTTP has no service worker and loads from the server as always.
 
 Nightly, `state/` is tarred into `state-backups/` (also gitignored) — download from Settings.
 **Keep both folders out of git**: `state/push.json` holds the VAPID private key and your push

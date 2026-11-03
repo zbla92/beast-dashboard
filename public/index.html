@@ -12,7 +12,7 @@
 
  On iOS neither a manifest nor HTTPS is needed for a window without Safari's bars — the two
  `apple-` tags below do that over plain HTTP. Chrome/Android need the manifest and HTTPS for
- "Install app"; the service worker (sw.js) exists only for push notifications, not for offline use.
+ "Install app".
 
  `status-bar-style: black` rather than `black-translucent`: translucent lets content slide
  UNDER the status bar, and the header would end up beneath the clock.
@@ -25,9 +25,7 @@
 <link rel="apple-touch-icon" href="/icon-180.png">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/vendor/plex-v23.20.css">
 <link rel="stylesheet" href="/vendor/atom-one-dark-11.9.0.min.css">
 <script src="/vendor/highlight-11.9.0.min.js" defer></script>
 <link rel="stylesheet" href="/style.css">

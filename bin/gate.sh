@@ -118,6 +118,23 @@ for f in $(cd "$TMP/public" && ls f-*.js f-*.css 2>/dev/null); do
 done
 grep -q 'src="/app.js?v=' /tmp/gate-$$.html && ok "page stamped, feature files served" || fail "app.js not stamped"
 grep -q 'id="feat-home"' /tmp/gate-$$.html || fail "#feat-home missing"
+grep -qE '(src|href)="(https?:)?//' /tmp/gate-$$.html && fail "index.html references a cross-origin URL" || ok "index.html is self-contained"
+FONTCSS="$(grep -oE 'href="/vendor/plex-[^"]+\.css"' /tmp/gate-$$.html | head -1 | cut -d'"' -f2)"
+FONTS="$(curl -s -m 5 "$B$FONTCSS" | grep -oE '/vendor/fonts/[^)]+\.woff2' | sort -u)"
+[ -n "$FONTS" ] || fail "no self-hosted fonts in ${FONTCSS:-the font stylesheet}"
+for f in $FONTS; do r="$(curl -s -m 5 -o /dev/null -w '%{http_code} %{content_type}' "$B$f")"; [ "$r" = "200 font/woff2" ] || fail "GET $f -> $r"; done
+[ -n "$FONTS" ] && ok "fonts served same-origin ($(echo "$FONTS" | wc -l) woff2)"
+shell() { curl -s -m 5 -D - -o /dev/null "$B/" | tr -d '\r' | grep -i '^x-bd-shell:' | cut -d' ' -f2; }
+json /api/version
+[ "$(jq_ 'd.deviceCache')" = true ] && [ -z "$(shell)" ] && ok "device cache on by default (no x-bd-shell)" || fail "device cache default: deviceCache=$(jq_ 'd.deviceCache') x-bd-shell=$(shell)"
+cp "$TMP/state/settings.json" "$TMP/settings.keep"
+node -e 'const f=process.argv[1],fs=require("fs");const s=JSON.parse(fs.readFileSync(f,"utf8"));s.deviceCache=false;fs.writeFileSync(f,JSON.stringify(s))' "$TMP/state/settings.json"
+json /api/version
+[ "$(jq_ 'd.deviceCache')" = false ] && [ "$(shell)" = off ] && ok "deviceCache:false in settings.json -> x-bd-shell: off + /api/version, no restart" || fail "deviceCache:false: deviceCache=$(jq_ 'd.deviceCache') x-bd-shell=$(shell)"
+r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"sleepButton":false}' "$B/api/settings")"
+json /api/version
+[ "$r" = 200 ] && [ "$(jq_ 'd.deviceCache')" = false ] && [ "$(shell)" = off ] && ok "hand-set deviceCache:false survives POST /api/settings" || fail "deviceCache:false after POST /api/settings ($r): deviceCache=$(jq_ 'd.deviceCache') x-bd-shell=$(shell)"
+cp "$TMP/settings.keep" "$TMP/state/settings.json"
 
 if grep -qiE 'TypeError|ReferenceError|SyntaxError|UnhandledPromise' "$TMP/server.log"; then fail "errors in server log:"; grep -iE 'TypeError|ReferenceError|SyntaxError|UnhandledPromise' "$TMP/server.log" | head -5 | sed 's/^/      /'; fi
 echo
