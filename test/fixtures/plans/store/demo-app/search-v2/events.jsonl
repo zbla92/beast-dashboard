@@ -1,0 +1,16 @@
+{"ts":"2026-11-03T07:58:00.000Z","type":"create","session":"claude-search","text":"Search v2"}
+{"ts":"2026-11-03T07:58:30.000Z","type":"start","task":"T1","session":"claude-search"}
+{"ts":"2026-11-03T08:20:00.000Z","type":"done","task":"T1","session":"claude-search","gate":{"ok":true,"text":"12 tests"}}
+{"ts":"2026-11-03T08:24:00.000Z","type":"start","task":"T2","session":"claude-search"}
+{"ts":"2026-11-03T08:52:00.000Z","type":"done","task":"T2","session":"claude-search","gate":{"ok":true,"text":"24 tests"}}
+{"ts":"2026-11-03T09:10:00.000Z","type":"start","task":"T3","session":"claude-search"}
+{"ts":"2026-11-03T09:27:00.000Z","type":"fail","task":"T3","session":"claude-search","gate":{"ok":false,"text":"lint"}}
+{"ts":"2026-11-03T09:41:00.000Z","type":"done","task":"T3","session":"claude-search","gate":{"ok":true,"text":"31 tests"}}
+{"ts":"2026-11-03T09:41:01.000Z","type":"phase","phase":1,"session":"claude-search","text":"Index"}
+{"ts":"2026-11-03T09:45:00.000Z","type":"start","task":"T4","session":"claude-search"}
+{"ts":"2026-11-03T10:03:00.000Z","type":"done","task":"T4","session":"claude-search","gate":{"ok":true,"text":"38 tests"}}
+{"ts":"2026-11-03T10:06:00.000Z","type":"start","task":"T5","session":"claude-search"}
+{"ts":"2026-11-03T10:21:00.000Z","type":"fail","task":"T5","session":"claude-search","gate":{"ok":false,"text":"lint · 2 errors"}}
+{"ts":"2026-11-03T10:22:00.000Z","type":"note","task":"T5","session":"claude-search","text":"Lint fix moved behind T6; same file."}
+{"ts":"2026-11-03T10:34:00.000Z","type":"start","task":"T6","session":"claude-search"}
+{"ts":"2026-11-03T10:41:00.000Z","type":"ask","q":"q1","session":"claude-search","text":"Re-index the legacy synonym lists, or only copy them?"}

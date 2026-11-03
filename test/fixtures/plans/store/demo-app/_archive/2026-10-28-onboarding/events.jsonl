@@ -1,0 +1,12 @@
+{"ts":"2026-10-27T09:00:00.000Z","type":"create","text":"Onboarding checklist"}
+{"ts":"2026-10-27T09:05:00.000Z","type":"start","task":"T1"}
+{"ts":"2026-10-27T09:30:00.000Z","type":"done","task":"T1","gate":{"ok":true,"text":""}}
+{"ts":"2026-10-27T09:31:00.000Z","type":"start","task":"T2"}
+{"ts":"2026-10-27T10:10:00.000Z","type":"done","task":"T2","gate":{"ok":true,"text":"8 tests"}}
+{"ts":"2026-10-27T10:10:01.000Z","type":"phase","phase":1,"text":"Audit"}
+{"ts":"2026-10-28T14:00:00.000Z","type":"start","task":"T3"}
+{"ts":"2026-10-28T15:20:00.000Z","type":"done","task":"T3","gate":{"ok":true,"text":"20 tests"}}
+{"ts":"2026-10-28T15:21:00.000Z","type":"start","task":"T4"}
+{"ts":"2026-10-28T16:00:00.000Z","type":"done","task":"T4"}
+{"ts":"2026-10-28T16:00:01.000Z","type":"phase","phase":2,"text":"Build"}
+{"ts":"2026-10-28T16:05:00.000Z","type":"archive"}

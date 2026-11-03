@@ -6,5 +6,6 @@
 - [Claude Code](claude-code.md) — chats, checkpoints, work in progress, hooks, scheduling, cost and limits
 - [Everyday use](everyday-use.md) — Home, rail, projects, tasks, typing in a session, tunnels, menubar
 - [Configuration](configuration.md) — settings, process probe, project icons, Sleep button, Android emulator, voice input
+- [Plans](plans.md) — plans outside repos: the `plan` command, the file format, the hook and the API
 - [How it fits together](architecture.md) — the code layout
 - [What's new in 3.0](whats-new.md) — the 3.0 changes and the upgrade note
