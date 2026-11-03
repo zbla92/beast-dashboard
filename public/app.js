@@ -379,9 +379,42 @@ window.addEventListener('unhandledrejection', e => clientLog('rejection: ' + (e.
 function newBuild() { reloadPending = true; maybeReload(); }
 let reloadPending = false;
 function contextUrl() { const u = new URL(location.href); if (TERM.open && TERM.active) u.search = '?term=' + encodeURIComponent(TERM.active) + ''; else if (UI.view !== 'home') u.search = '?view=' + UI.view; else u.search = ''; return u.href; }
+const SHELL = { asking: null, ready: null, failed: null, fails: 0, wipe: false };
+const SHELL_TRIES = 3;
 function maybeReload() {
-  if (safeToReload()) { try { sessionStorage.setItem('bd.updated', '1'); } catch {} location.replace(contextUrl()); return; }
-  if (!$('#newbuild')) document.body.append(h('button', { id: 'newbuild', class: 'btn primary', onclick: () => location.replace(contextUrl()) }, ico('refresh', 14), 'Dashboard updated — reload'));
+  if (!navigator.serviceWorker?.controller) return reloadIntoNewBuild();
+  if (SHELL.asking) return;
+  SHELL.asking = shellReady().then(ok => { if (ok) reloadIntoNewBuild(); }).finally(() => { SHELL.asking = null; });
+}
+async function shellReady() {
+  const want = newVer || await fetch('/api/version', { cache: 'no-store' }).then(r => r.json()).then(j => j.v).catch(() => null);
+  if (!want) return false;
+  if (SHELL.ready === want) return true;
+  const ok = await shellHas(want);
+  if (ok) { SHELL.ready = want; SHELL.failed = null; SHELL.fails = 0; SHELL.wipe = false; return true; }
+  if (SHELL.failed !== want) { SHELL.failed = want; SHELL.fails = 0; }
+  if (++SHELL.fails < SHELL_TRIES) return false;
+  SHELL.wipe = true;
+  return true;
+}
+function swAsk(msg, ms) {
+  const c = navigator.serviceWorker?.controller;
+  if (!c) return Promise.resolve(null);
+  return new Promise(done => {
+    const ch = new MessageChannel(); const t = setTimeout(() => done(null), ms);
+    ch.port1.onmessage = ev => { clearTimeout(t); done(ev.data || null); };
+    try { c.postMessage(msg, [ch.port2]); } catch { clearTimeout(t); done(null); }
+  });
+}
+async function shellHas(want) {
+  if (!navigator.serviceWorker?.controller) return true;
+  const r = await swAsk({ bdRefresh: want }, 15000);
+  return !!r && (r.v === want || r.v === null);
+}
+function reloadIntoNewBuild() {
+  const go = () => (SHELL.wipe ? clearDevice() : Promise.resolve()).then(() => location.replace(contextUrl()));
+  if (safeToReload()) { try { sessionStorage.setItem('bd.updated', '1'); } catch {} go(); return; }
+  if (!$('#newbuild')) document.body.append(h('button', { id: 'newbuild', class: 'btn primary', onclick: go }, ico('refresh', 14), 'Dashboard updated — reload'));
 }
 function closeTermPanel(pop = true) { if (!TERM.open) return; if (TERM.active) TERM.lastUsed.set(TERM.active, Date.now()); TERM.open = false; renderTermPanel(); renderRail(); if (pop) leaveChats(); if (TOUCH) requestAnimationFrame(() => window.scrollTo(0, TERM.pageY || 0)); }
 // iOS: with the keyboard up, a touch-scroll on anything that is not itself scrollable moves the whole page under the
@@ -2540,7 +2573,8 @@ function settingsModal() {
         row('Tunnels', `${S.runtime.exposures.length} loopback ports forwarded onto ${S.host.tsIp || 'the tailscale IP'} (socat) so your laptop reaches them without ssh -L`, h('button', { class: 'btn sm', onclick: () => { m.classList.add('hidden'); UI.showTunnels = true; renderTunnels(); window.scrollTo(0, 0); } }, 'Open')),
         row('Auto-expose', 'forward every loopback-bound project port automatically', h('label', { class: 'sw' }, auto, h('i'))),
         row('Projects', `rescan ${home(S.host.devRoot || '~')} for new folders`, h('button', { class: 'btn sm', onclick: () => act('Rescan', api('rescan', {})) }, 'Rescan')),
-        row('State backup', 'nightly tar of sessions, labels, push subscriptions, settings, schedule — 14 kept', h('a', { href: '/api/backup', class: 'btn sm' }, 'Download'))),
+        row('State backup', 'nightly tar of sessions, labels, push subscriptions, settings, schedule — 14 kept', h('a', { href: '/api/backup', class: 'btn sm' }, 'Download')),
+        row('Cached app on this device', 'app files kept here so it opens without waiting for the network · clear it if the app looks broken', h('button', { class: 'btn sm', onclick: () => clearDevice().then(() => location.reload()) }, 'Clear'))),
       sect('Notifications',
         ncb('done', 'Session finished'), ncb('permission', 'Needs permission'), ncb('error', 'Session error'), ncb('limit', 'Usage limit hit'), ncb('crash', 'Dev server died'), ncb('system', 'Server too hot / out of memory / runaway process / battery low'), ncb('digest', 'Monday weekly digest'), row('Morning summary', '08:00 — tasks to review, sessions that need you, yesterday\'s spend', sw(n.daily !== false, { 'data-n': 'daily' })),
         row('Quiet hours', 'no push between these times', h('span', { class: 'qh' }, qf, h('span', { class: 'dim' }, '–'), qt)),
@@ -2727,7 +2761,7 @@ function renderLiveDot() {
   if (md) { md.className = 'mdot on'; md.title = 'connected · ' + (S.host?.hostname || ''); }
 }
 function liveUp() { LIVE.lastMsg = Date.now(); if (LIVE.connected) return; LIVE.connected = true; feat('live'); LIVE.retry = 0; LIVE.offlineSince = 0; if (LIVE.base) renderHeader(); else renderLiveDot(); }
-function liveDown() { LIVE.connected = false; if (!LIVE.offlineSince) LIVE.offlineSince = Date.now(); renderLiveDot(); }
+function liveDown() { feat('liveDown'); LIVE.connected = false; if (!LIVE.offlineSince) LIVE.offlineSince = Date.now(); renderLiveDot(); }
 function retryLive() { if (LIVE.timer) return; const ms = LIVE_BACKOFF[Math.min(LIVE.retry++, LIVE_BACKOFF.length - 1)]; LIVE.timer = setTimeout(() => { LIVE.timer = null; reconnect(); }, ms); }
 function applyState(d) { if (d.host && d.host.build) { if (!S.build) S.build = d.host.build; else if (S.build !== d.host.build) { S.build = d.host.build; newBuild(); } } Object.assign(S, { projects: d.projects, wip: d.wip || S.wip, runtime: d.runtime, settings: d.settings, host: d.host, claude: d.claude || S.claude, health: d.health || S.health || {}, crashes: d.crashes || [] }); render(); }
 function applyOps(root, ops) {
@@ -2737,7 +2771,7 @@ function applyOps(root, ops) {
     if (val.length) o[p[p.length - 1]] = val[0]; else delete o[p[p.length - 1]];
   }
 }
-function reconnect() { try { UI.es && UI.es.close(); } catch {} clearTimeout(LIVE.timer); LIVE.timer = null; LIVE.base = null; LIVE.seq = null; LIVE.lastMsg = Date.now(); connect(); }
+function reconnect() { feat('reconnect'); try { UI.es && UI.es.close(); } catch {} clearTimeout(LIVE.timer); LIVE.timer = null; LIVE.connected = false; LIVE.base = null; LIVE.seq = null; LIVE.lastMsg = Date.now(); connect(); }
 function connect() {
   const es = new EventSource('/api/events');
   es.onopen = liveUp;
@@ -2912,12 +2946,25 @@ function renderPalette() {
 }
 
 // ---------- push notifications (needs HTTPS: service workers only register on a secure origin) ----------
+const SW = { ok: window.isSecureContext && 'serviceWorker' in navigator, reg: null };
+function swRegister() { if (!SW.reg) SW.reg = navigator.serviceWorker.register('/sw.js', { scope: '/', updateViaCache: 'none' }).catch(e => { SW.reg = null; throw e; }); return SW.reg; }
+function afterFirstPaint(f) { const go = () => (window.requestIdleCallback ? requestIdleCallback(f, { timeout: 2000 }) : setTimeout(f, 200)); if (document.readyState === 'complete') go(); else window.addEventListener('load', go, { once: true }); }
+if (SW.ok) afterFirstPaint(() => swRegister().catch(() => {}));
+const dropLocalDb = () => new Promise(done => { try { const r = indexedDB.deleteDatabase('bd-local'); r.onsuccess = r.onerror = r.onblocked = () => done(); } catch { done(); } });
+async function wipeDevice() {
+  try { const names = await caches.keys(); await Promise.all(names.filter(n => n.startsWith('bd-app-') || n === 'bd-meta').map(n => caches.delete(n))); } catch {}
+  await dropLocalDb();
+}
+async function clearDevice() {
+  await swAsk({ bdWipe: true }, 5000);
+  await wipeDevice();
+}
 const PUSH = { supported: 'serviceWorker' in navigator && 'PushManager' in window && (location.protocol === 'https:' || location.hostname === 'localhost'), sub: null };
 async function pushStatus() { if (!PUSH.supported) return null; try { const reg = await navigator.serviceWorker.getRegistration('/'); PUSH.sub = reg ? await reg.pushManager.getSubscription() : null; return PUSH.sub; } catch { return null; } }
 async function enablePush() {
   if (!PUSH.supported) { toast('Push needs HTTPS — see docs/guide/access.md (bin/enable-https.sh).', 'err'); return; }
   try {
-    const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+    const reg = await swRegister();
     const perm = await Notification.requestPermission(); if (perm !== 'granted') { toast('notifications blocked in the browser', 'err'); return; }
     const { key } = await api('push/key');
     const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: Uint8Array.from(atob(key.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0)) });
@@ -2998,11 +3045,17 @@ function safeToReload() {
 }
 async function checkVersion() {
   if (!MY_VER) return;
-  try { const r = await fetch('/api/version', { cache: 'no-store' }); const { v } = await r.json(); if (v && v !== MY_VER) newVer = v; } catch { return; }
+  try { const r = await fetch('/api/version', { cache: 'no-store' }); const { v, deviceCache } = await r.json(); if (deviceCache === false) wipeDevice(); if (v && v !== MY_VER) newVer = v; } catch { return; }
   if (newVer) reloadPending = true;
   if (reloadPending) maybeReload();
 }
 setInterval(checkVersion, 60000);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(checkVersion, 1500); });
 setTimeout(checkVersion, 5000);
+if (navigator.serviceWorker) navigator.serviceWorker.addEventListener('message', ev => { const v = ev.data && ev.data.bdShell; if (v && MY_VER && parseInt(v, 36) > parseInt(MY_VER, 36)) { newVer = v; newBuild(); } });
+if (new URLSearchParams(location.search).has('reset-cache')) {
+  const u = new URL(location.href); u.searchParams.delete('reset-cache');
+  history.replaceState(history.state, '', u.pathname + u.search + u.hash);
+  if (!navigator.serviceWorker?.controller) wipeDevice();
+}
 try { if (sessionStorage.getItem('bd.updated')) { sessionStorage.removeItem('bd.updated'); setTimeout(() => toast('updated to the latest version', 'ok'), 1200); } } catch {}

@@ -105,8 +105,10 @@ test('shell: one command at a time, a running one is not attached, stop kills th
 
 test('shell: a command that ignores SIGTERM is killed with SIGKILL after 3 s', async t => {
   const r = runner(t); const k = await client(t, r.sock);
-  const ack = await k.op({ op: 'shell', cmd: `trap '' TERM; ${lingering(r, 'process.on("SIGTERM",()=>{});setTimeout(()=>{},60000)')}` });
+  const ready = r.pidf + '.ready';
+  const ack = await k.op({ op: 'shell', cmd: `trap '' TERM; ${lingering(r, `process.on("SIGTERM",()=>{});require("fs").writeFileSync("${ready}","");setTimeout(()=>{},60000)`)}` });
   const pid = await pidOf(r);
+  for (let i = 0; i < 200 && !fs.existsSync(ready); i++) await wait(20);
   const t0 = Date.now();
   await k.op({ op: 'shell-stop', id: ack.id });
   await wait(500); assert.ok(alive(pid));
@@ -178,6 +180,7 @@ test('shell: a message re-sent after a restart keeps its bash blocks', async t =
   await k.op({ op: 'restart' });
   await k.until(e => e.ev === 'result' && e.subtype === 'success');
   await k.until(e => e.ev === 'inbox' && !e.inbox.length);
+  for (let i = 0; i < 200 && userInputs(r, 'keep me').length < 2; i++) await wait(20);
   const sent = userInputs(r, 'keep me');
   assert.strictEqual(sent.length, 2); assert.deepStrictEqual(sent[0], sent[1]);
   assert.deepStrictEqual(sent[0].map(b => b.text), ['<bash-input>echo kept</bash-input>', '<bash-stdout>kept\n</bash-stdout><bash-stderr></bash-stderr>', 'keep me']);

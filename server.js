@@ -4,7 +4,7 @@ const zlib = require('zlib');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
-const { run, readBody, corrupted, STATE } = require('./lib/util');
+const { run, readBody, corrupted, readJson, STATE } = require('./lib/util');
 const settings = require('./lib/settings');
 const discovery = require('./lib/discovery');
 const newproject = require('./lib/newproject');
@@ -166,7 +166,7 @@ let chatPushTimer = null;
 headless.onEvent(() => { if (!chatPushTimer) chatPushTimer = setTimeout(() => { chatPushTimer = null; tick(); }, 150); });
 
 const PUBLIC = path.join(__dirname, 'public');
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json', '.woff2': 'font/woff2' };
 
 // ---- state ----
 let projects = [];
@@ -639,6 +639,7 @@ async function whisperEnsure(ms = 45000) { whisperStart(); const t0 = Date.now()
 // UI build version = newest mtime of the files the page is made of. Open pages poll /api/version and reload
 // themselves (when idle) once it changes, so a phone never runs an old index.html against a new app.js.
 const UI_FILE = /^(index\.html|app\.js|style\.css|sw\.js|f-[\w-]+\.(js|css))$/;   // f-*.js / f-*.css = feature modules
+const deviceCache = () => (readJson(path.join(STATE, 'settings.json'), {}, false) || {}).deviceCache !== false;
 function uiVersion() { let v = 0; let fl = []; try { fl = fs.readdirSync(PUBLIC).filter(f => UI_FILE.test(f)); } catch {} for (const f of fl) { try { v = Math.max(v, fs.statSync(path.join(PUBLIC, f)).mtimeMs); } catch {} } return Math.round(v).toString(36); }
 // ~/Downloads on the server, browsed with the same file explorer as a project's Files tab (id "_downloads")
 const DOWNLOADS = { id: '_downloads', name: 'downloads', path: path.join(require('os').homedir(), 'Downloads'), isGit: false, parent: null, rel: '' };
@@ -910,7 +911,7 @@ async function api(req, res, url) {
     ws.on('error', () => { try { json(res, 500, { error: 'write failed' }); } catch {} });
     return;
   }
-  if (m === 'GET' && parts[0] === 'version') return json(res, 200, { v: uiVersion() });
+  if (m === 'GET' && parts[0] === 'version') return json(res, 200, { v: uiVersion(), deviceCache: deviceCache() });
   // speech-to-text: the recorded audio goes straight through to the local Whisper service (beast-whisper, GPU).
   // It runs on demand: GET ?warm=1 (sent when the mic is pressed) starts it, it loads in ~2 s while you talk, and
   // it exits by itself 1 min after the last use so the GPU isn't held at ~9 W all day.
@@ -1278,7 +1279,7 @@ async function handle(req, res) {
     if (!fp.startsWith(PUBLIC) || !fs.existsSync(fp)) { res.writeHead(404); return res.end('404'); }
     if (f === '/index.html') { // stamp the build: the page knows which version it is, and app.js / style.css can't come from an older cache
       const v = uiVersion(); const html = fs.readFileSync(fp, 'utf8').replace('</head>', `<meta name="bd-ver" content="${v}"></head>`).replace(/src="\/(app|f-[\w-]+)\.js"/g, `src="/$1.js?v=${v}"`).replace(/href="\/(style|f-[\w-]+)\.css"/g, `href="/$1.css?v=${v}"`);
-      return send(res, 200, { 'content-type': MIME['.html'], 'cache-control': 'no-cache, no-store' }, html, 6);
+      return send(res, 200, { 'content-type': MIME['.html'], 'cache-control': 'no-cache, no-store', ...(deviceCache() ? {} : { 'x-bd-shell': 'off' }) }, html, 6);
     }
     return sendStatic(req, res, fp, url);
   } catch (e) { console.error(e); if (!res.headersSent) json(res, e.status || 500, { error: String(e.message || e) }); else try { res.end(); } catch {} }

@@ -177,10 +177,10 @@ test('--start resume resumes, company account sets the config dir, unknown contr
 
 test('bad input is rejected without killing the runner; SIGTERM removes the socket and stops claude', async t => {
   const r = runner(t); const k = await client(t, r.sock);
-  assert.strictEqual(fs.statSync(r.sock).mode & 0o777, 0o600);
-  assert.strictEqual(fs.statSync(path.dirname(r.sock)).mode & 0o777, 0o700);
   k.c.write('not json\n');
   await k.until(e => e.ev === 'error' && e.error === 'bad json');
+  assert.strictEqual(fs.statSync(r.sock).mode & 0o777, 0o600);
+  assert.strictEqual(fs.statSync(path.dirname(r.sock)).mode & 0o777, 0o700);
   assert.strictEqual((await k.op({ op: 'send', text: '   ' })).ev, 'error');
   assert.strictEqual((await k.op({ op: 'nope' })).ev, 'error');
   await k.op({ op: 'send', text: 'hang' }); await k.until(e => e.ev === 'delta');
@@ -205,7 +205,8 @@ test('a runner replaced on the same socket path does not remove the new runner\'
 });
 
 test('a runner whose socket file is removed listens again', async t => {
-  const r = runner(t); await client(t, r.sock);
+  const r = runner(t); const first = await client(t, r.sock);
+  first.c.write(JSON.stringify({ op: 'hello' }) + '\n'); await first.until(e => e.ev === 'snapshot');
   fs.unlinkSync(r.sock);
   for (let i = 0; i < 150 && !fs.existsSync(r.sock); i++) await new Promise(res => setTimeout(res, 20));
   const k = await client(t, r.sock);
