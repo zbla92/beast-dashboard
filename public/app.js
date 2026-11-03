@@ -253,12 +253,13 @@ function liveStream(name) {
   on('resolved', o => { if (HL.snap) HL.snap.pending = HL.snap.pending.filter(x => x.rid !== o.rid); liveRender(false); });
   on('state', o => { if (!HL.snap) HL.snap = { pending: [] }; HL.snap.state = o.state; HL.snap.since = o.since; if (o.state !== 'working') { HL.snap.pending = []; HL.snap.turn = null; } liveRender(false); });
   on('result', () => { if (HL.snap) HL.snap.turn = null; liveRender(false); });
+  for (const ev of ['shell', 'shell-out', 'shells']) on(ev, o => { if (!HL.snap) HL.snap = { pending: [] }; feat('liveEvent', ev, o, HL.snap); if (ev !== 'shell-out') liveRender(false); });
   es.addEventListener('error', () => { if (HL.es === es && es.readyState === EventSource.CLOSED) setTimeout(() => { if (HL.es === es && !document.hidden) { HL.name = null; liveStream(name); } }, 2000); });
 }
 const liveOf = name => HL.name === name && HL.snap ? HL.snap : null;
 const turnAt = lv => !lv ? 0 : lv.state === 'working' && lv.since ? lv.since : lv.turn ? lv.turn.startedAt : 0;
 const waitingIn = lv => turnAt(lv) ? (lv.inbox || []).filter(m => m.at > turnAt(lv) + 1500) : [];
-function liveKey(name) { const l = liveOf(name); return l ? [l.state, l.turn ? 1 : 0, l.pending.map(x => x.rid).join(','), l.error || '', (l.inbox || []).map(x => x.id).join(',')].join('/') : ''; }
+function liveKey(name) { const l = liveOf(name); return l ? [l.state, l.turn ? 1 : 0, l.pending.map(x => x.rid).join(','), l.error || '', (l.inbox || []).map(x => x.id).join(','), (l.shells || []).map(x => x.id + x.state).join(',')].join('/') : ''; }
 function paintLive() {
   if (HL.timer) return;
   HL.timer = setTimeout(() => {
@@ -1505,6 +1506,7 @@ function renderConversation(box, name, t, o) {
   const ask = cl.mode === 'chat' ? (lv ? lv.pending[0] : cl.ask) : null;
   if (ask) items.push(askCard(box, name, ask, () => { for (const ms of [300, 1200]) setTimeout(o.refresh, ms); }));
   if (cl.menu) items.push(menuCard(name, cl.menu, () => { for (const ms of [500, 1500, 3000]) setTimeout(o.refresh, ms); }));
+  items.push(...feat('convTail', name, lv));
   syncChildren(conv, items);
   feat('conversation', name, conv, box);
   if (same) scroller.firstElementChild.replaceWith(bar);
@@ -1532,14 +1534,17 @@ function composer(box, name, cl, conv, scroller, o, busy, justSent, jobs, prevDr
   let syncAct = () => {};
   const grow = () => { ta.style.height = '0px'; ta.style.height = Math.min(Math.max(IS_PHONE ? 48 : 56, ta.scrollHeight), 10 * 24 + 12) + 'px'; saveDraft(name, ta.value); syncAct(); };   // every change goes through grow() -> the draft is saved
   const sendText = async (v) => { (PENDING[name] = PENDING[name] || []).push({ text: v, ts: Date.now() }); conv.append(h('div', { class: 'turn user pending' }, h('div', { class: 'who' }, gl('❯ you'), h('span', { class: 'dim mono' }, ' sending…')), h('div', { class: 'ttext' }, v))); scroller.scrollTop = scroller.scrollHeight; try { await api('send', { session: name, text: v }); } catch (e) { toast(e.message, 'err'); } setTimeout(o.refresh, 700); setTimeout(o.refresh, 2500); };
-  const send = async () => { const v = ta.value.trim(); if (!v) return; if ((claudeOf(name) || {}).menu) { toast('Claude is asking something — pick an option above first', 'err'); return; } ta.value = ''; grow();
+  const shellMode = () => cl.mode === 'chat' && !!FEAT.shell && FEAT.shell.is(ta.value);
+  let shelling = false;
+  const runShell = async () => { if (shelling) return; const v = ta.value; shelling = true; ta.value = ''; grow(); try { if (!(await FEAT.shell.run(name, v))) { if (!ta.value) { ta.value = v; grow(); } ta.focus(); } } finally { shelling = false; } };
+  const send = async () => { if (shellMode()) return runShell(); const v = ta.value.trim(); if (!v) return; if ((claudeOf(name) || {}).menu) { toast('Claude is asking something — pick an option above first', 'err'); return; } ta.value = ''; grow();
     const pm = { text: v, ts: Date.now() }; (PENDING[name] = PENDING[name] || []).push(pm);
     conv.append(h('div', { class: 'turn user pending' }, h('div', { class: 'who' }, gl('❯ you'), h('span', { class: 'dim mono' }, ' sending…')), h('div', { class: 'ttext' }, v))); scroller.scrollTop = scroller.scrollHeight;
     try { const r = await api('send', { session: name, text: v }); if (r && r.id) pm.id = r.id; } catch (e) { toast(e.message, 'err'); PENDING[name] = PENDING[name].filter(x => x !== pm); ta.value = v; grow(); }
     for (const ms of [400, 1200, 2500, 5000]) setTimeout(o.refresh, ms); };
   ta.addEventListener('input', grow);
   const busyNow = cl.state === 'working' || cl.state === 'background' || cl.state === 'permission';
-  const queue = async () => { const v = ta.value.trim(); if (!v) { toast('type the message first'); ta.focus(); return; } ta.value = ''; grow();
+  const queue = async () => { if (shellMode()) return runShell(); const v = ta.value.trim(); if (!v) { toast('type the message first'); ta.focus(); return; } ta.value = ''; grow();
     try { await api('schedule', { session: name, at: Date.now(), prompts: [v], whenFree: true }); toast('queued — goes out when Claude is free', 'ok'); } catch (e) { ta.value = v; grow(); toast(e.message, 'err'); } };
   const pick = cl.mode === 'chat' && (busy || busyNow) ? followUp() : null;
   const sj = jobs.filter(j => !(j.whenFree && j.state === 'waiting'));
@@ -1547,7 +1552,8 @@ function composer(box, name, cl, conv, scroller, o, busy, justSent, jobs, prevDr
   ta.addEventListener('keydown', ev => { ev.stopPropagation(); if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); (pick && ev.altKey ? second : first)(); } else if (ev.key === 'Escape' && (busy || justSent)) { ev.preventDefault(); stop(); } });
   const sendBtn = h('button', { class: 'btn primary csend', title: pick === 'queue' ? 'queue it for after this turn (Enter)' : pick ? 'send now — Claude reads it at its next step (Enter)' : 'send (Enter)', onclick: first }, ico('send', 16));
   const stopBtn = busy || busyNow || justSent ? h('button', { class: 'btn csend cstop', title: 'stop Claude (Escape)', onclick: stop }, h('i', { class: 'cstop-sq' })) : null;
-  syncAct = () => { if (!stopBtn) return; const empty = !ta.value.trim(); stopBtn.classList.toggle('hidden', !empty); sendBtn.classList.toggle('hidden', empty); };
+  const shBar = FEAT.shell?.bar(name, cl);
+  syncAct = () => { if (shBar) el.classList.toggle('shellmode', shBar.sync(ta.value)); if (!stopBtn) return; const empty = !ta.value.trim(); stopBtn.classList.toggle('hidden', !empty); sendBtn.classList.toggle('hidden', empty); };
   // 📎 attach: any file (photo / screenshot downscaled, everything else as-is) -> ~/dev/.pasted -> its path goes into the message (Claude reads it)
   const fileIn = h('input', { type: 'file', multiple: true, style: 'display:none' });
   const attachFiles = async files => { files = [...files].filter(Boolean); if (!files.length) return;
@@ -1561,7 +1567,7 @@ function composer(box, name, cl, conv, scroller, o, busy, justSent, jobs, prevDr
   const clock = h('button', { class: 'btn sm ghost qk csched', title: 'schedule this message for later (or a chain of messages)', onclick: () => scheduleDialog(name, ta.value) }, ico('sched', 15));
   const keys = h('div', { class: 'ckeys' }, attach, mic, clock, focusToggle(conv, scroller), fileIn, ...feat('composerKeys', name),
     sj.length ? h('span', { class: 'sjobs' }, sj.map(j => h('span', { class: 'sjob', title: j.prompts.join('\n\n') }, ico('clock', 12), ' ', j.whenFree ? 'when free' : new Date(j.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), j.prompts.length > 1 ? ` ×${j.prompts.length}` : '', j.state === 'running' || j.state === 'sent' ? ' · ' + j.state : '', h('button', { class: 'x', title: 'remove', onclick: () => api('schedule-remove', { id: j.id }) }, ico('x', 11))))) : null);
-  const el = h('div', { class: 'cbox2', 'data-k': compKey }, h('div', { class: 'cfield', onclick: ev => { if (ev.target === ev.currentTarget || ev.target.classList.contains('cfoot')) ta.focus(); } }, ta,
+  const el = h('div', { class: 'cbox2', 'data-k': compKey }, h('div', { class: 'cfield', onclick: ev => { if (ev.target === ev.currentTarget || ev.target.classList.contains('cfoot')) ta.focus(); } }, shBar && shBar.el, ta,
     h('div', { class: 'cfoot' }, keys, cl.state ? modelPicker(name, cl) : null, stopBtn, sendBtn)));
   syncAct();
   el._c = { el, ta, grow, stop, attachFiles };
