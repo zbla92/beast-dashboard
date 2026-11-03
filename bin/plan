@@ -1,0 +1,474 @@
+#!/usr/bin/env node
+'use strict';
+const fs = require('fs');
+const path = require('path');
+const { execFileSync } = require('child_process');
+const pf = require('../lib/planfile');
+
+const { PlanError } = pf;
+const MARK = { todo: ' ', doing: '~', done: 'x', blocked: '?', failed: '!' };
+const CONTEXT_MAX = 1600;
+const NEXT_MAX = 600;
+const VALUE_FLAGS = ['plan', 'repo', 'session', 'title', 'goal', 'gate', 'blocks', 'detail', 'task', 'topic'];
+const BOOL_FLAGS = ['all', 'json', 'clear'];
+const GLOBAL_FLAGS = ['plan', 'repo', 'session'];
+const COMMANDS = {
+  new: { min: 1, max: 1, flags: ['title', 'goal'] },
+  list: { min: 0, max: 0, flags: ['all', 'json'] },
+  show: { min: 0, max: 0, flags: ['json'] },
+  path: { min: 0, max: 0, flags: [] },
+  validate: { min: 0, max: 1, flags: [] },
+  context: { min: 0, max: 0, flags: [] },
+  use: { min: 0, max: 1, flags: ['clear'] },
+  start: { min: 1, max: 1, flags: [] },
+  done: { min: 1, max: 1, flags: ['gate'] },
+  fail: { min: 1, max: 1, flags: ['gate'] },
+  ask: { min: 1, max: 1, flags: ['blocks', 'detail'] },
+  answer: { min: 2, max: 2, flags: [] },
+  next: { min: 1, max: 1, flags: [] },
+  note: { min: 1, max: 1, flags: ['task'] },
+  archive: { min: 0, max: 0, flags: [] },
+  import: { min: 1, max: 1, flags: ['topic'] },
+  help: { min: 0, max: 0, flags: [] },
+};
+const USAGE = `usage: plan <command> [args] [flags]
+
+  new <topic> --title "<t>" [--goal "<g>"]   create a plan and claim it for this session
+  list [--all] [--json]                      plans of this repo (--all: every repo, archived too)
+  show [--json]                              status overview
+  path                                       absolute path of plan.md
+  validate [file]                            check plan.md (or a file)
+  context                                    SessionStart hook output (reads hook JSON on stdin)
+  use <topic> | use --clear                  claim a plan for this session / drop the claim
+  start <T>                                  task -> doing
+  done <T> [--gate "<text>"]                 task -> done
+  fail <T> --gate "<text>"                   task -> failed
+  ask "<question>" [--blocks T5,T6] [--detail "<text>"]
+  answer <qN> "<answer>"
+  next "<text>"                              replace the ## Next text
+  note "<text>" [--task T]                   log a note
+  archive                                    archive the plan
+  import <dir> [--topic <name>]              copy a legacy docs/<topic>/ into the store
+
+flags: --plan <topic>  --repo <path>  --session <name>
+exit: 0 ok, 1 refused, 2 usage, 3 no plan
+`;
+
+const SETTINGS_FILE = path.join(__dirname, '..', 'state', 'settings.json');
+
+const usage = msg => new PlanError(msg, 2);
+const noPlan = msg => new PlanError(msg, 3);
+const clipText = (s, n) => (String(s).length > n ? String(s).slice(0, n - 1) + '…' : String(s));
+
+function readOrFail(file) {
+  try { return fs.readFileSync(file, 'utf8'); } catch (e) { throw new PlanError(`cannot read ${file}: ${e.code || e.message}`); }
+}
+
+function statOrNull(file) {
+  try { return fs.statSync(file); } catch { return null; }
+}
+
+function parseArgs(argv) {
+  const [cmd, ...rest] = argv;
+  const flags = {};
+  const pos = [];
+  const args = rest[Symbol.iterator]();
+  for (const arg of args) {
+    const m = /^--([a-z]+)(?:=([\s\S]*))?$/.exec(arg);
+    if (!m) { pos.push(arg); continue; }
+    const name = m[1];
+    if (BOOL_FLAGS.includes(name)) {
+      if (m[2] !== undefined) throw usage(`--${name} takes no value`);
+      flags[name] = true;
+    } else if (VALUE_FLAGS.includes(name)) {
+      if (m[2] !== undefined) flags[name] = m[2];
+      else {
+        const next = args.next();
+        if (next.done) throw usage(`--${name} needs a value`);
+        flags[name] = next.value;
+      }
+    } else throw usage(`unknown flag --${name}`);
+  }
+  return { cmd, flags, pos };
+}
+
+function checkArgs(cmd, flags, pos) {
+  const spec = COMMANDS[cmd];
+  if (!spec) throw usage(`unknown command "${cmd}" (plan help)`);
+  for (const k of Object.keys(flags)) {
+    if (!GLOBAL_FLAGS.includes(k) && !spec.flags.includes(k)) throw usage(`--${k} does not apply to "${cmd}"`);
+  }
+  if (pos.length < spec.min || pos.length > spec.max) {
+    throw usage(`"${cmd}" takes ${spec.min === spec.max ? spec.min : `${spec.min}-${spec.max}`} argument(s), got ${pos.length} (plan help)`);
+  }
+}
+
+function realpath(p) { try { return fs.realpathSync(p); } catch { return p; } }
+
+function tmuxSession(env) {
+  if (!env.TMUX_PANE) return null;
+  try {
+    const out = execFileSync('tmux', ['display-message', '-p', '-t', env.TMUX_PANE, '#S'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 2000 }).trim();
+    return out || null;
+  } catch { return null; }
+}
+
+function repoArg(flags) {
+  if (!flags.repo) return null;
+  const p = path.resolve(flags.repo);
+  return pf.mainWorktree(p) || realpath(p);
+}
+
+function locate(ctx) {
+  const r = pf.resolvePlan({ root: ctx.root, cwd: ctx.cwd, repo: ctx.repo, session: ctx.session, topic: ctx.flags.plan });
+  if (r.error) throw noPlan(r.error);
+  return r;
+}
+
+function load(dir) {
+  const r = pf.readPlan(dir);
+  if (!r) throw noPlan(`no plan.md in ${dir}`);
+  return r;
+}
+
+function loadValid(dir) {
+  const r = load(dir);
+  if (r.doc.errors.length) throw new PlanError(`plan.md has errors; fix them first (plan validate)\n${pf.formatErrors(r.doc.errors)}`);
+  if (r.doc.meta.status === 'done') throw new PlanError(`plan ${r.doc.meta.topic} is archived (status: done)`);
+  return r;
+}
+
+function stamp(ctx, events) {
+  const now = new Date();
+  return events.map(e => pf.makeEvent({ ...e, session: ctx.session || undefined }, now));
+}
+
+function mutate(ctx, plan, apply, { write = true } = {}) {
+  return pf.withLock(plan.dir, () => {
+    const { doc } = loadValid(plan.dir);
+    const { events } = pf.readEvents(plan.dir);
+    const result = apply(doc, events);
+    if (write) pf.writePlan(plan.dir, doc);
+    for (const e of stamp(ctx, result.events)) pf.appendEvent(plan.dir, e);
+    return result;
+  });
+}
+
+function requireTaskId(id) {
+  if (!pf.isTaskId(id)) throw usage(`"${id}" is not a task id (like T3)`);
+  return id;
+}
+
+function nonEmpty(text, what) {
+  if (typeof text !== 'string' || !text.trim()) throw usage(`${what} is empty`);
+  return text;
+}
+
+function fmtTask(t) { return `${t.id} ${t.title}${t.model ? ` (${t.model})` : ''}`; }
+
+function summaryOf(dir, id, repoDir) {
+  const { doc, mtimeMs } = load(dir);
+  const { events } = pf.readEvents(dir);
+  return { doc, events, summary: { id, repoDir, mtime: Math.round(mtimeMs), ...pf.summarize(doc, events) } };
+}
+
+function requireSession(ctx) {
+  if (!ctx.session) throw usage('no session (not in tmux; pass --session)');
+}
+
+const commands = {
+  new(ctx, [topic]) {
+    if (!pf.isTopic(topic)) throw usage(`bad topic "${topic}": use 1-64 letters, digits, '.', '_' or '-', starting with a letter or digit`);
+    const title = nonEmpty(ctx.flags.title, '--title');
+    const main = ctx.repo || pf.mainWorktree(ctx.cwd);
+    if (!main) throw noPlan('not inside a git repository (pass --repo <path>)');
+    const doc = pf.newPlan({ topic, title, repo: main, goal: ctx.flags.goal });
+    const repoDir = pf.repoDirFor(ctx.root, main, { create: true });
+    const dir = pf.planDir(ctx.root, repoDir, topic);
+    pf.withLock(dir, () => {
+      if (fs.existsSync(pf.planFiles(dir).plan)) throw new PlanError(`plan ${topic} already exists for ${main}`);
+      pf.writePlan(dir, doc);
+      pf.appendEvent(dir, stamp(ctx, [{ type: 'create', text: title.trim() }])[0]);
+    }, { create: true });
+    if (ctx.session) pf.writeClaim(ctx.root, ctx.session, repoDir, topic);
+    return pf.planFiles(dir).plan;
+  },
+
+  list(ctx) {
+    const main = ctx.repo || pf.mainWorktree(ctx.cwd);
+    if (!main && !ctx.flags.all) throw noPlan('not inside a git repository (pass --repo <path> or --all)');
+    const rows = [];
+    for (const p of pf.listPlans(ctx.root)) {
+      if (!ctx.flags.all && (p.archived || p.repo !== main)) continue;
+      try { rows.push(summaryOf(p.dir, p.id, p.repoDir).summary); } catch { continue; }
+    }
+    if (ctx.flags.json) return JSON.stringify(rows);
+    if (!rows.length) return 'no plans';
+    return rows.map(s => `${ctx.flags.all ? s.id : s.topic}  ${s.done}/${s.total}  ${s.status}  ${s.title || ''}`).join('\n');
+  },
+
+  show(ctx) {
+    const plan = locate(ctx);
+    const id = `${plan.repoDir}/${plan.topic}`;
+    const { doc, events, summary: s } = summaryOf(plan.dir, id, plan.repoDir);
+    if (ctx.flags.json) return JSON.stringify({ id, repoDir: plan.repoDir, mtime: s.mtime, ...pf.detail(doc, events) });
+    if (doc.errors.length) process.stderr.write(`plan: plan.md has ${doc.errors.length} error(s) (plan validate)\n`);
+    const lines = [`${s.title} (${id}) · ${s.status}`, `${s.done}/${s.total} done (${s.pct}%)${s.phase ? ` · phase ${s.phase.n}/${s.phase.of} ${s.phase.name}` : ''}`];
+    if (s.now) lines.push(`${s.now.status === 'failed' ? 'Failed' : 'Now'}: ${s.now.id} ${s.now.title}`);
+    if (s.next) lines.push(`Next: ${s.next.id} ${s.next.title}`);
+    for (const q of s.waiting) lines.push(`Waiting: ${q.id} ${q.q}${q.blocks.length ? ` (blocks ${q.blocks.join(', ')})` : ''}`);
+    if (s.lastGate) lines.push(`Last gate: ${s.lastGate.ok ? '✓' : '✗'} ${s.lastGate.text}`);
+    for (const p of pf.phases(doc)) {
+      lines.push('', `Phase ${p.n} — ${p.name} (${p.tasks.filter(t => t.status === 'done').length}/${p.tasks.length})`);
+      for (const t of p.tasks) lines.push(`  [${MARK[t.status]}] ${t.id} ${t.title}`);
+    }
+    return lines.join('\n');
+  },
+
+  path(ctx) {
+    return pf.planFiles(locate(ctx).dir).plan;
+  },
+
+  validate(ctx, [file]) {
+    const label = file || 'plan.md';
+    const doc = file ? pf.parse(readOrFail(file)) : load(locate(ctx).dir).doc;
+    const warnings = pf.formatErrors(doc.warnings.map(w => ({ line: w.line, msg: `warning: ${w.msg}` })), label);
+    if (doc.errors.length) {
+      if (warnings) process.stdout.write(warnings + '\n');
+      throw new PlanError(pf.formatErrors(doc.errors, label));
+    }
+    return warnings ? `${warnings}\n${label}: ok` : `${label}: ok`;
+  },
+
+  use(ctx, [topic]) {
+    requireSession(ctx);
+    if (ctx.flags.clear) {
+      if (topic) throw usage('use --clear takes no topic');
+      pf.clearClaim(ctx.root, ctx.session);
+      return 'claim cleared';
+    }
+    if (!topic) throw usage('use needs a topic (or --clear)');
+    const plan = pf.resolvePlan({ root: ctx.root, cwd: ctx.cwd, repo: ctx.repo, topic });
+    if (plan.error) throw noPlan(plan.error);
+    if (!pf.activeTopics(ctx.root, plan.repoDir).includes(topic)) throw new PlanError(`plan ${topic} is not active`);
+    pf.writeClaim(ctx.root, ctx.session, plan.repoDir, topic);
+    return `${ctx.session} -> ${plan.repoDir}/${topic}`;
+  },
+
+  start(ctx, [id]) {
+    requireTaskId(id);
+    const r = mutate(ctx, locate(ctx), doc => ({ events: pf.start(doc, id), title: pf.findTask(doc, id).title }));
+    return `${id} doing · ${r.title}`;
+  },
+
+  done(ctx, [id]) {
+    requireTaskId(id);
+    if (ctx.flags.gate !== undefined && /[\r\n]/.test(ctx.flags.gate)) throw usage('gate text must be one line');
+    const r = mutate(ctx, locate(ctx), doc => ({ events: pf.finish(doc, id, ctx.flags.gate), title: pf.findTask(doc, id).title }));
+    const phase = r.events.find(e => e.type === 'phase');
+    return `${id} done · ${r.title}${phase ? ` · phase ${phase.phase} complete` : ''}`;
+  },
+
+  fail(ctx, [id]) {
+    requireTaskId(id);
+    if (ctx.flags.gate === undefined) throw usage('fail needs --gate "<what failed>"');
+    const r = mutate(ctx, locate(ctx), doc => ({ events: pf.fail(doc, id, ctx.flags.gate), title: pf.findTask(doc, id).title }));
+    return `${id} failed · ${r.title}`;
+  },
+
+  ask(ctx, [question]) {
+    nonEmpty(question, 'question');
+    const blocks = ctx.flags.blocks === undefined ? [] : ctx.flags.blocks.split(',').map(s => s.trim()).filter(Boolean);
+    blocks.forEach(requireTaskId);
+    const r = mutate(ctx, locate(ctx), (doc, events) => {
+      const out = pf.ask(doc, { q: question, detail: ctx.flags.detail || '', blocks, id: pf.nextQuestionId(doc, events) });
+      return { events: out, qid: out[0].q };
+    });
+    return `${r.qid} asked${blocks.length ? ` · blocks ${blocks.join(', ')}` : ''}`;
+  },
+
+  answer(ctx, [qid, text]) {
+    if (!pf.isQuestionId(qid)) throw usage(`"${qid}" is not a question id (like q1)`);
+    nonEmpty(text, 'answer');
+    mutate(ctx, locate(ctx), doc => ({ events: pf.answer(doc, qid, text) }));
+    return `${qid} answered`;
+  },
+
+  next(ctx, [text]) {
+    mutate(ctx, locate(ctx), doc => ({ events: pf.setNext(doc, text) }));
+    return 'next updated';
+  },
+
+  note(ctx, [text]) {
+    const task = ctx.flags.task;
+    if (task !== undefined) requireTaskId(task);
+    nonEmpty(text, 'note');
+    if (/[\r\n]/.test(text)) throw usage('note must be one line');
+    mutate(ctx, locate(ctx), doc => {
+      if (task !== undefined && !pf.findTask(doc, task)) throw new PlanError(`no task ${task} in this plan`);
+      return { events: [{ type: 'note', ...(task !== undefined ? { task } : {}), text: text.trim() }] };
+    }, { write: false });
+    return 'noted';
+  },
+
+  archive(ctx) {
+    const plan = locate(ctx);
+    const now = new Date();
+    const target = pf.withLock(plan.dir, moveTo => {
+      const { doc } = loadValid(plan.dir);
+      const events = pf.archive(doc, now);
+      pf.writePlan(plan.dir, doc);
+      for (const e of stamp(ctx, events)) pf.appendEvent(plan.dir, e);
+      const to = pf.archiveTarget(ctx.root, plan.repoDir, plan.topic, now);
+      moveTo(to);
+      return to;
+    });
+    return `archived ${plan.topic} -> ${plan.repoDir}/_archive/${path.basename(target)}`;
+  },
+
+  import(ctx, [dirArg]) {
+    const src = path.resolve(dirArg);
+    const st = statOrNull(src);
+    if (!st) throw new PlanError(`${dirArg} does not exist`);
+    if (!st.isDirectory()) throw new PlanError(`${dirArg} is not a directory`);
+    const topic = ctx.flags.topic || path.basename(src);
+    if (!pf.isTopic(topic)) throw usage(`bad topic "${topic}" (pass --topic <name>)`);
+    const read = name => { try { return fs.readFileSync(path.join(src, name), 'utf8'); } catch { return null; } };
+    const planText = read('PLAN.md');
+    const progressText = read('PROGRESS.md');
+    if (planText === null && progressText === null) throw new PlanError(`no PLAN.md or PROGRESS.md in ${dirArg}`);
+    const main = ctx.repo || pf.mainWorktree(ctx.cwd) || pf.mainWorktree(src);
+    if (!main) throw noPlan('not inside a git repository (pass --repo <path>)');
+    const doc = pf.fromLegacy({ planText: planText || '', progressText: progressText || '', topic, repo: main });
+    const repoDir = pf.repoDirFor(ctx.root, main, { create: true });
+    const dir = pf.planDir(ctx.root, repoDir, topic);
+    pf.withLock(dir, () => {
+      if (fs.existsSync(pf.planFiles(dir).plan)) throw new PlanError(`plan ${topic} already exists for ${main}`);
+      pf.writePlan(dir, doc);
+      if (planText !== null) pf.writeAtomic(path.join(dir, 'legacy-PLAN.md'), planText);
+      if (progressText !== null) pf.writeAtomic(path.join(dir, 'legacy-PROGRESS.md'), progressText);
+      pf.appendEvent(dir, stamp(ctx, [{ type: 'create', text: doc.meta.title }])[0]);
+    }, { create: true });
+    return pf.planFiles(dir).plan;
+  },
+
+  help() {
+    return USAGE.trimEnd();
+  },
+};
+
+function contextText(plan) {
+  const { doc } = pf.readPlan(plan.dir);
+  const { events } = pf.readEvents(plan.dir);
+  const s = pf.summarize(doc, events);
+  const all = pf.tasks(doc);
+  const phase = s.phase ? `, phase ${s.phase.n}/${s.phase.of} ${clipText(s.phase.name, 40)}` : '';
+  const lines = [
+    `Plan ${s.topic} "${clipText(s.title, 80)}" (${plan.repoDir}): ${s.done}/${s.total} tasks done${phase}. File: ${pf.planFiles(plan.dir).plan}`,
+    'Status changes go through the plan CLI: plan start|done|fail|ask|answer|next|note (plan help).',
+  ];
+  if (s.now && s.now.status === 'doing') {
+    const since = s.now.since ? new Date(s.now.since).toISOString().slice(11, 16) : null;
+    lines.push(`Now: ${clipText(fmtTask(s.now), 100)}, doing${since ? ` since ${since} UTC` : ''}.`);
+  }
+  const failed = all.filter(t => t.status === 'failed').slice(0, 3);
+  if (failed.length) lines.push(`Failed: ${failed.map(t => `${t.id} ${clipText(t.title, 60)}${t.gate ? `, gate ✗ ${clipText(t.gate.text, 80)}` : ''}`).join('; ')}.`);
+  const waiting = s.waiting.slice(0, 3);
+  if (waiting.length) lines.push(`Waiting on the user: ${waiting.map(q => `${q.id} ${clipText(q.q, 120)}${q.blocks.length ? ` (blocks ${q.blocks.join(', ')})` : ''}`).join('; ')}`);
+  const nextSec = doc.sections.find(x => x.kind === 'next');
+  const nextText = nextSec ? nextSec.body.text.replace(/\s+/g, ' ').trim() : '';
+  const from = s.now ? all.findIndex(t => t.id === s.now.id) + 1 : 0;
+  const todo = all.slice(from).filter(t => t.status === 'todo').slice(0, 3);
+  const tail = todo.length ? [`Then: ${todo.map(t => clipText(fmtTask(t), 60)).join(', ')}.`] : [];
+  const build = limit => [...lines, ...(nextText ? [`Next: ${clipText(nextText, limit)}`] : []), ...tail].join('\n');
+  const fit = limit => {
+    const text = build(limit);
+    if (text.length > CONTEXT_MAX && limit > 40) return fit(Math.max(40, limit - Math.max(20, text.length - CONTEXT_MAX)));
+    return text;
+  };
+  return clipText(fit(NEXT_MAX), CONTEXT_MAX);
+}
+
+function contextMany(root, repoDir, topics) {
+  const rows = topics.slice(0, 5).map(t => {
+    const dir = pf.planDir(root, repoDir, t);
+    const s = pf.summarize(pf.readPlan(dir).doc, pf.readEvents(dir).events);
+    return `${t} ${s.done}/${s.total}${s.now ? `, now ${s.now.id}` : s.next ? `, next ${s.next.id}` : ''}`;
+  });
+  return clipText([`Active plans for ${repoDir}, none claimed by this session:`, ...rows, 'Pick one with: plan use <topic>'].join('\n'), CONTEXT_MAX);
+}
+
+function parseHookInput(chunks) {
+  try {
+    const j = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    return j && typeof j === 'object' ? j : {};
+  } catch { return {}; }
+}
+
+function readHookInput(done) {
+  if (process.stdin.isTTY) { done({}); return; }
+  const chunks = [];
+  const state = { size: 0, finished: false };
+  const finish = () => {
+    if (state.finished) return;
+    state.finished = true;
+    done(parseHookInput(chunks));
+  };
+  const timer = setTimeout(finish, 1500);
+  const stop = () => { clearTimeout(timer); finish(); };
+  process.stdin.on('data', c => { if (state.size < 1048576) { chunks.push(c); state.size += c.length; } });
+  process.stdin.on('end', stop);
+  process.stdin.on('error', stop);
+}
+
+function plansOn() {
+  try { return !!JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')).plans; } catch { return false; }
+}
+
+function runContext(env, flags) {
+  readHookInput(input => {
+    try {
+      if (!plansOn()) process.exit(0);
+      const root = pf.storeRoot(env);
+      const cwd = typeof input.cwd === 'string' && path.isAbsolute(input.cwd) ? input.cwd : process.cwd();
+      const session = flags.session || tmuxSession(env);
+      const plan = pf.resolvePlan({ root, cwd, repo: repoArg(flags), session, topic: flags.plan });
+      const text = !plan.error ? contextText(plan)
+        : plan.candidates && plan.candidates.length > 1 ? contextMany(root, plan.repoDir, plan.candidates)
+          : '';
+      if (text) process.stdout.write(text + '\n', () => process.exit(0));
+      else process.exit(0);
+    } catch {
+      process.exit(0);
+    }
+  });
+}
+
+function main(argv, env) {
+  if (!argv.length) { process.stderr.write(USAGE); return 2; }
+  const { cmd, flags, pos } = parseArgs(argv[0] === '-h' || argv[0] === '--help' ? ['help'] : argv);
+  checkArgs(cmd, flags, pos);
+  if (cmd === 'context') {
+    runContext(env, flags);
+    return null;
+  }
+  const ctx = {
+    root: pf.storeRoot(env),
+    cwd: process.cwd(),
+    flags,
+    repo: repoArg(flags),
+    session: flags.session || tmuxSession(env),
+  };
+  const out = commands[cmd](ctx, pos);
+  if (out) process.stdout.write(out + '\n');
+  return 0;
+}
+
+try {
+  const code = main(process.argv.slice(2), process.env);
+  if (code !== null) process.exitCode = code;
+} catch (e) {
+  if (process.argv[2] === 'context') process.exit(0);
+  process.stderr.write(`plan: ${e && e.message ? e.message : e}\n`);
+  process.exitCode = e instanceof PlanError ? e.code : 1;
+}
