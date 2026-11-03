@@ -1229,7 +1229,7 @@ async function api(req, res, url) {
       await new Promise(r => setTimeout(r, 700)); await tick(); LAST_RESUME = null; pushState(true);
       return json(res, 200, { ok: true, tailscale: ts.ok ? 'ok' : (ts.stderr || 'unreachable').trim(), exposures: snapshot.exposures.length });
     }
-    case 'settings': { const s = settings.update(b); if (b.devRoot || b.scanDepth) await rescan(); pushState(true); return json(res, 200, s); }
+    case 'settings': { const plansBefore = !!settings.get().plans; const s = settings.update(b); if (!TEST) { try { require('./bin/install-hooks').syncPlans(plansBefore, s.plans, { root: __dirname, log: msg => console.log('plans hook:', msg) }); } catch (e) { console.error('plans hook:', e.message); } } if (b.devRoot || b.scanDepth) await rescan(); pushState(true); return json(res, 200, s); }
     case 'project': { // per-project overrides: label, hidden, pin, commands
       if (!proj(b.id)) return json(res, 404, { error: 'no project' });
       const { id, ...patch } = b; settings.setProjectOverride(id, patch); await rescan(); pushState(true); return json(res, 200, { ok: true });
