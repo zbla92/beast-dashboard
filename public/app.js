@@ -558,6 +558,7 @@ function renderTermPanel(force) {
   const frames = $('#term-frames'); const chatOn = TERM.active && chatMode(TERM.active);
   for (const [k, f] of TERM.frames) { if (!f.isConnected) frames.append(f); f.classList.toggle('on', k === TERM.active && !chatOn); }
   $('#term-chat').classList.toggle('hidden', !chatOn);
+  feat('termShown');
   if (!force && key === TERM.listKey) return;
   TERM.listKey = key;
   const list = $('#term-list'); list.innerHTML = '';
@@ -578,6 +579,7 @@ function renderTermPanel(force) {
         h('div', { class: 'tn' }, h('span', { class: 'nm' }, name), tag),
         h('div', { class: 'ts' }, ...line2.filter(Boolean)),
         line3 && line3.some(Boolean) ? h('div', { class: 't3' }, ...line3.filter(Boolean)) : null),
+      ...feat('termItem', it.name),
       h('div', { class: 'tacts' },
         kind === 'claude' && !sub && it.pid ? h('button', { class: 'x plus', title: 'another Claude on this project', onclick: ev => plusClaude(ev, it.pid) }, ico('plus', 15)) : null,
         cl ? h('button', { class: 'x', title: 'rename this session', onclick: ev => { ev.stopPropagation(); renameDialog(it.name); } }, ico('pencil', 14)) : null,
@@ -2674,7 +2676,7 @@ let railKey = '';
 function renderRail() {
   const el = $('#rail-list'); if (!el) return;
   const S3 = termSessions(); const act = TERM.open ? TERM.active : null; const min = Math.floor(Date.now() / 60000);
-  const key = JSON.stringify([act, min, S.projects.length, S3.all.map(x => [x.name, x.pid, x.claude?.state, x.claude?.needsYou, x.claude?.label, x.claude?.title, x.claude?.firstPrompt, x.claude?.since, x.claude?.lastTool, x.claude?.model, x.claude?.worktree?.name, x.claude?.settled?.at, x.claude?.settled?.until, x.project, x.label, x.current, x.cwd, x.ports.map(p => p.port)])]);
+  const key = JSON.stringify([act, min, S.projects.length, S3.all.map(x => [x.name, x.pid, x.claude?.state, x.claude?.needsYou, x.claude?.label, x.claude?.title, x.claude?.firstPrompt, x.claude?.since, x.claude?.lastTool, x.claude?.model, x.claude?.worktree?.name, x.claude?.settled?.at, x.claude?.settled?.until, x.project, x.label, x.current, x.cwd, x.ports.map(p => p.port)]), feat('termBarKey', act)]);
   if (key === railKey) return; railKey = key;
   const sub = it => {
     const cl = it.claude; if (!cl) return it.label ? it.label + (it.ports.length ? ' · :' + it.ports.map(p => p.port).join(' :') : '') : (it.current || 'bash') + ' · ' + home(it.cwd);
@@ -2690,6 +2692,7 @@ function renderRail() {
       kind === 'claude' && !tuck ? h('span', { class: 'rav' }, avatar(it.pid, 'sm'), h('i', { class: 'rdot' })) : h('i', { class: 'rdot' }),
       h('span', { class: 'rtx' }, h('span', { class: 'rnm' }, h('b', null, nm), i && i.n && !(tuck && !cl?.label && !i.wt) ? h('em', null, '#' + i.n) : null, i && i.wt ? h('em', { class: 'wt' }, '⎇ ' + i.wt.name) : null),
         h('span', { class: 'rln2' }, h('span', { class: 'rsub' + (st === 'working' ? ' mono' : '') }, sub(it)), kind === 'claude' && multiAcct() ? h('span', { class: 'racc ' + it.account, title: 'Claude Code account: ' + acct(it.account) }, acct(it.account)) : null)),
+      ...feat('termItem', it.name),
       cl ? h('span', { class: 'redit', role: 'button', title: 'rename this session', onclick: ev => { ev.stopPropagation(); renameDialog(it.name); } }, ico('pencil', 13)) : null);
   };
   const out = [];
@@ -2717,7 +2720,7 @@ function renderLiveDot() {
   if (!LIVE.connected && LIVE.offlineSince) { const t = 'offline since ' + new Date(LIVE.offlineSince).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); $('#hostline').textContent = t; $('#hostline').title = t + ' — showing the last known state, reconnecting'; if (md) { md.className = 'mdot off'; md.title = t; } return; }
   if (md) { md.className = 'mdot on'; md.title = 'connected · ' + (S.host?.hostname || ''); }
 }
-function liveUp() { LIVE.lastMsg = Date.now(); if (LIVE.connected) return; LIVE.connected = true; LIVE.retry = 0; LIVE.offlineSince = 0; if (LIVE.base) renderHeader(); else renderLiveDot(); }
+function liveUp() { LIVE.lastMsg = Date.now(); if (LIVE.connected) return; LIVE.connected = true; feat('live'); LIVE.retry = 0; LIVE.offlineSince = 0; if (LIVE.base) renderHeader(); else renderLiveDot(); }
 function liveDown() { LIVE.connected = false; if (!LIVE.offlineSince) LIVE.offlineSince = Date.now(); renderLiveDot(); }
 function retryLive() { if (LIVE.timer) return; const ms = LIVE_BACKOFF[Math.min(LIVE.retry++, LIVE_BACKOFF.length - 1)]; LIVE.timer = setTimeout(() => { LIVE.timer = null; reconnect(); }, ms); }
 function applyState(d) { if (d.host && d.host.build) { if (!S.build) S.build = d.host.build; else if (S.build !== d.host.build) { S.build = d.host.build; newBuild(); } } Object.assign(S, { projects: d.projects, wip: d.wip || S.wip, runtime: d.runtime, settings: d.settings, host: d.host, claude: d.claude || S.claude, health: d.health || S.health || {}, crashes: d.crashes || [] }); render(); }
@@ -2742,6 +2745,7 @@ function connect() {
   });
   es.addEventListener('history', e => { S.hist = JSON.parse(e.data); drawSparks(); });
   es.addEventListener('stats', e => { S.stats = JSON.parse(e.data); const H = S.hist; const push = (a, v) => { a.push(v); if (a.length > 180) a.shift(); }; push(H.cpu, S.stats.cpu.pct); push(H.mem, S.stats.mem.used / S.stats.mem.total * 100); push(H.gpu, S.stats.gpu?.util || 0); push(H.net, [S.stats.net.rxRate, S.stats.net.txRate]); renderRailFoot(); if (!UI.menuOpen && UI.view === 'home') renderStats(); });
+  es.addEventListener('plan', e => feat('plan', JSON.parse(e.data)));
   es.addEventListener('ding', e => { const d = JSON.parse(e.data); if (SOUND.on) ding(d.state); });
   es.onerror = () => { if (UI.es !== es) return; liveDown(); if (es.readyState === 2) retryLive(); };
   UI.es = es;
