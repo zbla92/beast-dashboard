@@ -452,6 +452,23 @@ test('context: empty cases print nothing and exit 0', t => {
   assert.equal(r5.out, '');
 });
 
+test('context outside a git repo lists the active plans of repos under that folder', t => {
+  const e = env(t);
+  seed(e);
+  e.run(['start', 'T1']);
+  const hook = cwd => JSON.stringify({ session_id: 's', cwd, hook_event_name: 'SessionStart', source: 'startup' });
+  const r = e.run(['context'], { cwd: tmp(t), input: hook(path.dirname(e.repo)) });
+  assert.equal(r.code, 0);
+  assert.match(r.out, /^Not a git repository\. Active plans in repos under .+:$/m);
+  assert.match(r.out, /^demo-app\/search-v2 "Search v2" 0\/5, now T1 \(.+demo-app\)$/m);
+  assert.match(r.out, /--repo <path>/);
+  const other = e.run(['context'], { cwd: tmp(t), input: hook(tmp(t)) });
+  assert.deepEqual([other.code, other.out], [0, '']);
+  fs.writeFileSync(path.join(e.planDir('search-v2'), 'plan.md'), e.planText('search-v2').replace('status: active', 'status: done'));
+  const done = e.run(['context'], { cwd: tmp(t), input: hook(path.dirname(e.repo)) });
+  assert.deepEqual([done.code, done.out], [0, '']);
+});
+
 test('context: summary of the active plan, from a hook cwd', t => {
   const e = env(t);
   seed(e);

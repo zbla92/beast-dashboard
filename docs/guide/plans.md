@@ -235,8 +235,16 @@ stdin — `session_id`, `transcript_path`, `cwd`, `hook_event_name: "SessionStar
 session like any command. Claude Code adds a SessionStart hook's plain stdout (exit 0) to the
 agent's context; it caps it at 10,000 characters, our budget is ≈ 400 tokens (≤ 1,600 chars).
 
-- No active plan for the repo, `plans` off, not a git repo, or any error: **prints nothing**, exit 0.
+- No active plan for the repo, `plans` off, or any error: **prints nothing**, exit 0.
   It never fails the session start.
+- `cwd` not inside a git repo (e.g. a folder of projects): the active plans whose `repo` is that
+  folder or below it, most recently changed first, max 5; nothing when there are none:
+
+```
+Not a git repository. Active plans in repos under /home/u/dev:
+demo-app/search-v2 "Search v2" 4/10, now T6 (/home/u/dev/demo-app)
+Continue one by working in its repo, or pass --repo <path> to the plan CLI.
+```
 - One plan (claimed or the only one), facts, no instructions in imperative system style:
 
 ```

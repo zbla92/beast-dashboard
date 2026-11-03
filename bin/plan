@@ -398,6 +398,23 @@ function contextMany(root, repoDir, topics) {
   return clipText([`Active plans for ${repoDir}, none claimed by this session:`, ...rows, 'Pick one with: plan use <topic>'].join('\n'), CONTEXT_MAX);
 }
 
+function contextUnder(root, cwd) {
+  const base = fs.realpathSync(cwd);
+  const inside = repo => repo === base || repo.startsWith(base.endsWith(path.sep) ? base : base + path.sep);
+  const rows = pf.listPlans(root)
+    .filter(p => !p.archived && p.repo && inside(p.repo))
+    .map(p => ({ p, r: pf.readPlan(p.dir) }))
+    .filter(x => x.r && x.r.doc.meta.status !== 'done')
+    .sort((a, b) => b.r.mtimeMs - a.r.mtimeMs)
+    .slice(0, 5)
+    .map(({ p, r }) => {
+      const s = pf.summarize(r.doc, pf.readEvents(p.dir).events);
+      return `${p.id} "${clipText(s.title, 60)}" ${s.done}/${s.total}${s.now ? `, now ${s.now.id}` : s.next ? `, next ${s.next.id}` : ''} (${p.repo})`;
+    });
+  if (!rows.length) return '';
+  return clipText([`Not a git repository. Active plans in repos under ${base}:`, ...rows, 'Continue one by working in its repo, or pass --repo <path> to the plan CLI.'].join('\n'), CONTEXT_MAX);
+}
+
 function parseHookInput(chunks) {
   try {
     const j = JSON.parse(Buffer.concat(chunks).toString('utf8'));
@@ -435,7 +452,7 @@ function runContext(env, flags) {
       const plan = pf.resolvePlan({ root, cwd, repo: repoArg(flags), session, topic: flags.plan });
       const text = !plan.error ? contextText(plan)
         : plan.candidates && plan.candidates.length > 1 ? contextMany(root, plan.repoDir, plan.candidates)
-          : '';
+          : plan.repo ? '' : contextUnder(root, cwd);
       if (text) process.stdout.write(text + '\n', () => process.exit(0));
       else process.exit(0);
     } catch {
