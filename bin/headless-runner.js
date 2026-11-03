@@ -39,12 +39,13 @@ const dim = s => `\x1b[2m${s}\x1b[0m`;
 const out = s => { try { process.stdout.write(s); } catch {} };
 let midLine = false;
 const line = s => { out((midLine ? '\n' : '') + s + '\n'); midLine = false; };
-const clean = s => String(s).replace(/\x1b\[[0-9;?]*[ -\/]*[@-~]|\x1b[\]P^_][^\x07\x1b]*(\x07|\x1b\\)?|\x1b.?/g, '').replace(/[\x00-\x08\x0b-\x1f\x7f\x80-\x9f]/g, '').replace(/(^|\n)(\s*[>❯])/g, '$1 $2');
+const strip = s => String(s).replace(/\r\n/g, '\n').replace(/\x1b\[[0-9;?]*[ -\/]*[@-~]|\x1b[\]P^_][^\x07\x1b]*(\x07|\x1b\\)?|\x1b.?/g, '').replace(/[\x00-\x08\x0b-\x1f\x7f\x80-\x9f]/g, '');
+const clean = s => strip(s).replace(/(^|\n)(\s*[>❯])/g, '$1 $2');
 const clock = () => new Date().toTimeString().slice(0, 8);
 
 function snapshot() {
   return { ev: 'snapshot', v: 2, sessionId: current, state: S.state, since: S.since, turn: S.turn, pending: [...pending.values()].map(p => p.req), inbox: inboxList(),
-    rate: S.rate, ctx: S.ctx, model: S.model, effort: S.effort, version: S.version, claude: CLAUDE, childAt, caps: S.caps, error: S.error };
+    rate: S.rate, ctx: S.ctx, model: S.model, effort: S.effort, version: S.version, claude: CLAUDE, childAt, caps: S.caps, error: S.error, shells: shellList() };
 }
 function inboxList() { return inbox.map(m => ({ id: m.id, text: m.text, at: m.at })); }
 function emitInbox() { emit({ ev: 'inbox', inbox: inboxList() }); }
@@ -331,7 +332,8 @@ function interrupt() {
 
 const flat = s => String(s).replace(/\s+/g, ' ').trim();
 const short = (s, n) => s.length > n ? s.slice(0, n) + '…' : s;
-function replayText(c) { return typeof c === 'string' ? c : Array.isArray(c) ? c.filter(b => b && b.type === 'text' && typeof b.text === 'string').map(b => b.text).join('\n') : ''; }
+const bashBlock = b => /^<bash-(input|stdout)>/.test(b.text);
+function replayText(c) { return typeof c === 'string' ? c : Array.isArray(c) ? c.filter(b => b && b.type === 'text' && typeof b.text === 'string' && !bashBlock(b)).map(b => b.text).join('\n') : ''; }
 function endingIn(open, e, t) {
   const cut = (r, x) => r === x ? '' : x && r.endsWith(' ' + x) ? r.slice(0, -x.length - 1) : null;
   const run = [open[e]];
@@ -367,8 +369,10 @@ function sweep() {
 }
 
 function send(text) {
-  const m = { id: `m-${++msgSeq}`, uuid: randomUUID(), text, at: Date.now() };
+  const done = text.startsWith('/') ? [] : shells.filter(e => e.state !== 'running');
+  const m = { id: `m-${++msgSeq}`, uuid: randomUUID(), text, at: Date.now(), ...(done.length ? { blocks: done.slice(-SHELL_KEEP).flatMap(shellBlocks) } : {}) };
   mine.add(m.uuid);
+  if (done.length) { for (const e of done) shells.splice(shells.indexOf(e), 1); emit({ ev: 'shells', shells: shellList() }); }
   inbox.push(m); emitInbox();
   deliver(m, false);
   return m.id;
@@ -378,7 +382,7 @@ function deliver(m, again) {
   if (!child) startChild();
   const injected = S.state === 'working' && !again;
   if (injected) { sentWhileWorking = true; tookIn.add(m.id); }
-  write({ type: 'user', uuid: m.uuid, message: { role: 'user', content: m.text } });
+  write({ type: 'user', uuid: m.uuid, message: { role: 'user', content: m.blocks ? [...m.blocks, { type: 'text', text: m.text }] : m.text } });
   if (!heard) unheard.push(m);
   hasConversation = true;
   if (!again) { line(clean(`${injected ? 'you (while working)' : 'you'}: ${short(m.text, 400)}`)); beginTurn(); }
@@ -429,6 +433,70 @@ function upgrade(bin) {
 }
 const executable = p => { try { fs.accessSync(p, fs.constants.X_OK); return fs.statSync(p).isFile(); } catch { return false; } };
 
+const SHELL_MS = +process.env.BD_HL_SHELL_MS || 600000, SHELL_OUT = 64 * 1024, SHELL_PRIV = 30000, SHELL_KEEP = 5, MAX_CMD = 10000;
+const shells = [];
+let shellSeq = 0;
+const pubShell = e => ({ id: e.id, cmd: e.cmd, state: e.state, code: e.code, at: e.at, end: e.end, out: e.out, cut: e.cut, signal: e.signal });
+function shellList() { return shells.map(pubShell); }
+const shellBin = () => { const s = process.env.SHELL; return s && path.isAbsolute(s) && executable(s) ? s : '/bin/bash'; };
+const signalGroup = (e, sig) => { try { process.kill(-e.proc.pid, sig); } catch {} };
+function shellBlocks(e) {
+  const priv = st => (st.cut ? `[… ${st.cut} chars cut]\n` : '') + st.text;
+  const note = e.state === 'stopped' ? '\nStopped by the user' : e.state === 'timeout' ? `\nTimed out after ${Math.round(SHELL_MS / 1000)} s` : e.signal ? `\nKilled by ${e.signal}` : e.code ? `\nExit code ${e.code}` : '';
+  return [{ type: 'text', text: `<bash-input>${e.cmd}</bash-input>` }, { type: 'text', text: `<bash-stdout>${priv(e.stdout)}</bash-stdout><bash-stderr>${priv(e.stderr)}${note}</bash-stderr>` }];
+}
+function shellText(e, st, s) {
+  if (!s) return;
+  const v = st.text + s, o = e.out + s;
+  st.cut += Math.max(0, v.length - SHELL_PRIV); st.text = v.slice(-SHELL_PRIV);
+  if (o.length > SHELL_OUT) e.cut = true;
+  e.out = o.slice(-SHELL_OUT); e.chunk = (e.chunk + s).slice(-SHELL_OUT);
+  if (!e.flush) e.flush = setTimeout(() => { e.flush = null; const chunk = e.chunk; e.chunk = ''; if (chunk) emit({ ev: 'shell-out', id: e.id, chunk }); }, 250);
+}
+function shellData(e, k, d) {
+  if (e.state !== 'running') return;
+  const st = e[k], raw = st.held + d, j = raw.lastIndexOf('\x1b');
+  st.held = j >= 0 && raw.length - j < 64 && !/[\x07@-~]/.test(raw.slice(j + 2)) ? raw.slice(j) : '';
+  shellText(e, st, strip(st.held ? raw.slice(0, j) : raw));
+}
+function endShell(e, why) {
+  if (e.state !== 'running') return;
+  for (const k of ['stdout', 'stderr']) { const h = e[k].held; e[k].held = ''; shellText(e, e[k], strip(h)); }
+  clearTimeout(e.timer); clearTimeout(e.kill); clearTimeout(e.flush); e.flush = null; e.chunk = '';
+  e.state = why || e.why || 'done'; e.code = Number.isInteger(e.exit) ? e.exit : null; e.end = Date.now();
+  e.signal = e.state === 'done' ? e.sig || null : null;
+  if (e.proc) { try { e.proc.stdout.destroy(); e.proc.stderr.destroy(); } catch {} }
+  line(dim(e.state === 'stopped' ? '[stopped]' : e.state === 'timeout' ? '[timed out]' : e.state === 'error' ? '[failed]' : e.signal ? `[killed ${e.signal}]` : `[exit ${e.code === null ? '?' : e.code}]`));
+  emit({ ev: 'shell', shell: pubShell(e) });
+  const done = shells.filter(x => x.state !== 'running');
+  if (done.length > SHELL_KEEP) { for (const x of done.slice(0, -SHELL_KEEP)) shells.splice(shells.indexOf(x), 1); emit({ ev: 'shells', shells: shellList() }); }
+}
+function failShell(e, err) { if (e.state !== 'running') return; shellText(e, e.stderr, strip(`cannot run ${shellBin()}: ${err.message}`)); endShell(e, 'error'); }
+function killShell(e, why) {
+  if (e.state !== 'running' || e.why) return;
+  e.why = why;
+  signalGroup(e, 'SIGTERM');
+  e.kill = setTimeout(() => signalGroup(e, 'SIGKILL'), 3000);
+}
+function startShell(cmd) {
+  const e = { id: `s-${++shellSeq}`, cmd, state: 'running', code: null, at: Date.now(), end: null, out: '', cut: false, chunk: '', flush: null, why: null, exit: null, sig: null, signal: null, kill: null, proc: null, timer: null,
+    stdout: { held: '', text: '', cut: 0 }, stderr: { held: '', text: '', cut: 0 } };
+  shells.push(e);
+  line(clean(`$ ${short(cmd, 400)}`));
+  emit({ ev: 'shell', shell: pubShell(e) });
+  try { e.proc = spawn(shellBin(), ['-lc', cmd], { cwd: CWD, env: { ...childEnv(), TERM: 'dumb', NO_COLOR: '1' }, stdio: ['ignore', 'pipe', 'pipe'], detached: true }); } catch (err) { failShell(e, err); return e.id; }
+  const p = e.proc;
+  p.stdout.setEncoding('utf8'); p.stderr.setEncoding('utf8');
+  p.stdout.on('data', d => shellData(e, 'stdout', d));
+  p.stderr.on('data', d => shellData(e, 'stderr', d));
+  p.on('error', err => failShell(e, err));
+  p.on('exit', (code, sig) => { e.exit = code; e.sig = sig; setTimeout(() => endShell(e), 200); });
+  p.on('close', () => endShell(e));
+  e.timer = setTimeout(() => killShell(e, 'timeout'), SHELL_MS);
+  return e.id;
+}
+process.on('exit', () => { for (const e of shells) if (e.state === 'running') signalGroup(e, 'SIGKILL'); });
+
 function onClientOp(c, m) {
   const ack = () => c.write(JSON.stringify({ ev: 'ack', cid: m.cid }) + '\n');
   const fail = error => c.write(JSON.stringify({ ev: 'error', cid: m.cid, error }) + '\n');
@@ -441,6 +509,24 @@ function onClientOp(c, m) {
       return c.write(JSON.stringify({ ev: 'ack', cid: m.cid, id: send(text) }) + '\n');
     }
     case 'interrupt': interrupt(); return ack();
+    case 'shell': {
+      if (stopping) return fail('runner is stopping');
+      const cmd = typeof m.cmd === 'string' ? m.cmd.trim() : '';
+      if (!cmd || cmd.length > MAX_CMD) return fail('cmd must be 1..10000 chars');
+      if (shells.some(e => e.state === 'running')) return fail('a command is still running');
+      return c.write(JSON.stringify({ ev: 'ack', cid: m.cid, id: startShell(cmd) }) + '\n');
+    }
+    case 'shell-stop': {
+      const e = shells.find(x => x.id === m.id && x.state === 'running');
+      if (!e) return fail('no such running command');
+      killShell(e, 'stopped'); return ack();
+    }
+    case 'shell-drop': {
+      const e = shells.find(x => x.id === m.id);
+      if (!e) return fail('no such command');
+      if (e.state === 'running') return fail('the command is still running');
+      shells.splice(shells.indexOf(e), 1); emit({ ev: 'shells', shells: shellList() }); return ack();
+    }
     case 'answer': {
       const p = pending.get(m.rid);
       if (!p) return fail('no such request');
@@ -516,6 +602,7 @@ function finish() { try { if (fs.statSync(SOCK).ino === sockIno) fs.unlinkSync(S
 function shutdown() {
   if (stopping) return;
   stopping = true;
+  for (const e of shells) killShell(e, 'stopped');
   if (!child) return restarting ? undefined : finish();
   interrupt();
   try { child.stdin.end(); } catch {}
