@@ -148,7 +148,133 @@ test('planNames uses the topic, or the project name when topics clash', () => {
   assert.deepStrictEqual([...plan2.planNames(list, projects)], ['storefront-api', 'storefront-web', 'ui']);
 });
 
-test('answerHead names the question, what it blocks and quotes it, ending on a new line for the answer', () => {
-  assert.strictEqual(plan2.answerHead({ id: 'q3', q: 'Keep the prod copy?', blocks: ['T64', 'T71'] }), 'Answer to q3 (blocks T64, T71): "Keep the prod copy?"\n');
-  assert.strictEqual(plan2.answerHead({ id: 'q1', q: 'Ship it?', blocks: [] }), 'Answer to q1: "Ship it?"\n');
+const W = { id: 'q3', q: 'Pin the SDK to v14 or v15?', blocks: ['T9'] };
+
+test('answerMsg builds the one-line message of the contract', () => {
+  assert.strictEqual(plan2.answerMsg('checkout-v2', W, 'Pin v14 for now.'),
+    'Plan checkout-v2, answer to q3 ("Pin the SDK to v14 or v15?"): Pin v14 for now. — record it with plan answer q3 "<this answer>" --plan checkout-v2, then carry on with the plan.');
+});
+
+test('answerMsg collapses every whitespace run, newlines included, and trims', () => {
+  const m = plan2.answerMsg('t', { id: 'q1', q: '  Two\n lines?  ' }, '  first line\n\n  second\tline  ');
+  assert.strictEqual(m, 'Plan t, answer to q1 ("Two lines?"): first line second line — record it with plan answer q1 "<this answer>" --plan t, then carry on with the plan.');
+  assert.ok(!/[\r\n\t]/.test(m));
+});
+
+test('answerMsg clips the question to 160 chars with an ellipsis', () => {
+  const m = plan2.answerMsg('t', { id: 'q1', q: 'x'.repeat(200) }, 'ok');
+  assert.ok(m.includes(`("${'x'.repeat(159)}…")`));
+  assert.ok(plan2.answerMsg('t', { id: 'q1', q: 'y'.repeat(160) }, 'ok').includes(`("${'y'.repeat(160)}")`));
+});
+
+test('answerMsg refuses an empty or too long answer after collapsing', () => {
+  assert.strictEqual(plan2.answerMsg('t', W, ''), null);
+  assert.strictEqual(plan2.answerMsg('t', W, ' \n\t '), null);
+  assert.strictEqual(plan2.answerMsg('t', W, null), null);
+  assert.ok(plan2.answerMsg('t', W, 'a'.repeat(2000)));
+  assert.strictEqual(plan2.answerMsg('t', W, 'a'.repeat(2001)), null);
+  assert.ok(plan2.answerMsg('t', W, 'a'.repeat(1000) + '\n\n\n' + 'b'.repeat(999)));
+});
+
+const fakeDom = () => {
+  const listeners = [];
+  const body = [];
+  const node = (tag, attrs, kids) => {
+    const n = { tag, attrs: attrs || {}, kids: kids.flat(Infinity).filter(k => k != null && k !== false), classList: { toggle() {} } };
+    n.remove = () => { const i = body.indexOf(n); if (i >= 0) body.splice(i, 1); };
+    n.append = (...k) => n.kids.push(...k);
+    n.replaceChildren = (...k) => { n.kids = k.flat(Infinity).filter(x => x != null && x !== false); };
+    return n;
+  };
+  const text = n => n == null ? '' : typeof n === 'object' ? n.kids.map(text).join('') : String(n);
+  const document = {
+    addEventListener(type, fn, cap) { listeners.push({ type, fn, cap }); },
+    removeEventListener(type, fn, cap) { const i = listeners.findIndex(l => l.type === type && l.fn === fn && l.cap === cap); if (i >= 0) listeners.splice(i, 1); },
+    getElementById: () => null,
+    body: { append: (...k) => body.push(...k) },
+  };
+  const key = k => { const ev = { key: k, preventDefault() {}, stopPropagation() {} }; for (const l of listeners.filter(x => x.type === 'keydown')) l.fn(ev); };
+  return { document, body, listeners, key, text, h: (tag, attrs, ...kids) => node(tag, attrs, kids), ico: () => null };
+};
+
+test('sheet keeps one open at a time and closes on Escape, once', () => {
+  const dom = fakeDom();
+  const p = boot({ document: dom.document, h: dom.h, ico: dom.ico });
+  const closed = [];
+  const close1 = p.sheet({ title: 'A', body: 'a', onClose: () => closed.push('A') });
+  assert.strictEqual(dom.body.length, 2);
+  p.sheet({ title: 'B', body: 'b', onClose: () => closed.push('B') });
+  assert.deepStrictEqual(closed, ['A']);
+  assert.strictEqual(dom.body.length, 2);
+  close1();
+  assert.deepStrictEqual(closed, ['A']);
+  dom.key('Escape');
+  assert.deepStrictEqual(closed, ['A', 'B']);
+  assert.strictEqual(dom.body.length, 0);
+  assert.strictEqual(dom.listeners.filter(l => l.type === 'keydown').length, 0);
+});
+
+test('the panel shows one quiet questions row with the count and what the questions block', () => {
+  const dom = fakeDom();
+  const p = boot({ document: dom.document, h: dom.h, ico: dom.ico });
+  const row = p.questionsRow({ id: 'a/b', waiting: [{ id: 'q1', q: 'x', blocks: ['T9'] }, { id: 'q2', q: 'y', blocks: ['T9', 'T10'] }, { id: 'q3', q: 'z', blocks: [] }] });
+  assert.strictEqual(row.attrs.class, 'fp2-qrow');
+  assert.strictEqual(dom.text(row), '3 open questionsblocks T9 · T10');
+  assert.strictEqual(dom.text(p.questionsRow({ id: 'a/b', waiting: [{ id: 'q1', q: 'x', blocks: [] }] })), '1 open question');
+});
+
+const sendBoot = (sessions, active, extra = {}) => {
+  const calls = { api: [], toast: [] };
+  const p = boot({
+    S: { settings: { plans: true }, runtime: { sessions } }, TERM: { open: false, active },
+    claudeOf: name => (sessions.find(s => s.name === name) || {}).claude || null,
+    sessTitle: s => 'L:' + s.name,
+    api: async (path, body) => { calls.api.push([path, body]); if (extra.fail) throw new Error(extra.fail); return { ok: true }; },
+    toast: (msg, kind) => calls.toast.push([msg, kind]),
+  });
+  return { p, calls };
+};
+const sess = (name, claude) => ({ name, claude });
+
+test('sendToSession sends to the active session when it runs the plan, else to the first plan session', async () => {
+  const sessions = [sess('claude-a', { state: 'idle' }), sess('claude-b', { state: 'working' })];
+  const one = sendBoot(sessions, 'claude-b');
+  assert.strictEqual(await one.p.sendToSession({ sessions: ['claude-a', 'claude-b'] }, 'hi'), true);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(one.calls.api)), [['send', { session: 'claude-b', text: 'hi' }]]);
+  assert.deepStrictEqual(one.calls.toast, [['Sent to L:claude-b', 'ok']]);
+  const two = sendBoot(sessions, 'claude-x');
+  await two.p.sendToSession({ sessions: ['claude-a', 'claude-b'] }, 'hi');
+  assert.strictEqual(two.calls.api[0][1].session, 'claude-a');
+});
+
+test('sendToSession refuses with a toast when nothing live runs the plan, at a permission prompt, or with a typed draft', async () => {
+  const cases = [
+    [[], { sessions: [] }, 'No live session runs this plan'],
+    [[sess('claude-a', { state: 'ended' })], { sessions: ['claude-a'] }, 'No live session runs this plan'],
+    [[sess('claude-a', null)], { sessions: ['claude-a'] }, 'No live session runs this plan'],
+    [[sess('claude-a', { state: 'permission' })], { sessions: ['claude-a'] }, 'Claude is at a permission prompt — answer it first'],
+    [[sess('claude-a', { state: 'idle', draft: 'half typed' })], { sessions: ['claude-a'] }, 'Something is typed in the terminal — send or clear it first'],
+  ];
+  for (const [sessions, plan, msg] of cases) {
+    const { p, calls } = sendBoot(sessions, 'claude-a');
+    assert.strictEqual(await p.sendToSession(plan, 'hi'), false, msg);
+    assert.deepStrictEqual(calls.api, []);
+    assert.deepStrictEqual(calls.toast, [[msg, 'err']]);
+  }
+  const chat = sendBoot([sess('claude-c', { state: 'idle', mode: 'chat', draft: 'x' })], 'claude-c');
+  assert.strictEqual(await chat.p.sendToSession({ sessions: ['claude-c'] }, 'hi'), true);
+});
+
+test('sendToSession and saveAnswer toast the server error and report failure', async () => {
+  const { p, calls } = sendBoot([sess('claude-a', { state: 'idle' })], 'claude-a', { fail: 'busy' });
+  assert.strictEqual(await p.sendToSession({ sessions: ['claude-a'] }, 'hi'), false);
+  assert.strictEqual(await p.saveAnswer('a/b', 'q1', 'yes'), false);
+  assert.deepStrictEqual(calls.toast, [['busy', 'err'], ['busy', 'err']]);
+});
+
+test('saveAnswer posts to plan-answer and reloads the plans', async () => {
+  const { p, calls } = sendBoot([], null);
+  assert.strictEqual(await p.saveAnswer('demo-app/search-v2', 'q1', 'copy them'), true);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(calls.api[0])), ['plan-answer', { id: 'demo-app/search-v2', q: 'q1', text: 'copy them' }]);
+  assert.deepStrictEqual(calls.api[1], ['plans?v=2', undefined]);
 });

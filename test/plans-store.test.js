@@ -268,3 +268,23 @@ test('a claim change sends a plan event for the old and the new plan, clearing i
   await waitFor(() => seen.includes('demo-app/other'));
   assert.deepStrictEqual([...new Set(seen)], ['demo-app/other']);
 });
+
+test('find resolves a live and an archived plan with its repo, and nothing else', t => {
+  const root = storeCopy(t);
+  const store = createPlanStore({ root });
+  const live = store.find('demo-app/search-v2');
+  assert.deepStrictEqual({ ...live, doc: undefined }, {
+    id: 'demo-app/search-v2', repoDir: 'demo-app', topic: 'search-v2', folder: 'search-v2',
+    archived: false, repo: '/srv/demo-app', doc: undefined,
+  });
+  assert.ok(pf.questions(live.doc).some(q => q.id === 'q1'));
+  const arch = store.find('demo-app/_archive/2026-10-28-onboarding');
+  assert.strictEqual(arch.archived, true);
+  assert.strictEqual(arch.folder, '2026-10-28-onboarding');
+  assert.strictEqual(arch.topic, 'onboarding');
+  for (const bad of ['demo-app/nope', '../../etc', 'demo-app', 'demo-app/_archive', 'x/y/z/w', 5, null, undefined]) {
+    assert.strictEqual(store.find(bad), null, String(bad));
+  }
+  fs.rmSync(path.join(root, 'demo-app', '.repo'));
+  assert.strictEqual(createPlanStore({ root }).find('demo-app/search-v2').repo, null);
+});

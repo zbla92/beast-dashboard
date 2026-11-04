@@ -39,6 +39,7 @@ const push = require('./lib/push');
 // Feature routes: plans, worktrees, subagents, Android emulator (stable API)
 const plans = require('./lib/plans');
 const planStore = require('./lib/plans2').createPlanStore();
+const planOps = require('./lib/planops').createPlanOps({ store: planStore });
 const worktrees = require('./lib/worktrees');
 const roots = require('./lib/roots');
 const edits = require('./lib/edits');
@@ -1159,6 +1160,7 @@ async function api(req, res, url) {
       if (isChat(b.session)) { if (b.enter === false) return json(res, 400, { error: 'chat sessions take whole messages' }); const r = await headless.send(b.session, b.text); setTimeout(tick, 300); return json(res, r.ok ? 200 : 400, r); }
       const r = await claude.send(b.session, b.text, b.enter !== false); setTimeout(tick, 400); return json(res, r.ok ? 200 : 400, r);
     }
+    case 'plan-answer': { const r = await planOps.answer(b); return json(res, r.status, r.body); }
     case 'claude-model': {
       const MODELS = ['default', 'opus', 'sonnet', 'haiku', 'fable'], EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
       if (typeof b.session !== 'string' || (b.model == null && b.effort == null)) return json(res, 400, { error: 'session + model and/or effort' });

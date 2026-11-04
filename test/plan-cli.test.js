@@ -646,3 +646,42 @@ test('a symlinked plan.md is not read', t => {
   assert.doesNotMatch(e.run(['list']).out, /linked/);
   assert.match(e.run(['show']).out, /Search v2/);
 });
+
+test('-- ends the flags: the rest is text even when it looks like a flag', t => {
+  const e = env(t);
+  seed(e);
+  e.run(['ask', 'Re-index or copy?']);
+  const r = e.run(['answer', '--plan', 'search-v2', '--', 'q1', '--plan=x copy them']);
+  assert.equal(r.code, 0, r.err);
+  const ev = e.events('search-v2').filter(x => x.type === 'answer');
+  assert.deepEqual(ev.map(x => [x.q, x.text]), [['q1', '--plan=x copy them']]);
+  e.run(['ask', 'Second?']);
+  assert.equal(e.run(['answer', '--', 'q2', '--blocks', 'T4']).code, 2);
+  assert.equal(e.run(['answer', '--', 'q2', '--blocks T4']).code, 0);
+  assert.equal(e.events('search-v2').filter(x => x.type === 'answer').pop().text, '--blocks T4');
+  assert.equal(e.run(['answer', '--', 'q1', 'again']).code, 1);
+});
+
+test('context Answered: the last three answers since the last start, clipped', t => {
+  const e = env(t);
+  seed(e);
+  e.run(['ask', 'Before start?']);
+  e.run(['answer', 'q1', 'old answer']);
+  e.run(['start', 'T1']);
+  assert.doesNotMatch(e.run(['context'], { input: '{}' }).out, /^Answered:/m);
+  e.run(['ask', `Long ${'q'.repeat(100)}?`]);
+  for (const n of [3, 4, 5]) e.run(['ask', `Question ${n}?`]);
+  e.run(['answer', 'q2', 'a'.repeat(200)]);
+  e.run(['answer', 'q3', 'three']);
+  const two = e.run(['context'], { input: '{}' }).out;
+  assert.match(two, new RegExp(`^Answered: q2 "Long ${'q'.repeat(74)}…" → ${'a'.repeat(159)}…; q3 "Question 3\\?" → three$`, 'm'));
+  e.run(['answer', 'q4', 'four']);
+  e.run(['answer', 'q5', 'five']);
+  const r = e.run(['context'], { input: '{}' });
+  assert.equal(r.code, 0);
+  assert.match(r.out, /^Answered: q3 "Question 3\?" → three; q4 "Question 4\?" → four; q5 "Question 5\?" → five$/m);
+  assert.ok(r.out.length <= 1601);
+  e.run(['done', 'T1']);
+  e.run(['start', 'T2']);
+  assert.doesNotMatch(e.run(['context'], { input: '{}' }).out, /^Answered:/m);
+});

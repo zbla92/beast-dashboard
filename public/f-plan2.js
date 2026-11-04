@@ -8,7 +8,7 @@
     } catch { return {}; }
   };
   const OPEN = readOpen();
-  const EXP = { q: {}, tasks: {}, phases: {}, menu: false };
+  const EXP = { tasks: {}, phases: {}, menu: false };
   const PV = { phone: false, ctx: null, rerender: null, seen: null };
   const VIEW = {};
   const PH = { name: null };
@@ -16,6 +16,12 @@
   const DET = {};
   const STALE = new Set();
   const FETCHING = new Set();
+  const SENT = new Set();
+  const SENDING = new Set();
+  const DRAFT = {};
+  const SH = { close: null };
+  const QS = { id: null, pick: null, sig: '', render: null, close: null };
+  const TEXT_MAX = 2000;
   const RING_R = 11;
   const RING_C = 2 * Math.PI * RING_R;
 
@@ -52,6 +58,7 @@
     try {
       const d = await api('plans?v=2');
       ST.sums = d.plans || [];
+      pruneSent();
       sync();
       if (TERM.open) renderTermPanel();
     } catch {
@@ -99,33 +106,179 @@
   const modelChip = m => m ? h('span', { class: 'fp2-model' }, m) : null;
   const spin = () => h('span', { class: 'fp2-spin' });
 
-  function waitLine(p, w, own, rerender) {
-    const key = p.id + '|' + w.id;
-    const open = !!EXP.q[key];
-    return h('div', { class: 'fp2-wl' + (open ? ' open' : '') },
-      h('div', { class: 'fp2-wl-h', onclick: () => { EXP.q[key] = !open; rerender(); } },
-        h('i', { class: 'fp2-wdot' }),
-        h('span', { class: 'fp2-wq' }, w.q),
-        w.blocks && w.blocks.length ? h('span', { class: 'fp2-wb' }, 'blocks ' + w.blocks.join(', ')) : null,
-        own ? h('button', { class: 'fp2-link', onclick: ev => { ev.stopPropagation(); answerInSession(w); } }, 'Answer →')
-          : p.sessions.length ? h('button', { class: 'fp2-link', onclick: ev => { ev.stopPropagation(); openTerm(p.sessions[0]); } }, 'Open session →') : null),
-      open && w.detail ? h('div', { class: 'fp2-qd' }, w.detail) : null);
+  const oneLine = s => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+  const clipTo = (s, n) => s.length > n ? s.slice(0, n - 1) + '…' : s;
+
+  function answerMsg(topic, w, text) {
+    const a = oneLine(text);
+    if (!a || a.length > TEXT_MAX) return null;
+    return `Plan ${topic}, answer to ${w.id} ("${clipTo(oneLine(w.q), 160)}"): ${a} — record it with plan answer ${w.id} "<this answer>" --plan ${topic}, then carry on with the plan.`;
   }
 
-  const answerHead = w => `Answer to ${w.id}${w.blocks && w.blocks.length ? ' (blocks ' + w.blocks.join(', ') + ')' : ''}: "${w.q}"\n`;
+  const targetOf = p => p.sessions.includes(TERM.active) ? TERM.active : p.sessions[0] || null;
+  const isLive = name => { const cl = name ? claudeOf(name) : null; return !!cl && cl.state !== 'ended'; };
+  const sessLabel = name => { const s = ((S.runtime && S.runtime.sessions) || []).find(x => x.name === name); return s ? sessTitle(s) : name; };
 
-  function answerInSession(w) {
-    if (isPhone()) { PH.name = null; sync(true); }
-    const box = $('#term-chat:not(.hidden) textarea');
-    if (box) {
-      const head = answerHead(w);
-      if (!box.value.startsWith(head)) { box.value = head + box.value; box.dispatchEvent(new Event('input')); }
-      box.focus();
-      box.setSelectionRange(box.value.length, box.value.length);
-      return;
+  async function sendToSession(p, text) {
+    const target = targetOf(p);
+    if (!isLive(target)) { toast('No live session runs this plan', 'err'); return false; }
+    const cl = claudeOf(target);
+    if (cl.state === 'permission') { toast('Claude is at a permission prompt — answer it first', 'err'); return false; }
+    if (cl.mode !== 'chat' && cl.draft) { toast('Something is typed in the terminal — send or clear it first', 'err'); return false; }
+    try { await api('send', { session: target, text }); } catch (e) { toast(e.message, 'err'); return false; }
+    toast('Sent to ' + sessLabel(target), 'ok');
+    return true;
+  }
+
+  async function saveAnswer(id, q, text) {
+    try { await api('plan-answer', { id, q, text }); } catch (e) { toast(e.message, 'err'); return false; }
+    toast(`${q} saved into the plan`, 'ok');
+    load();
+    return true;
+  }
+
+  function sheet({ title, sub, body, onClose }) {
+    if (SH.close) SH.close();
+    const phone = isPhone();
+    const onKey = e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); } };
+    const scrim = h('div', { class: 'fp2-sh-scrim', onclick: () => close() });
+    const box = h('div', { class: 'fp2-sh' + (phone ? ' phone' : ''), role: 'dialog', 'aria-modal': 'true' },
+      phone ? h('div', { class: 'fp2-grab' }) : null,
+      h('div', { class: 'fp2-sh-top' }, h('b', null, title), sub != null ? h('span', { class: 'fp2-sh-sub' }, sub) : null, h('span', { class: 'fp2-sp' }), h('button', { class: 'fp2-x', 'aria-label': 'close', onclick: () => close() }, ico('x', 16))),
+      h('div', { class: 'fp2-sh-body' }, body));
+    function close() {
+      if (SH.close !== close) return;
+      SH.close = null;
+      document.removeEventListener('keydown', onKey, true);
+      scrim.remove();
+      box.remove();
+      if (onClose) onClose();
     }
-    const frame = TERM.frames.get(TERM.active);
-    if (frame) frame.focus();
+    SH.close = close;
+    document.addEventListener('keydown', onKey, true);
+    document.body.append(scrim, box);
+    return close;
+  }
+
+  const askedAt = iso => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (d.toDateString() === new Date().toDateString()) return clock(iso);
+    const opt = Date.now() - d < 6 * 86400000 ? { weekday: 'short' } : { day: 'numeric', month: 'short' };
+    return d.toLocaleDateString([], opt) + ' ' + clock(iso);
+  };
+
+  const blocksOf = list => [...new Set(list.flatMap(w => w.blocks || []))];
+
+  function questionsOf(p) {
+    const d = DET[p.id];
+    const full = {};
+    for (const w of (d && d.waiting) || []) full[w.id] = w;
+    return p.waiting.map(w => ({ ...w, detail: full[w.id] ? full[w.id].detail || '' : '' }));
+  }
+
+  function pruneSent() {
+    for (const key of SENT) {
+      const i = key.lastIndexOf('|');
+      const p = ST.sums.find(x => x.id === key.slice(0, i));
+      if (!p || !p.waiting.some(w => w.id === key.slice(i + 1))) SENT.delete(key);
+    }
+  }
+
+  function questionsRow(p) {
+    const n = p.waiting.length;
+    const blocks = blocksOf(p.waiting);
+    return h('button', { class: 'fp2-qrow', onclick: () => openQuestions(p.id) },
+      h('i', { class: 'fp2-wdot' }), h('span', { class: 'fp2-qn' }, h('b', null, n), ` open question${n > 1 ? 's' : ''}`),
+      blocks.length ? h('span', { class: 'fp2-qb' }, 'blocks ' + blocks.join(' · ')) : null,
+      ico('chevronRight', 14));
+  }
+
+  function questionCard(p, w, live, target) {
+    const key = p.id + '|' + w.id;
+    const on = QS.pick === w.id;
+    const small = !!QS.pick && !on;
+    const meta = h('div', { class: 'fp2-sh-meta' }, w.id, w.asked ? ' · asked ' + askedAt(w.asked) : '', ...(w.blocks.length ? [' · blocks ', h('b', null, w.blocks.join(', '))] : []),
+      SENT.has(key) ? h('span', { class: 'fp2-sh-sent' }, 'sent · waiting for Claude') : null);
+    const card = h('div', { class: 'fp2-sh-q' + (on ? ' on' : '') + (small ? ' small' : '') },
+      h('button', { class: 'fp2-sh-qh', onclick: () => { QS.pick = on ? null : w.id; QS.sig = ''; renderQuestions(); } },
+        h('i', { class: 'fp2-wdot' }),
+        h('span', { class: 'fp2-sh-qt' }, h('span', { class: 'fp2-sh-qq' }, w.q), !small && w.detail ? h('span', { class: 'fp2-sh-qd' }, w.detail) : null, meta)));
+    if (on) card.append(answerBox(p, w, key, live, target));
+    return card;
+  }
+
+  function answerBox(p, w, key, live, target) {
+    const ta = h('textarea', { class: 'fp2-sh-ta', rows: 3, placeholder: 'Your answer…', autocomplete: 'off', autocapitalize: 'sentences', spellcheck: true });
+    ta.value = DRAFT[key] || '';
+    const pv = h('div', { class: 'fp2-sh-pv' });
+    const btn = h('button', { class: 'btn primary fp2-sh-go' }, ico(live ? 'send' : 'check', 14), live ? 'Send' : 'Save to plan');
+    const update = () => {
+      DRAFT[key] = ta.value;
+      const a = oneLine(ta.value);
+      const msg = answerMsg(p.topic, w, ta.value);
+      btn.disabled = SENDING.has(key) || !msg;
+      if (a.length > TEXT_MAX) pv.replaceChildren(h('span', { class: 'fp2-sh-over' }, `Too long: ${a.length} of ${TEXT_MAX} characters`));
+      else if (live) pv.replaceChildren(...(msg ? [h('span', { class: 'fp2-sh-pvl' }, 'Message'), msg] : [h('span', { class: 'dim' }, 'The message to Claude shows here as you type.')]));
+      else pv.replaceChildren();
+      pv.classList.toggle('hidden', !pv.childNodes.length);
+    };
+    const go = async () => {
+      const msg = answerMsg(p.topic, w, ta.value);
+      if (!msg || SENDING.has(key)) return;
+      SENDING.add(key); update();
+      const ok = live ? await sendToSession(p, msg) : await saveAnswer(p.id, w.id, oneLine(ta.value));
+      SENDING.delete(key);
+      if (!ok) { update(); renderQuestions(); return; }
+      delete DRAFT[key];
+      if (live) SENT.add(key);
+      if (QS.close) QS.close();
+    };
+    btn.onclick = go;
+    ta.addEventListener('input', update);
+    ta.addEventListener('keydown', ev => { if (ev.key === 'Escape') return; ev.stopPropagation(); if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); go(); } });
+    update();
+    const hint = live
+      ? h('span', { class: 'fp2-sh-hint' }, 'Goes to ', h('b', null, sessLabel(target)), ' as a message; Claude records it with ', h('code', null, 'plan answer'), '.')
+      : h('span', { class: 'fp2-sh-hint' }, 'Saved into the plan with ', h('code', null, 'plan answer ' + w.id), '; the next session on this plan sees it in its plan context.');
+    requestAnimationFrame(() => { if (ta.isConnected && !isPhone()) ta.focus(); });
+    return h('div', { class: 'fp2-sh-ans' }, ta, pv, h('div', { class: 'fp2-sh-foot' }, hint, btn));
+  }
+
+  function renderQuestions() {
+    if (!QS.render) return;
+    const p = ST.sums.find(x => x.id === QS.id);
+    const list = p ? questionsOf(p) : [];
+    const target = p ? targetOf(p) : null;
+    const live = isLive(target);
+    if (QS.pick && !list.some(w => w.id === QS.pick)) QS.pick = null;
+    if (p && QS.pick && SENDING.has(p.id + '|' + QS.pick)) return;
+    const sig = JSON.stringify([list, QS.pick, live, target, p ? [...SENT].filter(k => k.startsWith(p.id + '|')) : []]);
+    if (sig === QS.sig) return;
+    QS.sig = sig;
+    QS.render(p, list, live, target);
+  }
+
+  function openQuestions(id) {
+    const p = ST.sums.find(x => x.id === id);
+    if (!p) return;
+    if (SH.close) SH.close();
+    const count = h('span', { class: 'fp2-sh-n' });
+    const topic = h('span', { class: 'fp2-sh-tp' });
+    const body = h('div', { class: 'fp2-sh-list' });
+    Object.assign(QS, { id, pick: p.waiting.length === 1 ? p.waiting[0].id : null, sig: '' });
+    QS.render = (cur, list, live, target) => {
+      topic.textContent = cur ? cur.topic : '';
+      count.textContent = list.length;
+      count.classList.toggle('hidden', !list.length);
+      const head = !list.length ? h('div', { class: 'dim fp2-sh-empty' }, 'No open questions.')
+        : live ? h('div', { class: 'fp2-sh-intro dim' }, 'Pick one to answer. Tasks it blocks wait until it is answered.')
+          : h('div', { class: 'fp2-sh-nolive' }, h('i'), h('span', null, h('b', null, 'No live session'), ` runs ${cur.topic}. Answers are saved into the plan instead of sent as a message.`));
+      body.replaceChildren(head, ...list.map(w => questionCard(cur, w, live, target)));
+    };
+    QS.close = sheet({ title: 'Open questions', sub: [topic, count], body, onClose: () => Object.assign(QS, { id: null, pick: null, sig: '', render: null, close: null }) });
+    renderQuestions();
+    ensureDetail(p);
   }
 
   function bucketEvents(timeline, phases) {
@@ -196,7 +349,7 @@
     return wrap;
   }
 
-  function panelBody(p, own, rerender) {
+  function panelBody(p, rerender) {
     const d = DET[p.id] || p;
     const out = [];
     out.push(h('div', { class: 'fp2-head' },
@@ -205,7 +358,7 @@
       p.phase ? h('span', { class: 'fp2-phase dim' }, 'P', h('b', null, `${p.phase.n}/${p.phase.of}`), ' ', p.phase.name) : null,
       gateChip(p.lastGate)));
     out.push(h('div', { class: 'fp2-bar' + (p.complete ? ' full' : '') }, h('i', { style: `width:${p.pct}%` })));
-    for (const w of d.waiting || p.waiting) out.push(waitLine(p, w, own, rerender));
+    if (p.waiting.length) out.push(questionsRow(p));
     if (d.phases) out.push(steps(p, d, rerender));
     else out.push(h('div', { class: 'dim fp2-load' }, 'loading…'));
     if (d.errors && d.errors.length && d.phases) out.push(h('div', { class: 'fp2-err' }, `${d.errors.length} line${d.errors.length > 1 ? 's' : ''} in plan.md could not be read`));
@@ -236,7 +389,7 @@
       PV.shownId = c.shown.id;
       topic.textContent = c.shown.topic;
       sw.replaceChildren(...[switcher(c.list, c.names, c.shown.id, c.own && c.own.id, rerender)].filter(Boolean));
-      body.replaceChildren(...panelBody(c.shown, !!c.own && c.own.id === c.shown.id, rerender));
+      body.replaceChildren(...panelBody(c.shown, rerender));
       body.scrollTop = same ? top : 0;
       const cur = body.querySelector('.fp2-task.cur');
       const seen = c.shown.id + '|' + currentId(c.shown);
@@ -253,6 +406,7 @@
   function remove(...ids) { for (const id of ids) { const el = document.getElementById(id); if (el) el.remove(); } }
 
   function teardown() {
+    if (SH.close) SH.close();
     remove('fp2-strip', 'fp2-panel', 'fp2-scrim');
     const main = $('.termmain');
     if (main) main.classList.remove('fp2-open');
@@ -266,6 +420,7 @@
   }
 
   function sync(force) {
+    renderQuestions();
     const main = $('.termmain');
     const stripEl = () => document.getElementById('fp2-strip') || document.getElementById('fp2-panel');
     if (!enabled() || !main || !TERM.open || !TERM.active) { if (stripEl()) teardown(); return; }
@@ -359,5 +514,5 @@
   setInterval(() => { if (!document.hidden) load(); }, 60000);
   addEventListener('resize', () => sync());
 
-  FEAT.plan2 = { onState, termShown, termBarKey, termItem, plan: onPlan, live, cardChips, planFor, readOpen, ringMarkup, bucketEvents, orgPlans, planNames, answerHead };
+  FEAT.plan2 = { onState, termShown, termBarKey, termItem, plan: onPlan, live, cardChips, planFor, readOpen, ringMarkup, bucketEvents, orgPlans, planNames, answerMsg, questionsRow, sheet, sendToSession, saveAnswer };
 })();

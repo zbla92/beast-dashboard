@@ -9,6 +9,7 @@ const { PlanError } = pf;
 const MARK = { todo: ' ', doing: '~', done: 'x', blocked: '?', failed: '!' };
 const CONTEXT_MAX = 1600;
 const NEXT_MAX = 600;
+const ANSWERED_MAX = 3;
 const VALUE_FLAGS = ['plan', 'repo', 'session', 'title', 'goal', 'gate', 'blocks', 'detail', 'task', 'topic'];
 const BOOL_FLAGS = ['all', 'json', 'clear'];
 const GLOBAL_FLAGS = ['plan', 'repo', 'session'];
@@ -50,7 +51,7 @@ const USAGE = `usage: plan <command> [args] [flags]
   archive                                    archive the plan
   import <dir> [--topic <name>]              copy a legacy docs/<topic>/ into the store
 
-flags: --plan <topic>  --repo <path>  --session <name>
+flags: --plan <topic>  --repo <path>  --session <name>   (-- ends the flags: the rest is text)
 exit: 0 ok, 1 refused, 2 usage, 3 no plan
 `;
 
@@ -74,6 +75,7 @@ function parseArgs(argv) {
   const pos = [];
   const args = rest[Symbol.iterator]();
   for (const arg of args) {
+    if (arg === '--') { pos.push(...args); break; }
     const m = /^--([a-z]+)(?:=([\s\S]*))?$/.exec(arg);
     if (!m) { pos.push(arg); continue; }
     const name = m[1];
@@ -357,6 +359,16 @@ const commands = {
   },
 };
 
+function answeredSinceStart(events) {
+  const asked = {};
+  for (const e of events) if (e.type === 'ask' && e.q && typeof e.text === 'string') asked[e.q] = e.text;
+  const lastStart = events.map(e => e.type).lastIndexOf('start');
+  return events.slice(lastStart + 1)
+    .filter(e => e.type === 'answer' && e.q)
+    .slice(-ANSWERED_MAX)
+    .map(e => `${e.q}${asked[e.q] ? ` "${clipText(asked[e.q], 80)}"` : ''} → ${clipText(e.text || '', 160)}`);
+}
+
 function contextText(plan) {
   const { doc } = pf.readPlan(plan.dir);
   const { events } = pf.readEvents(plan.dir);
@@ -375,6 +387,8 @@ function contextText(plan) {
   if (failed.length) lines.push(`Failed: ${failed.map(t => `${t.id} ${clipText(t.title, 60)}${t.gate ? `, gate ✗ ${clipText(t.gate.text, 80)}` : ''}`).join('; ')}.`);
   const waiting = s.waiting.slice(0, 3);
   if (waiting.length) lines.push(`Waiting on the user: ${waiting.map(q => `${q.id} ${clipText(q.q, 120)}${q.blocks.length ? ` (blocks ${q.blocks.join(', ')})` : ''}`).join('; ')}`);
+  const answered = answeredSinceStart(events);
+  if (answered.length) lines.push(`Answered: ${answered.join('; ')}`);
   const nextSec = doc.sections.find(x => x.kind === 'next');
   const nextText = nextSec ? nextSec.body.text.replace(/\s+/g, ' ').trim() : '';
   const from = s.now ? all.findIndex(t => t.id === s.now.id) + 1 : 0;

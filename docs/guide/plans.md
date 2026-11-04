@@ -183,7 +183,9 @@ $BEAST_PLANS_DIR                      default ~/.beast/plans
 
 `plan <command> [args] [flags]`. Global flags: `--plan <topic>` (pick the plan), `--repo <path>`
 (resolve the repo from this path instead of the cwd), `--session <name>` (default: the tmux
-session of `$TMUX_PANE`, found the way `bin/claude-hook.sh` does; none outside tmux).
+session of `$TMUX_PANE`, found the way `bin/claude-hook.sh` does; none outside tmux). A bare `--`
+ends the flags: every argument after it is text, even one that starts with `--`
+(`plan answer --plan search-v2 -- q1 "--plan=x copy them"`).
 
 **Which plan** a command acts on (the same rule the server uses for a session):
 1. `--plan <topic>` in the current repo;
@@ -253,12 +255,15 @@ Status changes go through the plan CLI: plan start|done|fail|ask|answer|next|not
 Now: T6 Query endpoint (Sonnet), doing since 10:34 UTC.
 Failed: T5 Contract tests, gate ✗ lint · 2 errors.
 Waiting on the user: q1 Re-index the legacy synonym lists, or only copy them? (blocks T9)
+Answered: q2 "Keep the old /search route during the rollout?" → Yes, until the app ships v4.
 Next: T6 Query endpoint: finish cursor pagination (`after` param), then run the gate. …
 Then: T7 Rate limits (Sonnet), T8 Feature flag (Haiku).
 ```
 
   Lines without content are left out; `Next:` is clipped to 600 chars, `Then:` lists up to 3 todo
-  tasks after `now`.
+  tasks after `now`. `Answered:` lists up to 3 `answer` events newer than the plan's last `start`
+  event, oldest first, as `qN "<question, clipped to 80>" → <answer, clipped to 160>`, joined
+  with `; `.
 - Several active plans and no claim: one line per plan (`search-v2 4/10, now T6`, max 5) plus
   `Pick one with: plan use <topic>`.
 
@@ -304,6 +309,17 @@ Plans are read from the store (`BEAST_PLANS_DIR`, default `~/.beast/plans`); leg
 
 The task in `now` may carry `steps: [{ c, s }]` — the mapped session's latest TodoWrite list
 (`c` = text, `s` = `pending` | `in_progress` | `completed`), added by the server (phase 3).
+
+- `POST /api/plan-answer` `{ id, q, text }` — answers an open question of a live plan, the same
+  as `plan answer` (the dashboard's Save to plan, used when no live session runs the plan). It runs
+  this checkout's `bin/plan` (`answer --repo <repo> --plan <topic> -- <q> <text>`) with no shell,
+  cwd = the store root, `TMUX`/`TMUX_PANE` removed, 10 s timeout, one at a time. Checks first:
+  unknown `id` → `404 no such plan`; archived → `400`; no `.repo` marker → `409`; `q` not like
+  `q1` → `400`; `text` not a string, empty or over 2,000 chars after trimming, or with control
+  characters → `400`; `q` not an open question → `409 no open question qN`. Then the exit code
+  decides: `0` → `200 { ok: true, id }`, `1` → `409`, `2` → `400`, `3` → `404`, no start or timeout
+  → `500`; the error is the first line of stderr without `plan: `, max 300 chars. It is an `/api`
+  POST, so the Host, same-origin and `Sec-Fetch-Site` guards apply.
 
 **Session ↔ plan**: for a tmux session, its cwd is resolved to a repo as in §3; the plan is its
 claim (`.claims/<name>.json`) if that names an active plan of the same repo, else the repo's only
