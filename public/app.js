@@ -435,7 +435,7 @@ function closeTermPanel(pop = true) { if (!TERM.open) return; if (TERM.active) T
 // fixed panel (the "content behind" scroll). Only the chat list, the session list and textareas may scroll.
 document.addEventListener('touchmove', e => {
   if (!TERM.open) return;
-  const ok = e.target.closest && e.target.closest('.cscroll, #term-list, .termside, .rail-list, textarea, .tsel, .chpath, .modal .box, .drawer, .sbody, .logbox, .peek-b, .recov-text');
+  const ok = e.target.closest && e.target.closest('.cscroll, #term-list, .termside, .rail-list, textarea, .tsel, .chpath, .modal .box, .drawer, .sbody, .logbox, .peek-b, .recov-text, .qchips');
   if (!ok) e.preventDefault();
 }, { passive: false });
 function termOrder() { return [...new Set([...termSessions().all.map(x => x.name), ...TERM.frames.keys()])]; }
@@ -642,7 +642,7 @@ function renderTermPanel(force) {
   }
   list.append(...(S3.claude.length ? [h('div', { class: 'tsec' }, 'Claude instances', h('span', { class: 'n' }, S3.claude.length)), ...claudeRows] : []), ...section('Dev servers', S3.dev, 'dev'), ...section('Other tmux', S3.other, 'other'));
   // opened frames whose session vanished (or plain shells)
-  if (extra.length) list.append(h('div', { class: 'tsec' }, 'Open tabs', h('span', { class: 'n' }, extra.length)), ...extra.map(k => h('div', { class: 'titem other' + (TERM.active === k ? ' on' : ''), onclick: () => { TERM.active = k; renderTermPanel(true); } }, h('span', { class: 'dot', style: k === 'shell' ? 'background:var(--accent);box-shadow:0 0 8px var(--accent)' : 'background:var(--dim);box-shadow:none' }), h('div', { class: 'tt' }, h('div', { class: 'tn' }, k === 'shell' ? 'bash · ' + home(S.host.devRoot || '~') : k), h('div', { class: 'ts' }, k === 'shell' ? 'plain shell' : 'session ended')), h('button', { class: 'x', title: 'close tab', onclick: ev => { ev.stopPropagation(); dropFrame(k); } }, ico('x', 13)))));
+  if (extra.length) list.append(h('div', { class: 'tsec' }, 'Open tabs', h('span', { class: 'n' }, extra.length)), ...extra.map(k => h('div', { class: 'titem other' + (TERM.active === k ? ' on' : ''), onclick: () => { TERM.active = k; renderTermPanel(true); } }, h('span', { class: 'dot', style: k === 'shell' ? 'background:var(--accent)' : 'background:var(--dim)' }), h('div', { class: 'tt' }, h('div', { class: 'tn' }, k === 'shell' ? 'bash · ' + home(S.host.devRoot || '~') : k), h('div', { class: 'ts' }, k === 'shell' ? 'plain shell' : 'session ended')), h('button', { class: 'x', title: 'close tab', onclick: ev => { ev.stopPropagation(); dropFrame(k); } }, ico('x', 13)))));
   if (!S.runtime.sessions.length && !TERM.frames.size) list.append(h('div', { class: 'note', style: 'padding:12px' }, 'No tmux sessions. Start a Claude session from a project card (✦ Claude ▾) or a dev server (▶), or open a shell.'));
   const bar = $('#term-bar'); bar.innerHTML = '';
   const barAdd = (...xs) => bar.append(...xs.filter(x => x != null && x !== false)); // Element.append() would render a literal "null" for sessions without a project
@@ -652,8 +652,8 @@ function renderTermPanel(force) {
   // mobile: ☰ + native <select> session picker (sidebar is an overlay there)
   const allNames = [...new Set([...S3.all.map(x => x.name), ...TERM.frames.keys()])];
   const mobName = act ? sessTitle(act) : (TERM.active || 'Sessions');
-  barAdd(h('button', { class: 'btn sm mob icon', title: 'sessions', onclick: () => { TERM.showList = !TERM.showList; renderTermPanel(true); } }, ico('sidebar', 17)),
-    h('button', { class: 'mob msess', title: 'switch session', onclick: () => { TERM.showList = true; renderTermPanel(true); } }, act ? avatar(act.project, 'sm') : null, h('span', { class: 'nm' }, mobName), accTag(), instOf(act || { name: TERM.active || '' }).n ? h('span', { class: 'grp' }, '#' + instOf(act).n) : null, h('span', { class: 'caret' }, '▾')), cl && IS_PHONE ? stateBadge(cl, true) : null);
+  barAdd(h('button', { class: 'btn sm ghost mob icon', title: 'back to dashboard (sessions keep running)', onclick: closeTermPanel }, ico('back', 17)),
+    h('button', { class: 'mob msess', title: 'switch session', onclick: () => { TERM.showList = true; renderTermPanel(true); } }, act ? avatar(act.project, 'sm') : null, h('span', { class: 'nm' }, mobName), accTag(), instOf(act || { name: TERM.active || '' }).n ? h('span', { class: 'grp' }, '#' + instOf(act).n) : null), cl && IS_PHONE ? stateBadge(cl, true) : null);
   const actName = act ? sessTitle(act) : TERM.active;
   const isChatS = cl && cl.mode === 'chat'; const logOn = isChatS && TERM.view[TERM.active] === 'term';
   const updatePending = !!cl && (!!S.claude?.update || needsRestart(cl));
@@ -668,9 +668,8 @@ function renderTermPanel(force) {
     cl && cl.state === 'limit' && act ? h('button', { class: 'btn sm primary', title: 'start the other account in this folder with a summary of where this one stopped', onclick: () => handoff({ name: TERM.active, account: cl.account, project: act.project }) }, gl('⇄ Hand off')) : null,
     ...feat('termBar', TERM.active),
     cl ? ctxMeter(TERM.active, cl) : null,
-    h('button', { class: 'btn sm tmore', title: 'session options — model, folder, project, update, new chat, compact, rename, kill…', onclick: ev => sessMenu(ev, TERM.active) }, ico('sliders', 15), h('span', { class: 'desk' }, 'Options'), ico('chevronDown', 13), updatePending ? h('i', { class: 'tdot' }) : null),
-    h('button', { class: 'btn sm ghost mob', title: 'back to dashboard (sessions keep running)', onclick: closeTermPanel }, ico('back', 15)));
-  else barAdd(h('span', { class: 'dim' }, 'Pick a session.'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost mob', onclick: closeTermPanel }, ico('back', 15)));
+    h('button', { class: 'btn sm tmore', title: 'session options — model, folder, project, update, new chat, compact, rename, kill…', onclick: ev => sessMenu(ev, TERM.active) }, ico('sliders', 15), h('span', { class: 'desk' }, 'Options'), ico('chevronDown', 13), updatePending ? h('i', { class: 'tdot' }) : null));
+  else barAdd(h('span', { class: 'dim' }, 'Pick a session.'), h('span', { class: 'sp' }));
 }
 // remember what gets started per project (dev commands, compose, Claude account) -> "▶▶ Start all" brings it all up next time
 function noteBundle(p, entry) { const b = (S.settings.projects?.[p.id]?.bundle || []).filter(x => !(x.kind === entry.kind && x.name === entry.name)); b.push(entry); api('project', { id: p.id, bundle: b.slice(-8) }).catch(() => {}); }
@@ -1036,7 +1035,7 @@ function sessMenu(ev, name) {
     cl ? { label: 'Rename…', icon: ico('pencil', 15), onclick: () => renameDialog(name) } : null,
     chat && FEAT.session?.move ? { label: 'Move to folder…', icon: ico('folder', 15), disabled: !idle, title: 'same conversation, Claude continues in another project or folder (only when idle)', onclick: () => FEAT.session.move(name) } : null,
     proj ? { label: 'Project details…', sub: dirty ? '± ' + dirty + ' changes' : '', icon: ico('folder', 15), title: 'project details — changes, files, logs, branches, docker', onclick: () => openDrawer(proj.id, dirty ? 'changes' : 'overview') } : null,
-    cl && (cl.hooked || muted) ? { label: muted ? 'Unmute notifications' : 'Mute notifications', sub: muted ? 'muted now' : '', icon: ico(muted ? 'bell' : 'bellOff', 15), onclick: () => api('claude-mute', { session: name, muted: !muted }).then(r => toast(r.muted.includes(name) ? 'muted' : 'unmuted')).catch(e => toast(e.message, 'err')) } : null,
+    (cl && cl.hooked) || muted ? { label: muted ? 'Unmute notifications' : 'Mute notifications', sub: muted ? 'muted now' : '', icon: ico(muted ? 'bell' : 'bellOff', 15), onclick: () => api('claude-mute', { session: name, muted: !muted }).then(r => toast(r.muted.includes(name) ? 'muted' : 'unmuted')).catch(e => toast(e.message, 'err')) } : null,
     upd ? { label: upgrading ? 'Installing update…' : 'Update Claude Code', sub: upgrading ? '' : upd.version, icon: ico('refresh', 15), disabled: upgrading, title: upgrading ? 'mise upgrade claude is running…' : `Claude Code ${upd.version} is out — install it (mise upgrade claude), then restart this session (same conversation, --resume)`, onclick: () => updateClaude({ name, project: sess?.project }) } :
     cl && needsRestart(cl) ? { label: 'Restart on new version', sub: wantVersion(cl), icon: ico('refresh', 15), title: `running Claude Code ${cl.version} — restart on ${wantVersion(cl)} (same conversation)`, onclick: () => restartSession({ name, project: sess?.project }) } : null,
     ...feat('sessMenu', name, sess, cl),
@@ -1521,13 +1520,14 @@ function chatOffline(box, on) {
   if (bar) bar.prepend(h('span', { class: 'coff' }, 'offline — retrying…')); else { box.innerHTML = ''; box.append(h('div', { class: 'dim coff', style: 'padding:20px' }, 'offline — retrying…')); }
 }
 const hhmm = ts => ts ? h('span', { class: 'dim mono' }, ' ' + new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })) : null;
+const userBody = text => h('div', { class: 'ttext', html: mdLite(text) });
 function convTurn(turn, name) {
     // not something you typed: a background agent finished, you interrupted, … -> one quiet line between the turns
     if (turn.role === 'event') return h('div', { class: 'tevent' + (turn.status === 'failed' || turn.status === 'killed' ? ' bad' : '') }, h('span', { class: 'ic' }, ico(turn.status === 'interrupted' ? 'stop' : turn.status === 'compacted' ? 'shrink' : turn.status === 'completed' ? 'check' : turn.status === 'failed' || turn.status === 'killed' ? 'x' : 'gear', 13)), h('span', { class: 'tx' }, turn.status === 'interrupted' ? 'interrupted' : turn.text), turn.ts ? h('span', { class: 'dim mono' }, new Date(turn.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })) : null);
     if (turn.role === 'shell') return h('div', { class: 'turn user shell' }, h('div', { class: 'who' }, gl('❯ you · shell'), hhmm(turn.ts)), h('pre', { class: 'mcode small' }, '! ' + turn.text), turn.out ? h('details', { class: 'ttools' }, h('summary', null, 'output'), h('pre', { class: 'mcode small' }, turn.out)) : null);
     if (turn.role === 'assistant') return assistantTurn(turn, { session: name });
     return h('div', { class: 'turn ' + turn.role + (turn.queued ? ' midturn' : '') }, h('div', { class: 'who' }, gl('❯ you'), hhmm(turn.ts), turn.queued ? h('span', { class: 'steer', title: 'Sent while Claude was working — it read this mid-turn and kept going, so the answer may come later in the turn' }, ico('redo', 12), ' Steer') : null),
-      turn.text ? h('div', { class: 'ttext', html: mdLite(turn.text) }) : null);
+      turn.text ? userBody(turn.text) : null);
 }
 function syncChildren(parent, items) {
   items.forEach((el, i) => { if (parent.children[i] !== el) parent.insertBefore(el, parent.children[i] || null); });
@@ -1567,8 +1567,8 @@ function renderConversation(box, name, t, o) {
   const compKey = [name, cl.state, menuKey(cl.menu), cl.model, cl.effort, canSwitchModel(cl), busy, justSent, jobs.map(j => j.id + j.state).join(','), followUp()].join('|');
   const keptComp = same && box.querySelector('.cbox2'); const C = keptComp && keptComp.dataset.k === compKey ? keptComp._c : composer(box, name, cl, conv, scroller, o, busy, justSent, jobs, prevDraft, compKey);
   const queued = (S.claude?.schedule || []).filter(j => j.session === name && j.whenFree && j.state === 'waiting');
-  for (const m of inbox.filter(starts)) if (!(lastUser && lastUser.text.trim() === m.text.trim() && (lastUser.ts || 0) >= m.at - 5000)) items.push(h('div', { class: 'turn user pending' }, h('div', { class: 'who' }, gl('❯ you'), hhmm(m.at), h('span', { class: 'dim' }, ' · sent')), h('div', { class: 'ttext' }, m.text)));
-  for (const pm of PENDING[name] || []) items.push(h('div', { class: 'turn user pending' }, h('div', { class: 'who' }, gl('❯ you'), h('span', { class: 'dim' }, ' sent')), h('div', { class: 'ttext' }, pm.text)));
+  for (const m of inbox.filter(starts)) if (!(lastUser && lastUser.text.trim() === m.text.trim() && (lastUser.ts || 0) >= m.at - 5000)) items.push(h('div', { class: 'turn user pending' }, h('div', { class: 'who' }, gl('❯ you'), hhmm(m.at), h('span', { class: 'dim' }, ' · sent')), userBody(m.text)));
+  for (const pm of PENDING[name] || []) items.push(h('div', { class: 'turn user pending' }, h('div', { class: 'who' }, gl('❯ you'), h('span', { class: 'dim' }, ' sent')), userBody(pm.text)));
   // Feedback right away: a "working" turn appears the moment you send (before the hooks confirm it), with a Stop that
   // interrupts Claude and puts your text back in the box. Esc in the box does the same.
   const since = (lv && ((lv.turn && lv.turn.startedAt) || (lv.state === 'working' && lv.since))) || t.since || (justSent ? PENDING[name][0].ts : null);
@@ -1589,6 +1589,7 @@ function renderConversation(box, name, t, o) {
   else if (keptComp !== C.el) keptComp.replaceWith(C.el);
   const stk = FEAT.queue ? FEAT.queue.stack(name, { waiting: inbox.filter(m => !starts(m)), jobs: queued, C, refresh: o.refresh }) : null, oldStk = box.querySelector(':scope > .qstack');
   if (stk) { if (oldStk) oldStk.replaceWith(stk); else C.el.before(stk); } else if (oldStk) oldStk.remove();
+  feat('composerShown', box);
   box.classList.remove('cdrop');
   if (C.el !== keptComp) { C.grow(); if (hadFocus) C.ta.focus({ preventScroll: true }); }
   scroller.scrollTop = atBottom ? scroller.scrollHeight : prevTop;
@@ -1611,15 +1612,15 @@ function composer(box, name, cl, conv, scroller, o, busy, justSent, jobs, prevDr
   const shellMode = () => cl.mode === 'chat' && !!FEAT.shell && FEAT.shell.is(ta.value);
   let shelling = false;
   const runShell = async () => { if (shelling) return; const v = ta.value; shelling = true; ta.value = ''; grow(); try { if (!(await FEAT.shell.run(name, v))) { if (!ta.value) { ta.value = v; grow(); } ta.focus(); } } finally { shelling = false; } };
-  const send = async () => { if (shellMode()) return runShell(); const v = ta.value.trim(); if (!v) return; if ((claudeOf(name) || {}).menu) { toast('Claude is asking something — pick an option above first', 'err'); return; } ta.value = ''; grow();
+  const send = async () => { if (shellMode()) return runShell(); const typed = ta.value.trim(), v = FEAT.quotes ? FEAT.quotes.message(name, typed) : typed; if (!v) return; if ((claudeOf(name) || {}).menu) { toast('Claude is asking something — pick an option above first', 'err'); return; } const chips = FEAT.quotes?.take(name, typed); ta.value = ''; grow();
     const pm = { text: v, ts: Date.now() }; (PENDING[name] = PENDING[name] || []).push(pm);
-    conv.append(h('div', { class: 'turn user pending' }, h('div', { class: 'who' }, gl('❯ you'), h('span', { class: 'dim' }, ' sending…')), h('div', { class: 'ttext' }, v))); scroller.scrollTop = scroller.scrollHeight;
-    try { const r = await api('send', { session: name, text: v }); if (r && r.id) pm.id = r.id; } catch (e) { toast(e.message, 'err'); PENDING[name] = PENDING[name].filter(x => x !== pm); ta.value = v; grow(); }
+    conv.append(h('div', { class: 'turn user pending' }, h('div', { class: 'who' }, gl('❯ you'), h('span', { class: 'dim' }, ' sending…')), userBody(v))); scroller.scrollTop = scroller.scrollHeight;
+    try { const r = await api('send', { session: name, text: v }); if (r && r.id) pm.id = r.id; } catch (e) { toast(e.message, 'err'); PENDING[name] = PENDING[name].filter(x => x !== pm); ta.value = typed; grow(); FEAT.quotes?.restore(name, chips); }
     for (const ms of [400, 1200, 2500, 5000]) setTimeout(o.refresh, ms); };
   ta.addEventListener('input', grow);
   const busyNow = cl.state === 'working' || cl.state === 'background' || cl.state === 'permission';
-  const queue = async () => { if (shellMode()) return runShell(); const v = ta.value.trim(); if (!v) { toast('type the message first'); ta.focus(); return; } ta.value = ''; grow();
-    try { await api('schedule', { session: name, at: Date.now(), prompts: [v], whenFree: true }); toast('queued — goes out when Claude is free', 'ok'); } catch (e) { ta.value = v; grow(); toast(e.message, 'err'); } };
+  const queue = async () => { if (shellMode()) return runShell(); const typed = ta.value.trim(), v = FEAT.quotes ? FEAT.quotes.message(name, typed) : typed; if (!v) { toast('type the message first'); ta.focus(); return; } const chips = FEAT.quotes?.take(name, typed); ta.value = ''; grow();
+    try { await api('schedule', { session: name, at: Date.now(), prompts: [v], whenFree: true }); toast('queued — goes out when Claude is free', 'ok'); } catch (e) { ta.value = typed; grow(); FEAT.quotes?.restore(name, chips); toast(e.message, 'err'); } };
   const pick = cl.mode === 'chat' && (busy || busyNow) ? followUp() : null;
   const sj = jobs.filter(j => !(j.whenFree && j.state === 'waiting'));
   const first = pick === 'queue' ? queue : send, second = pick === 'queue' ? send : queue;
@@ -1627,7 +1628,7 @@ function composer(box, name, cl, conv, scroller, o, busy, justSent, jobs, prevDr
   const sendBtn = h('button', { class: 'btn primary csend', title: pick === 'queue' ? 'queue it for after this turn (Enter)' : pick ? 'send now — Claude reads it at its next step (Enter)' : 'send (Enter)', onclick: first }, ico('send', 16));
   const stopBtn = busy || busyNow || justSent ? h('button', { class: 'btn csend cstop', title: 'stop Claude (Escape)', onclick: stop }, h('i', { class: 'cstop-sq' })) : null;
   const shBar = FEAT.shell?.bar(name, cl);
-  syncAct = () => { if (shBar) el.classList.toggle('shellmode', shBar.sync(ta.value)); if (!stopBtn) return; const empty = !ta.value.trim(); stopBtn.classList.toggle('hidden', !empty); sendBtn.classList.toggle('hidden', empty); };
+  syncAct = () => { if (shBar) el.classList.toggle('shellmode', shBar.sync(ta.value)); if (!stopBtn) return; const empty = !ta.value.trim() && !FEAT.quotes?.has(name); stopBtn.classList.toggle('hidden', !empty); sendBtn.classList.toggle('hidden', empty); };
   // 📎 attach: any file (photo / screenshot downscaled, everything else as-is) -> ~/dev/.pasted -> its path goes into the message (Claude reads it)
   const fileIn = h('input', { type: 'file', multiple: true, style: 'display:none' });
   const attachFiles = async files => { files = [...files].filter(Boolean); if (!files.length) return;
@@ -1644,7 +1645,7 @@ function composer(box, name, cl, conv, scroller, o, busy, justSent, jobs, prevDr
   const el = h('div', { class: 'cbox2', 'data-k': compKey }, h('div', { class: 'cfield', onclick: ev => { if (ev.target === ev.currentTarget || ev.target.classList.contains('cfoot')) ta.focus(); } }, shBar && shBar.el, ta,
     h('div', { class: 'cfoot' }, keys, cl.state ? modelPicker(name, cl) : null, stopBtn, sendBtn)));
   syncAct();
-  el._c = { el, ta, grow, stop, attachFiles };
+  el._c = { el, ta, grow, stop, attachFiles, sync: () => syncAct(), enter: alt => { if (shellMode()) { ta.focus(); return; } (pick && alt ? second : first)(); } };
   dropZone(box, el);
   return el._c;
 }
@@ -2030,10 +2031,11 @@ function scheduledStrip() {
 }
 // tiny markdown: code fences, inline code, bold, bullets, line breaks — enough for Claude's replies
 function mdLite(t) {
-  const parts = t.split(/(```[\s\S]*?```)/g);
+  const parts = t.split(/(```[\s\S]*?```|^> [^\n]*(?:\n>(?: [^\n]*)?$)*\n*)/gm);
   return parts.map(p => {
     if (p.startsWith('```')) { const m = p.match(/^```(\w+)?\n?([\s\S]*?)```$/); const lang = m && m[1] ? (LANG[m[1]] || m[1]) : null; const code = m ? m[2] : p.slice(3, -3); return `<pre class="mcode hljs">${hlLines(code.replace(/\n$/, ''), lang).join('\n')}</pre>`; }
     let x = esc(p);
+    if (x.startsWith('&gt; ')) x = '<blockquote class="mquote">\n' + x.trimEnd().replace(/^&gt; ?/gm, '') + '\n</blockquote>';
     // pipe tables: header row + separator row + body rows
     x = x.replace(/(?:^|\n)((?:\|[^\n]*\|\s*\n)+)/g, (m, block) => { const rows = block.trim().split('\n').map(r => r.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim())); if (rows.length < 2 || !rows[1].every(c => /^:?-{2,}:?$/.test(c))) return m; const head = rows[0], body = rows.slice(2); return '\n<table class="mtbl"><thead><tr>' + head.map(c => '<th>' + c + '</th>').join('') + '</tr></thead><tbody>' + body.map(r => '<tr>' + r.map(c => '<td>' + c + '</td>').join('') + '</tr>').join('') + '</tbody></table>\n'; });
     // links: [text](url) and bare URLs, http(s) only so a link can't run script here; `code` spans are matched first and left for the rule below
@@ -2047,8 +2049,8 @@ function mdLite(t) {
     });
     x = x.replace(/`([^`\n]+)`/g, '<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>').replace(/^(#{1,4}) (.+)$/gm, '<b class="mh">$2</b>').replace(/^[-*] (.+)$/gm, '<span class="mli">• $1</span>').replace(/^(\d+)\. (.+)$/gm, '<span class="mli"><span class="mnum">$1.</span> $2</span>');
     x = x.replace(/\u0000(\d+)\u0000/g, (m, i) => links[i] ?? '');
-    return x.replace(/\n(?=<table)/g, '').replace(/(<\/table>)\n/g, '$1').replace(/\n/g, '<br>');
-  }).join('');
+    return x.replace(/\n(?=<table)/g, '').replace(/(<\/table>)\n/g, '$1').replace(/^(<blockquote class="mquote">)\n/, '$1').replace(/\n<\/blockquote>$/, '</blockquote>').replace(/\n/g, '<br>');
+  }).join('').replace(/(?:<br>)+(?=<blockquote class="mquote">)/g, '');
 }
 
 // A past conversation from search (no live session): read-only view + "Resume here" (claude --resume in that folder)

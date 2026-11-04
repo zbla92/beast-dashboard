@@ -700,7 +700,6 @@ main { padding: 8px 28px 60px; }
 .tk-run { color: var(--dim); } .tk-run.on { color: var(--cyan); } .tk-run a { color: inherit; text-decoration: underline; }
 .tk-acts { display: flex; gap: 6px; flex: none; }
 .tk-body { position: relative; max-height: 7.5em; overflow: hidden; padding-left: 54px; font-size: var(--fs-md); color: var(--muted); white-space: pre-wrap; line-height: 1.55; cursor: pointer; }
-.tk-body::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 2em; background: linear-gradient(transparent, var(--panel)); }
 .tk-files { display: flex; flex-wrap: wrap; gap: 8px; padding-left: 54px; }
 .tk-files img { height: 64px; border-radius: var(--r); display: block; object-fit: cover; }
 .tk-files.edit { padding-left: 0; margin-top: 8px; } .tk-files.edit img { height: 48px; }
@@ -977,7 +976,7 @@ body.focus .termpanel { left: 0; }
 .termbar .tmore { position: relative; }
 .termbar .tdot { position: absolute; top: -2px; right: -2px; width: var(--sp-2); height: var(--sp-2); border-radius: 50%; background: var(--amber); box-shadow: 0 0 0 2px var(--bg2); }
 .termbar .tmore:hover { background: var(--fill2); border-color: color-mix(in srgb, var(--line2) 60%, var(--muted)); }
-.termbar .tmore svg:last-child { color: var(--muted); }
+.termbar .tmore svg ~ svg { color: var(--muted); }
 .ctxm { display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 10px 0 7px; border-radius: 999px; border: 1px solid var(--line2); background: var(--fill); color: var(--muted); font: inherit; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; cursor: pointer; white-space: nowrap; transition: background .15s, border-color .15s; }
 .ctxm:hover { background: var(--fill2); border-color: color-mix(in srgb, var(--line2) 60%, var(--muted)); color: var(--text); }
 .ctxm b { font-weight: 600; color: var(--text); }
@@ -1162,7 +1161,6 @@ body.term-open { overflow: hidden; }
 .ckeys .qk.cfocus.on, .ckeys .qk.cfocus.on .ico { color: var(--text); }
 .ckeys .qk.cfocus.on { background: color-mix(in srgb, var(--accent) 20%, transparent); }
 .ckeys .qk.mic { width: auto; min-width: 44px; padding: 0 11px; gap: 6px; background: var(--fill); border: 0; }
-.ckeys .qk.mic .ico { color: var(--red); }
 .mic { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .mic .mlbl { font-size: var(--fs-xs); font-weight: 500; color: var(--muted); }
 .mic.rec { color: var(--red); background: color-mix(in srgb, var(--red) 15%, transparent) !important; animation: pulse 1s ease-in-out infinite; }
@@ -1410,13 +1408,17 @@ body.recording .ckeys > :not(.mic) { pointer-events: none; opacity: .4; }
   .termbar .msess .grp { color: var(--dim); font-weight: 500; } .termbar .msess .caret { color: var(--dim); font-size: var(--fs-2xs); }
   .termbar > .av, .termbar .tname, .termbar .btn.danger { display: none !important; }
   .termbar .seg { padding: 2px; } .termbar .segb { height: 30px; padding: 0 9px; }
-  .termbar .btn.sm { height: 34px; }
+  .termbar .btn.sm { height: 36px; }
   .termbar .ctxm { height: 32px; padding: 0 4px; gap: 5px; border: 0; background: none; font-size: var(--fs-sm); } .termbar .ctxm .of { display: none; }
   .termbar .msess .nm { flex: 1 1 auto; min-width: 44px; }
   .termbar .msess .tacc { display: none; }
-  .termbar .tmore { height: 34px; width: 34px; padding: 0; justify-content: center; } .termbar .tmore svg:last-child { display: none; }
-  .termbar .btn.mob { width: 30px; padding: 0; justify-content: center; }
-  .termbar .cvfiles { width: 34px; padding: 0; } .termbar .cvfiles .pill { display: none; }
+  .termbar .tmore { width: 36px; padding: 0; justify-content: center; border-color: transparent; background: transparent; color: var(--muted); } .termbar .tmore svg ~ svg { display: none; }
+  .termbar .tmore:hover { background: var(--fill2); border-color: transparent; color: var(--text); }
+  .termbar .tdot { top: var(--sp-1); right: var(--sp-1); }
+  .termbar .btn.mob { width: 36px; padding: 0; justify-content: center; }
+  .termbar .cvfiles { width: 36px; padding: 0; } .termbar .cvfiles .pill { display: none; }
+  .termbar .cst { padding: 0 var(--sp-1); background: none; } .termbar .cst b { display: none; } .termbar .cst i { width: var(--sp-2); height: var(--sp-2); }
+  .termbar .cst.needs-you, .termbar .cst.permission { color: var(--st-need); animation: none; }
   .termside-head { padding: 10px 12px; flex-wrap: nowrap; } .termside-head .btn { flex: none; } .termside-head .sp { flex: 1 1 auto; }
   .titem { padding: 12px 12px 12px 14px; }
   select.mob.tsel { flex: 1 1 auto; min-width: 0; }
@@ -1441,7 +1443,6 @@ body.recording .ckeys > :not(.mic) { pointer-events: none; opacity: .4; }
 }
 @media (max-width: 380px) {
   .termbar { gap: 4px; padding: 6px; }
-  .termbar .cst b { display: none; }
   .termbar .msess { min-width: 72px; gap: 6px; }
 }
 @keyframes sheet { from { transform: translateY(40px); opacity: .4; } }

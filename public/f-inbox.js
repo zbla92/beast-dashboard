@@ -149,7 +149,7 @@
       if (!banner) {
         banner = h('section', { class: 'ibx-banner', 'data-slot': 'hero' },
           h('h2', { class: 'ibx-bt' }), h('div', { class: 'ibx-hrows' }),
-          h('button', { class: 'btn ibx-go', title: 'reply to each of them here', onclick: openInbox }, ico('chat', 15), 'Reply in Inbox'));
+          h('button', { class: 'btn primary ibx-go', title: 'reply to each of them here', onclick: openInbox }, ico('chat', 15), 'Reply in Inbox'));
         banner._key = '';
       }
       const t = n === 1 ? 'One agent needs you' : `${n} agents need you`;

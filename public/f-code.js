@@ -694,8 +694,8 @@ FEAT.code = (() => {
     return true;
   }
 
-  const rightOpen = which => { if (which !== 'files' && WS.on) toggleWs(false); };
-  const filesOn = () => WS.on && !phone();
+  const rightOpen = which => { if (which !== 'files' && panelOn()) toggleWs(false); };
+  const filesOn = panelOn;
 
   return { open: V.open, back: V.back, onState, rightOpen, filesOn, deepLink, termBar, termBarKey, toolOpen, openAbs, togglePanel: toggleWs, state: V.C, panel: P.C };
 })();

@@ -816,7 +816,7 @@
     if (phone && !list.length) PH.name = null;
     const preview = APV.plan;
     const filesWin = !phone && !preview && filesOn();
-    if (filesWin && OPEN[name]) { OPEN[name] = false; persistOpen(); }
+    if (filesWin && isOpen(name, !!own)) { OPEN[name] = false; persistOpen(); }
     const open = panelOpen(name, own, list, phone);
     const bar = $('#term-bar');
     if (bar && !phone) main.style.setProperty('--fp2-top', (bar.offsetTop + bar.offsetHeight) + 'px');
@@ -850,7 +850,7 @@
     if (wasPreview && !(orgPlans(ST.sums, S.projects || [], own, sessionProject(name)).length && isOpen(name, !!own))) { panelChanged(); return; }
     if (isPhone()) PH.name = PH.name === name ? null : name;
     else {
-      OPEN[name] = !isOpen(name, !!own);
+      OPEN[name] = !panelOpen(name, own, orgPlans(ST.sums, S.projects || [], own, sessionProject(name)), false);
       persistOpen();
       if (OPEN[name]) feat('rightOpen', 'plan');
     }

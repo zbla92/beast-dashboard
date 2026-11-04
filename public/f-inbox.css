@@ -1,11 +1,9 @@
 /* f-inbox.css — styles for public/f-inbox.js only (prefix every selector with the feature's own class). */
 /* Home hero: the one loud thing on the page — who is waiting for you. */
-.ibx-banner { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "t go" "rows rows"; align-items: center; row-gap: 10px; padding: 18px 20px 8px; border-radius: var(--r-lg, 20px); background: color-mix(in srgb, var(--signal) 8%, var(--panel)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--signal) 16%, transparent); }
-.ibx-bt { grid-area: t; margin: 0; font-size: var(--fs-2xl); font-weight: 600; letter-spacing: -.025em; line-height: 1.15; color: var(--signal); }
+.ibx-banner { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "t go" "rows rows"; align-items: center; row-gap: 10px; padding: var(--sp-4) var(--sp-5) var(--sp-2); border-radius: var(--r-lg); background: var(--panel); border: 1px solid var(--line2); border-left: 3px solid var(--signal); }
+.ibx-bt { grid-area: t; margin: 0; font-size: var(--fs-xl); font-weight: 600; letter-spacing: -.01em; line-height: 1.25; color: var(--text); }
 .ibx-hrows { grid-area: rows; }
-.btn.ibx-go { grid-area: go; height: 38px; padding: 0 16px; border: 0; border-radius: var(--r); background: var(--signal); color: var(--on-signal); font-weight: 600; }
-.btn.ibx-go:hover { background: color-mix(in srgb, var(--signal) 85%, #fff); }
-.btn.ibx-go .ico { color: var(--on-signal); }
+.btn.ibx-go { grid-area: go; }
 .ibx-hrows { display: flex; flex-direction: column; }
 .ibx-hrow { display: grid; grid-template-columns: 24px minmax(110px, 210px) minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%; padding: 11px 6px; border: 0; border-top: 1px solid color-mix(in srgb, var(--signal) 14%, transparent); background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; border-radius: 0; }
 .ibx-hrow:hover { background: color-mix(in srgb, var(--signal) 6%, transparent); }
@@ -57,8 +55,7 @@
 .ibx-row.st-permission:not(.ibx-tell) .ibx-reply, .ibx-row.st-permission:not(.ibx-tell) .ibx-acts .mic, .ibx-row.st-permission:not(.ibx-tell) .ibx-send { display: none; }
 
 @media (max-width: 900px) {
-  .ibx-banner { grid-template-columns: 1fr; grid-template-areas: "t" "rows" "go"; row-gap: 4px; padding: 14px 14px 14px; border-radius: var(--r-lg); }
-  .ibx-bt { font-size: var(--fs-2xl); }
+  .ibx-banner { grid-template-columns: 1fr; grid-template-areas: "t" "rows" "go"; row-gap: 4px; padding: var(--sp-3); }
   .btn.ibx-go { justify-content: center; height: 44px; margin-top: 6px; }
   .ibx-hrow { grid-template-columns: 24px minmax(0, 1fr) auto; row-gap: 2px; padding: 10px 2px; }
   .ibx-hs { grid-row: 1; grid-column: 3; }

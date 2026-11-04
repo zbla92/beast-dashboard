@@ -1504,12 +1504,20 @@ test('Files winning: a plan open by flag or by auto-open stays closed while File
   assert.deepStrictEqual(flagged.calls.saved.at(-1), { 'claude-a': false });
   const auto = await lifeBoot({ sums: ownPlan(), files: true, detail: stepDetail() });
   assert.strictEqual(auto.panel(), null);
-  assert.deepStrictEqual(auto.calls.saved, []);
+  assert.deepStrictEqual(auto.calls.saved.at(-1), { 'claude-a': false });
   auto.filesState.on = false;
   auto.p.onState();
   await tick();
-  auto.p.rightOpen('files');
+  assert.strictEqual(auto.panel(), null);
   assert.deepStrictEqual(auto.calls.feat, []);
+});
+
+test('the first Plan press with Files on opens the plan and closes Files', async () => {
+  const t = await lifeBoot({ sums: ownPlan(), files: true, detail: stepDetail() });
+  planBtn(t).attrs.onclick();
+  await tick();
+  assert.deepStrictEqual(t.calls.feat, [['rightOpen', 'plan']]);
+  assert.ok(t.calls.saved.some(x => x['claude-a'] === true));
 });
 
 test('a phone ignores the right-panel hook', async () => {

@@ -16,7 +16,6 @@
 .ns-ta { flex: 1 1 auto; min-height: 140px; resize: none; font-size: var(--fs-lg); line-height: 1.5; padding: 12px 14px; border-radius: var(--r-lg); }
 .ns-bar { display: flex; align-items: center; gap: 10px; }
 .ns-bar .mic { width: auto; min-width: 44px; height: 38px; padding: 0 11px; background: var(--fill); border: 0; border-radius: var(--r); }
-.ns-bar .mic .ico { color: var(--red); }
 .ns-chip { display: inline-flex; align-items: center; gap: 8px; max-width: 70%; height: 38px; padding: 0 12px 0 10px; border-radius: var(--r); border: 1px solid var(--line2); background: var(--fill); color: var(--text); font: inherit; font-size: var(--fs-md); cursor: pointer; }
 .ns-chip:hover { background: var(--fill2); }
 .ns-chip.guess { border-style: dashed; }

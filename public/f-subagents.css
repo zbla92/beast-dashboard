@@ -1,15 +1,15 @@
 /* f-subagents.css — styles for public/f-subagents.js only (every selector starts with .sa-). */
-.sa-chip { color: var(--purple); }
+.sa-chip { color: var(--muted); }
 .sa-chip.sa-run { color: var(--cyan); border-color: color-mix(in srgb, var(--cyan) 35%, transparent); }
 
 /* family colours */
-.sa-bg-opus, .sa-f-opus { --sa-c: var(--purple); }
-.sa-bg-sonnet, .sa-f-sonnet { --sa-c: var(--blue); }
-.sa-bg-haiku, .sa-f-haiku { --sa-c: var(--green); }
-.sa-bg-fable, .sa-f-fable { --sa-c: var(--orange); }
-.sa-bg-other, .sa-f-other, .sa-f-none { --sa-c: var(--dim); }
-.sa-bg-main { --sa-c: var(--blue); }
-.sa-bg-sub { --sa-c: var(--pink); }
+.sa-bg-opus, .sa-f-opus { --sa-c: var(--text); }
+.sa-bg-sonnet, .sa-f-sonnet { --sa-c: var(--muted); }
+.sa-bg-haiku, .sa-f-haiku { --sa-c: var(--dim); }
+.sa-bg-fable, .sa-f-fable { --sa-c: var(--accent); }
+.sa-bg-other, .sa-f-other, .sa-f-none { --sa-c: color-mix(in srgb, var(--dim) 65%, transparent); }
+.sa-bg-main { --sa-c: var(--muted); }
+.sa-bg-sub { --sa-c: var(--accent); }
 i[class*="sa-bg-"] { background: var(--sa-c); display: block; }
 .sa-f-none { background: var(--fill); display: block; }
 .sa-mod { font-size: var(--fs-2xs); font-weight: 600; padding: 2px 7px; border-radius: var(--r-sm); color: var(--sa-c); background: color-mix(in srgb, var(--sa-c) 14%, transparent); white-space: nowrap; }
@@ -69,10 +69,10 @@ i[class*="sa-bg-"] { background: var(--sa-c); display: block; }
 .sa-lplot { position: relative; height: 92px; margin: 14px 10px 0; }
 .sa-lsvg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
 .sa-lgrid { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
-.sa-ga { stop-color: var(--purple); stop-opacity: .32; } .sa-gb { stop-color: var(--purple); stop-opacity: 0; }
-.sa-ltot { fill: none; stroke: var(--purple); stroke-width: 2.25; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
-.sa-lsub { fill: none; stroke: var(--pink); stroke-width: 1.5; stroke-dasharray: 4 3; stroke-linecap: round; vector-effect: non-scaling-stroke; opacity: .9; }
-.sa-ldot { position: absolute; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border-radius: 50%; background: var(--purple); box-shadow: 0 0 0 3px var(--panel); }
+.sa-ga { stop-color: var(--text); stop-opacity: .14; } .sa-gb { stop-color: var(--text); stop-opacity: 0; }
+.sa-ltot { fill: none; stroke: var(--text); stroke-width: 2.25; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.sa-lsub { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 4 3; stroke-linecap: round; vector-effect: non-scaling-stroke; opacity: .9; }
+.sa-ldot { position: absolute; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border-radius: 50%; background: var(--text); box-shadow: 0 0 0 3px var(--panel); }
 .sa-lval { position: absolute; transform: translate(-50%, -150%); font-size: var(--fs-sm); font-weight: 600; color: var(--text); white-space: nowrap; pointer-events: none; }
 .sa-lval.end { transform: translate(-100%, -150%); }
 .sa-lval.peak { color: var(--muted); font-weight: 500; }
@@ -83,4 +83,4 @@ i[class*="sa-bg-"] { background: var(--sa-c); display: block; }
 .sa-lday:first-child { transform: none; } .sa-lday:last-child { transform: translateX(-100%); }
 .sa-lday.on { color: var(--text); font-weight: 500; }
 .sa-lk { width: 14px !important; height: 3px !important; border-radius: 2px; }
-.sa-lk.tot { background: var(--purple); } .sa-lk.sub { background: var(--pink); }
+.sa-lk.tot { background: var(--text); } .sa-lk.sub { background: var(--accent); }
