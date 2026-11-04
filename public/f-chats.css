@@ -1,0 +1,2 @@
+.cupd { position: fixed; z-index: 45; height: 20px; display: flex; align-items: center; justify-content: center; box-sizing: border-box; font-size: 11.5px; font-weight: 500; color: var(--text); background: color-mix(in srgb, var(--accent) 22%, var(--panel2)); border-bottom: 1px solid var(--line2); pointer-events: none; opacity: 0; visibility: hidden; transition: opacity .18s, visibility 0s .18s; }
+.cupd.on { opacity: 1; visibility: visible; transition-delay: 0s; }

@@ -25,6 +25,7 @@ const boot = (opts = {}) => {
     FEAT, h, Date: FakeDate, document: doc, navigator: nav,
     performance: { now: () => opts.sincePageStart || 0 },
     LIVE: { connected: !!opts.live },
+    SAVED: opts.stale ? { stale: true } : undefined,
     reconnect: () => reconnects.push(now),
     setInterval: f => timers.push(f),
     addEventListener: (n, f) => { listeners['w:' + n] = f; },
@@ -196,4 +197,25 @@ test('app.js reconnect while the stream is live: the bar shows connecting, then 
   assert.strictEqual(bar.dataset.kind, 'unreachable');
   vm.runInContext('liveUp()', ctx);
   assert.strictEqual(bar.dataset.kind, 'connected');
+});
+
+test('stale appends the last-known note to connecting, unreachable and offline, never to Connected', () => {
+  const t = boot();
+  t.conn.stale(true);
+  t.advance(1000);
+  assert.strictEqual(t.text.textContent, 'Connecting to beast… 1s · showing last known state');
+  t.advance(8000);
+  assert.strictEqual(t.text.textContent, "Can't reach beast — is Tailscale on? · showing last known state");
+  t.conn.stale(false);
+  t.tick();
+  assert.strictEqual(t.text.textContent, "Can't reach beast — is Tailscale on?");
+  t.conn.stale(true);
+  t.conn.live();
+  assert.strictEqual(t.text.textContent, 'Connected');
+});
+
+test('a page that restored cached state before f-conn loaded starts out stale', () => {
+  const t = boot({ stale: true });
+  t.advance(1000);
+  assert.strictEqual(t.text.textContent, 'Connecting to beast… 1s · showing last known state');
 });

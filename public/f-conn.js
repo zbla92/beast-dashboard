@@ -10,7 +10,13 @@ FEAT.conn = (() => {
   const bar = h('div', { id: 'conn', class: 'conn', role: 'status', 'aria-live': 'polite' }, text, retry);
   document.body.append(bar);
 
+  const STALE_NOTE = ' · showing last known state';
+  const mark = { stale: typeof SAVED !== 'undefined' && SAVED.stale };
   const compute = t => {
+    const v = measure(t);
+    return mark.stale && v.label && v.kind !== 'connected' ? { kind: v.kind, label: v.label + STALE_NOTE } : v;
+  };
+  const measure = t => {
     if (navigator.onLine === false) return { kind: 'offline', label: "You're offline" };
     if (!base) return t < until ? { kind: 'connected', label: 'Connected' } : { kind: 'hidden', label: '' };
     const ms = t - since;
@@ -48,6 +54,7 @@ FEAT.conn = (() => {
   update();
 
   return {
+    stale(on) { mark.stale = !!on; update(); },
     live() { base = null; update(); },
     liveDown() { if (base) return; base = 'reconnecting'; since = Date.now(); update(); },
     reconnect() { if (base) return; base = 'connecting'; since = Date.now(); update(); },
