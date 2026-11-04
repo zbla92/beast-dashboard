@@ -9,6 +9,7 @@ const settings = require('./lib/settings');
 const discovery = require('./lib/discovery');
 const newproject = require('./lib/newproject');
 const git = require('./lib/gitinfo');
+const gitops = require('./lib/gitops');
 const rt = require('./lib/runtime');
 const sys = require('./lib/sys');
 const hogs = require('./lib/hogs');
@@ -717,9 +718,19 @@ async function api(req, res, url) {
     req.on('close', () => child.kill());
     return;
   }
+  if (m === 'POST' && parts[0] === 'git' && parts[1] && parts[2] === 'op' && parts.length === 3) {
+    const r = await gitops.op(parts[1], await body(req, 1e6));
+    if (r.status === 200) { await refreshGitOne(parts[1]).catch(() => {}); pushState(true); }
+    return json(res, r.status, r.body);
+  }
+  if (m === 'GET' && parts[0] === 'git' && parts[1] && parts[2] === 'log') {
+    const dir = await gitops.rootDir(parts[1]); if (!dir) return json(res, 404, { error: 'no project' });
+    return json(res, 200, await gitops.log(dir, { skip: url.searchParams.get('skip'), limit: url.searchParams.get('limit') }));
+  }
   if (m === 'GET' && parts[0] === 'git' && parts[1] && parts[2] === 'branches') {
     const p = await roots.rootOf(parts[1]); if (!p) return json(res, 404, { error: 'no project' });
-    return json(res, 200, await git.branches(p.path));
+    const dir = await gitops.rootDir(parts[1]);
+    return json(res, 200, { ...await git.branches(p.path), ...(dir ? await gitops.branches(dir) : {}) });
   }
   if (m === 'GET' && parts[0] === 'git' && parts[1] && parts[2] === 'changes') {
     const p = await roots.rootOf(parts[1]); if (!p) return json(res, 404, { error: 'no project' });
@@ -727,19 +738,20 @@ async function api(req, res, url) {
   }
   if (m === 'GET' && parts[0] === 'git' && parts[1] && parts[2] === 'diff') {
     const p = await roots.rootOf(parts[1]); if (!p) return json(res, 404, { error: 'no project' });
-    const file = url.searchParams.get('file') || ''; const kind = url.searchParams.get('kind') || 'unstaged';
-    if (!file || file.includes('..') || path.isAbsolute(file)) return json(res, 400, { error: 'bad path' });
-    return json(res, 200, await git.fileDiff(p.path, file, kind));
+    const file = gitops.safeFile(p.path, url.searchParams.get('file')); const kind = url.searchParams.get('kind') || 'unstaged';
+    if (file === null) return json(res, 400, { error: 'bad path' });
+    return json(res, 200, await git.fileDiff(p.path, file, kind, url.searchParams.get('ws') === '1'));
   }
   if (m === 'GET' && parts[0] === 'git' && parts[1] && parts[2] === 'commit' && parts[3]) { // one commit: message + files
     const p = await roots.rootOf(parts[1]); if (!p) return json(res, 404, { error: 'no project' });
-    const file = url.searchParams.get('file');
-    return json(res, 200, file ? await git.commitFileDiff(p.path, parts[3], file) : await git.commit(p.path, parts[3]));
+    const raw = url.searchParams.get('file'); const file = raw ? gitops.cleanRel(raw) : null;
+    if (raw && file === null) return json(res, 400, { error: 'bad path' });
+    return json(res, 200, file ? await git.commitFileDiff(p.path, parts[3], file, url.searchParams.get('ws') === '1') : await git.commit(p.path, parts[3]));
   }
   if (m === 'GET' && parts[0] === 'git' && parts[1] && parts[2] === 'headdiff') { // working tree vs HEAD for one file
     const p = await roots.rootOf(parts[1]); if (!p) return json(res, 404, { error: 'no project' });
-    const file = url.searchParams.get('file') || ''; if (!file || file.includes('..') || path.isAbsolute(file)) return json(res, 400, { error: 'bad path' });
-    return json(res, 200, await git.headDiff(p.path, file, url.searchParams.get('untracked') === '1'));
+    const file = gitops.safeFile(p.path, url.searchParams.get('file')); if (file === null) return json(res, 400, { error: 'bad path' });
+    return json(res, 200, await git.headDiff(p.path, file, url.searchParams.get('untracked') === '1', url.searchParams.get('ws') === '1'));
   }
   if (m === 'GET' && parts[0] === 'tree' && parts[1]) { // Files tab: one directory level, with git change marks
     const p = await fsRoot(parts[1]); if (!p) return json(res, 404, { error: 'no project' });

@@ -149,6 +149,33 @@ r="$(hlpost hl-shell '{"session":"claude-gate-nope","cmd":"   "}') $(hlpost hl-s
 [ "$r" = "400 400 400 400" ] && ok "POST hl-shell / -stop / -drop bad input -> 400" || fail "POST hl-shell bad input -> $r"
 r="$(hlpost hl-shell-stop '{"session":"claude-gate-nope","id":"s-1"}') $(hlpost hl-shell-drop '{"session":"claude-gate-nope","id":"s-1"}')"
 [ "$r" = "400 400" ] && ok "POST hl-shell-stop / -drop non-chat session -> 400" || fail "POST hl-shell-stop / -drop non-chat session -> $r"
+gop() { local id="$1" d="$2"; shift 2; curl -s -m 30 -o /tmp/gate-$$.body -w '%{http_code}' -X POST -H 'content-type: application/json' "$@" -d "$d" "$B/api/git/$id/op"; }
+json /api/git/gate-nope/branches 404
+json /api/git/gate-nope/log 404
+r="$(gop gate-nope '{"op":"stage","all":true}')"; [ "$r" = 404 ] && ok "POST git op on unknown root -> 404" || fail "POST git op on unknown root -> $r $(head -c 200 /tmp/gate-$$.body)"
+for id in %2e%2e "$GITP~deadbeef"; do
+  r="$(gop "$id" '{"op":"nope"}')"; [ "$r" = 404 ] && ok "POST git op on unknown root $id -> 404" || fail "POST git op on unknown root $id -> $r $(head -c 200 /tmp/gate-$$.body)"
+done
+head -c 1100000 /dev/zero | tr '\0' 'x' > /tmp/gate-$$.big
+r="$(curl -s -m 15 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -H 'Expect:' --data-binary @/tmp/gate-$$.big "$B/api/git/gate-nope/op")"
+[ "$r" = 413 ] && ok "POST git op over 1 MB -> 413" || fail "POST git op over 1 MB -> $r"
+if [ -n "$GITP" ]; then
+  json "/api/git/$GITP/branches"
+  [ "$(jq_ 'Array.isArray(d.local)&&Array.isArray(d.remote)&&"default" in d&&"current" in d&&Array.isArray(d.branches)&&d.branches.every(b=>typeof b.name==="string"&&typeof b.remote==="boolean"&&typeof b.current==="boolean"&&"worktree" in b&&"upstream" in b&&typeof b.ahead==="number"&&typeof b.behind==="number"&&typeof b.at==="number")&&d.branches.length<=600')" = true ] && ok "git branches shape" || fail "git branches shape $(head -c 200 /tmp/gate-$$.body)"
+  json "/api/git/$GITP/log?skip=0&limit=5"
+  [ "$(jq_ 'Array.isArray(d.commits)&&d.commits.length<=5&&typeof d.more==="boolean"&&d.commits.every(c=>typeof c.hash==="string"&&typeof c.subject==="string"&&typeof c.author==="string"&&typeof c.at==="number"&&typeof c.unpushed==="boolean"&&Array.isArray(c.parents))')" = true ] && ok "git log shape" || fail "git log shape $(head -c 200 /tmp/gate-$$.body)"
+  json "/api/git/$GITP/log?limit=100000"
+  [ "$(jq_ 'd.commits.length<=200')" = true ] && ok "git log limit capped at 200" || fail "git log limit not capped"
+  json "/api/git/$GITP/diff?file=gate-nope.txt&kind=unstaged&ws=1"
+  json "/api/git/$GITP/headdiff?file=gate-nope.txt&ws=1"
+  r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' "$B/api/git/$GITP/diff?file=../../etc/passwd")"; [ "$r" = 400 ] && ok "git diff traversal -> 400" || fail "git diff traversal -> $r"
+  for d in '{"op":"nope"}' '{"op":"constructor"}'; do
+    r="$(gop "$GITP" "$d")"; [ "$r" = 400 ] && ok "POST git op $d -> 400" || fail "POST git op $d -> $r $(head -c 200 /tmp/gate-$$.body)"
+  done
+  for h in "Origin: https://evil.example" "Sec-Fetch-Site: cross-site"; do
+    r="$(gop "$GITP" '{"op":"nope"}' -H "$h")"; [ "$r" = 403 ] && ok "POST git op with $h -> 403" || fail "POST git op with $h -> $r"
+  done
+fi
 
 echo "== guards"
 post403() { local r; r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' "$@" -d '{"id":"nope"}' "$B/api/worktree-prune")"; [ "$r" = 403 ]; }
@@ -192,6 +219,48 @@ r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: appli
 json /api/version
 [ "$r" = 200 ] && [ "$(jq_ 'd.deviceCache')" = false ] && [ "$(shell)" = off ] && ok "hand-set deviceCache:false survives POST /api/settings" || fail "deviceCache:false after POST /api/settings ($r): deviceCache=$(jq_ 'd.deviceCache') x-bd-shell=$(shell)"
 cp "$TMP/settings.keep" "$TMP/state/settings.json"
+
+echo "== git ops on a temp repo"
+GD="$TMP/gate-dev/gate-repo"; GO="$TMP/gate-origin.git"
+mkdir -p "$GD" && git init -q --bare -b main "$GO" && git -C "$GD" init -q -b main
+git -C "$GD" config user.name gate; git -C "$GD" config user.email gate@example.invalid; git -C "$GD" config commit.gpgsign false; git -C "$GD" remote add origin "$GO"
+printf 'one\n' > "$GD/a.txt"; git -C "$GD" add -A; git -C "$GD" commit -qm init; git -C "$GD" push -q -u origin main 2>/dev/null
+r="$(curl -s -m 30 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d "{\"devRoot\":\"$TMP/gate-dev\"}" "$B/api/settings")"
+json /api/state
+GR="$(jq_ "(d.projects.find(p=>p.path===\"$GD\")||{}).id")"
+if [ "$r" != 200 ] || [ -z "$GR" ]; then fail "temp repo not discovered ($r), write ops skipped"; else
+  ok "temp repo discovered as $GR"
+  commits() { git -C "$GD" rev-list --count HEAD; }
+  opok() { local want="$1" d="$2" r; r="$(gop "$GR" "$d")"; [ "$r" = 200 ] && [ "$(jq_ 'd.ok')" = "$want" ]; }
+  printf 'two\n' > "$GD/b.txt"
+  opok true '{"op":"stage","files":["b.txt"]}' && [ "$(git -C "$GD" diff --cached --name-only)" = b.txt ] && ok "stage" || fail "stage $(head -c 200 /tmp/gate-$$.body)"
+  json /api/state
+  [ "$(jq_ "(d.wip.roots.find(x=>x.id===\"$GR\")||{}).staged")" = 1 ] && ok "state shows the stage right after the op" || fail "state not refreshed after stage"
+  for h in "Origin: https://evil.example" "Sec-Fetch-Site: cross-site"; do
+    r="$(gop "$GR" '{"op":"commit","message":"evil"}' -H "$h")"; [ "$r" = 403 ] && [ "$(commits)" = 1 ] && ok "commit with $h -> 403, no commit" || fail "commit with $h -> $r, commits $(commits)"
+  done
+  for d in '{"op":"stage","files":["../../x"]}' '{"op":"branch","name":"-x"}' '{"op":"commit","message":"  "}'; do
+    r="$(gop "$GR" "$d")"; [ "$r" = 400 ] && ok "POST git op $d -> 400" || fail "POST git op $d -> $r $(head -c 200 /tmp/gate-$$.body)"
+  done
+  opok true '{"op":"commit","message":"gate commit"}' && [ "$(commits)" = 2 ] && ok "commit" || fail "commit $(head -c 200 /tmp/gate-$$.body)"
+  opok false '{"op":"commit","message":"again"}' && [ "$(jq_ 'd.error')" = "Nothing is staged" ] && [ "$(commits)" = 2 ] && ok "second commit -> Nothing is staged" || fail "second commit $(head -c 200 /tmp/gate-$$.body)"
+  json "/api/git/$GR/log?limit=1"
+  [ "$(jq_ 'd.commits[0].subject==="gate commit"&&d.commits[0].unpushed===true&&d.more===true')" = true ] && ok "log shows the commit as unpushed" || fail "log unpushed $(head -c 200 /tmp/gate-$$.body)"
+  opok true '{"op":"push"}' && [ "$(git -C "$GO" rev-parse main)" = "$(git -C "$GD" rev-parse HEAD)" ] && ok "push reaches origin" || fail "push $(head -c 200 /tmp/gate-$$.body)"
+  json "/api/git/$GR/log?limit=1"
+  [ "$(jq_ 'd.commits[0].unpushed')" = false ] && ok "log after push" || fail "log after push $(head -c 200 /tmp/gate-$$.body)"
+  opok true '{"op":"pull"}' && ok "pull" || fail "pull $(head -c 200 /tmp/gate-$$.body)"
+  opok true '{"op":"branch","name":"gate-side"}' && [ "$(git -C "$GD" branch --show-current)" = gate-side ] && ok "branch" || fail "branch $(head -c 200 /tmp/gate-$$.body)"
+  opok true '{"op":"checkout","branch":"main"}' && [ "$(git -C "$GD" branch --show-current)" = main ] && ok "checkout" || fail "checkout $(head -c 200 /tmp/gate-$$.body)"
+  json "/api/git/$GR/branches"
+  [ "$(jq_ 'd.current==="main"&&d.branches[0].remote===false&&d.branches.some(b=>b.name==="gate-side"&&!b.current)')" = true ] && ok "branches after the ops" || fail "branches after the ops $(head -c 200 /tmp/gate-$$.body)"
+  printf 'keep\n' > "$GD/u.txt"
+  opok false '{"op":"discard","files":["u.txt"]}' && [ -f "$GD/u.txt" ] && ok "discard untracked without the flag refused" || fail "discard untracked without the flag $(head -c 200 /tmp/gate-$$.body)"
+  opok true '{"op":"discard","files":["u.txt"],"untracked":true}' && [ ! -e "$GD/u.txt" ] && ok "discard untracked with the flag" || fail "discard untracked with the flag $(head -c 200 /tmp/gate-$$.body)"
+  curl -s -m 15 -D /tmp/gate-$$.hdr -o /dev/null -X POST -H 'content-type: application/json' -H "Origin: $B" -d '{"op":"stage","all":true}' "$B/api/git/$GR/op"
+  curl -s -m 15 -D - -o /dev/null -H "Origin: $B" "$B/api/git/$GR/log" >> /tmp/gate-$$.hdr
+  grep -qi '^access-control-allow-origin' /tmp/gate-$$.hdr && fail "git routes send access-control-allow-origin" || ok "git routes send no access-control-allow-origin"
+fi
 
 if grep -qiE 'TypeError|ReferenceError|SyntaxError|UnhandledPromise' "$TMP/server.log"; then fail "errors in server log:"; grep -iE 'TypeError|ReferenceError|SyntaxError|UnhandledPromise' "$TMP/server.log" | head -5 | sed 's/^/      /'; fi
 echo
