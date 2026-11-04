@@ -102,7 +102,7 @@
       h('span', { class: 'fp2-chev' + (open ? ' on' : '') }, ico('chevronDown', 15)));
   }
 
-  const gateChip = g => g ? h('span', { class: 'fp2-gate ' + (g.ok ? 'ok' : 'bad'), title: ['last gate', g.task, g.text, g.at ? clock(g.at) : ''].filter(Boolean).join(' · ') }, `${g.ok ? '✓' : '✗'} ${g.text || 'gate'}`) : null;
+  const gateChip = (g, onOpen) => g ? h('button', { class: 'fp2-gate ' + (g.ok ? 'ok' : 'bad'), title: ['last gate', g.task, g.text, g.at ? clock(g.at) : ''].filter(Boolean).join(' · '), onclick: onOpen }, `${g.ok ? '✓' : '✗'} ${g.text || 'gate'}`) : null;
   const modelChip = m => m ? h('span', { class: 'fp2-model' }, m) : null;
   const spin = () => h('span', { class: 'fp2-spin' });
 
@@ -302,14 +302,95 @@
 
   const EV_LABEL = { start: 'started', done: 'done', fail: 'failed', note: 'note', ask: 'asked', answer: 'answered' };
 
-  function eventLine(e) {
-    const text = e.type === 'done' || e.type === 'fail' ? (e.gate && e.gate.text) || e.text : e.text;
-    return h('div', { class: 'fp2-ev ' + e.type }, h('span', { class: 'fp2-evt' }, clock(e.ts)), h('b', null, EV_LABEL[e.type] || e.type), text ? h('span', { class: 'fp2-evx' }, text) : null);
+  const eventText = e => e.type === 'done' || e.type === 'fail' ? (e.gate && e.gate.text) || e.text : e.text;
+
+  function eventLine(e, onOpen) {
+    const text = eventText(e);
+    return h('button', { class: 'fp2-ev ' + e.type, onclick: onOpen }, h('span', { class: 'fp2-evt' }, clock(e.ts)), h('b', null, EV_LABEL[e.type] || e.type), text ? h('span', { class: 'fp2-evx' }, text) : null);
   }
+
+  const STATUS_LABEL = { todo: 'to do', doing: 'in progress', done: 'done', blocked: 'blocked', failed: 'failed' };
+  const waitsOn = t => t.by && t.by.length && t.status !== 'done' ? 'waits on ' + t.by.join(', ') : '';
+  const findTask = (d, id) => {
+    for (const ph of d.phases) {
+      const t = ph.tasks.find(x => x.id === id);
+      if (t) return { t, ph };
+    }
+    return null;
+  };
+
+  const detailSection = (label, ...kids) => h('div', { class: 'fp2-dsec' }, h('div', { class: 'fp2-dsh' }, label), ...kids);
+
+  function detailEvent(e) {
+    const text = eventText(e);
+    return h('div', { class: 'fp2-dev ' + e.type }, h('span', { class: 'fp2-evt' }, clock(e.ts)), h('b', null, EV_LABEL[e.type] || e.type), h('span', { class: 'fp2-dev-x' }, text || ''));
+  }
+
+  const detailLog = evs => evs.length ? h('div', { class: 'fp2-dlog' }, evs.map(detailEvent)) : h('div', { class: 'dim fp2-dnone' }, 'Nothing logged yet.');
+
+  function phaseSheet(p, d, n, nav) {
+    const ph = d.phases.find(x => x.n === n);
+    if (!ph) return null;
+    const evs = (bucketEvents(d.timeline, d.phases).phase[n] || []).filter(e => e.type !== 'phase');
+    const rows = ph.tasks.map(t => h('button', { class: 'fp2-dtr', onclick: () => nav.task(t.id) },
+      taskIcon(t.status), h('span', { class: 'fp2-id' }, t.id),
+      h('span', { class: 'fp2-dtr-t' }, t.title, waitsOn(t) ? h('small', null, waitsOn(t)) : null),
+      modelChip(t.model), ico('chevronRight', 14)));
+    return {
+      title: 'Phase ' + n, sub: p.topic,
+      body: h('div', { class: 'fp2-dbody' },
+        h('div', { class: 'fp2-dtitle' }, h('span', { class: 'fp2-id' }, 'P' + n), ' ', ph.name),
+        h('div', { class: 'fp2-dmeta' }, `${ph.done}/${ph.total} tasks done`),
+        detailSection('Tasks', h('div', { class: 'fp2-dtrs' }, rows)),
+        detailSection('Log', detailLog(evs))),
+    };
+  }
+
+  function taskSheet(p, d, id, nav) {
+    const f = findTask(d, id);
+    if (!f) return null;
+    const { t, ph } = f;
+    const evs = bucketEvents(d.timeline, d.phases).task[id] || [];
+    const gateEv = [...evs].reverse().find(e => e.gate);
+    const wait = waitsOn(t);
+    const gate = t.gate ? detailSection('Gate',
+      h('div', { class: 'fp2-dgate ' + (t.gate.ok ? 'ok' : 'bad') }, `${t.gate.ok ? '✓' : '✗'} ${t.gate.text || 'gate'}`),
+      gateEv ? h('div', { class: 'fp2-dmeta' }, askedAt(gateEv.ts)) : null) : null;
+    return {
+      title: 'Task ' + id, sub: p.topic,
+      body: h('div', { class: 'fp2-dbody' },
+        h('div', { class: 'fp2-dtitle' }, t.title),
+        h('div', { class: 'fp2-dmeta' }, taskIcon(t.status), STATUS_LABEL[t.status] || t.status, wait ? ' · ' + wait : '', modelChip(t.model),
+          h('button', { class: 'fp2-dlink', onclick: () => nav.phase(ph.n) }, 'P' + ph.n + ' ' + ph.name)),
+        gate,
+        detailSection('Log', detailLog(evs)),
+        detailSection('Task card', t.body ? h('div', { class: 'fp2-body-t' }, t.body) : h('div', { class: 'dim fp2-dnone' }, 'No task card.'))),
+    };
+  }
+
+  async function openDetail(p, make) {
+    if (!DET[p.id] || !DET[p.id].phases) await ensureDetail(p);
+    const d = DET[p.id];
+    if (!d || !d.phases) return;
+    const s = make(d);
+    if (s) sheet(s);
+  }
+
+  const gateSheet = p => ({
+    title: 'Last gate', sub: p.topic,
+    body: h('div', { class: 'fp2-dbody' },
+      h('div', { class: 'fp2-dgate ' + (p.lastGate.ok ? 'ok' : 'bad') }, `${p.lastGate.ok ? '✓' : '✗'} ${p.lastGate.text || 'gate'}`),
+      p.lastGate.at ? h('div', { class: 'fp2-dmeta' }, askedAt(p.lastGate.at)) : null),
+  });
+
+  const detailNav = p => ({
+    task: id => openDetail(p, d => taskSheet(p, d, id, detailNav(p))),
+    phase: n => openDetail(p, d => phaseSheet(p, d, n, detailNav(p))),
+  });
 
   const taskIcon = s => h('span', { class: 'fp2-si ' + s }, s === 'done' ? ico('check', 12) : s === 'failed' ? '!' : s === 'blocked' ? '?' : s === 'doing' ? spin() : null);
 
-  function taskRow(p, t, evs, rerender) {
+  function taskRow(p, t, evs, rerender, nav) {
     const key = p.id + '|' + t.id;
     const open = !!EXP.tasks[key];
     const isNext = !!(p.next && p.next.id === t.id);
@@ -317,17 +398,18 @@
     const shown = t.status === 'done' ? open ? evs.filter(e => e.type !== 'start') : [] : evs;
     const cur = currentId(p) === t.id;
     return h('div', { class: 'fp2-task ' + t.status + (open ? ' open' : '') + (cur ? ' cur' : '') },
-      h('button', { class: 'fp2-task-h', onclick: () => { EXP.tasks[key] = !open; rerender(); } },
-        taskIcon(t.status), h('span', { class: 'fp2-id' }, t.id), h('span', { class: 'fp2-task-t' }, t.title), isNext ? h('span', { class: 'fp2-nx' }, 'next') : null, modelChip(t.model)),
+      h('div', { class: 'fp2-task-h' },
+        h('button', { class: 'fp2-task-tg', 'aria-expanded': String(open), 'aria-label': `${open ? 'hide' : 'show'} ${t.id} card`, onclick: () => { EXP.tasks[key] = !open; rerender(); } }, taskIcon(t.status), h('span', { class: 'fp2-id' }, t.id)),
+        h('button', { class: 'fp2-task-t', onclick: () => nav.task(t.id) }, t.title), isNext ? h('span', { class: 'fp2-nx' }, 'next') : null, modelChip(t.model)),
       isNext && p.nextNote ? h('div', { class: 'fp2-qd' }, p.nextNote) : null,
       steps.length ? h('div', { class: 'fp2-steps' }, steps.map(s => h('div', { class: 'fp2-step ' + s.s }, s.s === 'completed' ? ico('check', 13) : s.s === 'in_progress' ? spin() : h('i', { class: 'fp2-pt' }), h('span', null, s.c)))) : null,
-      shown.length ? h('div', { class: 'fp2-evs' }, shown.map(eventLine)) : null,
+      shown.length ? h('div', { class: 'fp2-evs' }, shown.map(e => eventLine(e, () => nav.task(t.id)))) : null,
       open ? h('div', { class: 'fp2-task-b' }, t.body ? h('div', { class: 'fp2-body-t' }, t.body) : h('div', { class: 'dim' }, 'No task card.')) : null);
   }
 
   const currentId = p => (p.now && p.now.id) || (p.next && p.next.id) || null;
 
-  function steps(p, d, rerender) {
+  function steps(p, d, rerender, nav) {
     const b = bucketEvents(d.timeline, d.phases);
     const wrap = h('div', { class: 'fp2-sec' });
     wrap.append(h('div', { class: 'fp2-sec-h' }, 'Steps', h('span', { class: 'fp2-sp' }), b.created ? h('span', { class: 'dim' }, 'started ' + clock(b.created.ts)) : null));
@@ -337,29 +419,34 @@
       const key = p.id + '|' + ph.n;
       const folded = complete && !ph.tasks.some(t => t.id === currentId(p)) && !EXP.phases[key];
       const count = h('span', { class: 'dim' }, `${ph.done}/${ph.total}${done ? ' · done ' + clock(done.ts) : ''}`);
-      const title = h('span', { class: 'fp2-pn' }, h('span', null, 'P' + ph.n), ' ', h('b', null, ph.name));
+      const title = h('button', { class: 'fp2-pn', title: `P${ph.n} ${ph.name}`, onclick: () => nav.phase(ph.n) }, h('span', null, 'P' + ph.n), ' ', h('b', null, ph.name));
+      const fold = () => { EXP.phases[key] = folded; rerender(); };
+      const foldLabel = `${folded ? 'show' : 'hide'} phase ${ph.n} tasks`;
       const head = complete
-        ? h('button', { class: 'fp2-ph-h fold', onclick: () => { EXP.phases[key] = folded; rerender(); } }, taskIcon('done'), title, count, h('span', { class: 'fp2-chev' + (folded ? '' : ' on') }, ico('chevronDown', 14)))
+        ? h('div', { class: 'fp2-ph-h fold' },
+          h('button', { class: 'fp2-ph-tg', 'aria-label': foldLabel, onclick: fold }, taskIcon('done')), title,
+          h('button', { class: 'fp2-ph-tg', 'aria-label': foldLabel, onclick: fold }, count, h('span', { class: 'fp2-chev' + (folded ? '' : ' on') }, ico('chevronDown', 14))))
         : h('div', { class: 'fp2-ph-h' }, title, count);
       const evs = (b.phase[ph.n] || []).filter(e => e.type !== 'phase');
       wrap.append(h('div', { class: 'fp2-ph' + (folded ? ' folded' : '') }, head,
-        folded ? null : evs.length ? h('div', { class: 'fp2-evs ph' }, evs.map(eventLine)) : null,
-        folded ? null : ph.tasks.map(t => taskRow(p, t, b.task[t.id] || [], rerender))));
+        folded ? null : evs.length ? h('div', { class: 'fp2-evs ph' }, evs.map(e => eventLine(e, () => nav.phase(ph.n)))) : null,
+        folded ? null : ph.tasks.map(t => taskRow(p, t, b.task[t.id] || [], rerender, nav))));
     }
     return wrap;
   }
 
   function panelBody(p, rerender) {
     const d = DET[p.id] || p;
+    const nav = detailNav(p);
     const out = [];
     out.push(h('div', { class: 'fp2-head' },
       h('span', { class: 'fp2-big' }, h('b', null, p.done), '/' + p.total),
-      h('span', { class: 'dim' }, p.pct + '%'),
-      p.phase ? h('span', { class: 'fp2-phase dim' }, 'P', h('b', null, `${p.phase.n}/${p.phase.of}`), ' ', p.phase.name) : null,
-      gateChip(p.lastGate)));
+      h('span', { class: 'dim fp2-pct' }, p.pct + '%'),
+      p.phase ? h('button', { class: 'fp2-phase', title: `P${p.phase.n} ${p.phase.name}`, onclick: () => nav.phase(p.phase.n) }, 'P', h('b', null, `${p.phase.n}/${p.phase.of}`), ' ', p.phase.name) : null,
+      gateChip(p.lastGate, () => { if (p.lastGate.task) nav.task(p.lastGate.task); else sheet(gateSheet(p)); })));
     out.push(h('div', { class: 'fp2-bar' + (p.complete ? ' full' : '') }, h('i', { style: `width:${p.pct}%` })));
     if (p.waiting.length) out.push(questionsRow(p));
-    if (d.phases) out.push(steps(p, d, rerender));
+    if (d.phases) out.push(steps(p, d, rerender, nav));
     else out.push(h('div', { class: 'dim fp2-load' }, 'loading…'));
     if (d.errors && d.errors.length && d.phases) out.push(h('div', { class: 'fp2-err' }, `${d.errors.length} line${d.errors.length > 1 ? 's' : ''} in plan.md could not be read`));
     return out;
@@ -514,5 +601,5 @@
   setInterval(() => { if (!document.hidden) load(); }, 60000);
   addEventListener('resize', () => sync());
 
-  FEAT.plan2 = { onState, termShown, termBarKey, termItem, plan: onPlan, live, cardChips, planFor, readOpen, ringMarkup, bucketEvents, orgPlans, planNames, answerMsg, questionsRow, sheet, sendToSession, saveAnswer };
+  FEAT.plan2 = { onState, termShown, termBarKey, termItem, plan: onPlan, live, cardChips, planFor, readOpen, ringMarkup, bucketEvents, orgPlans, planNames, answerMsg, questionsRow, sheet, sendToSession, saveAnswer, phaseSheet, taskSheet };
 })();

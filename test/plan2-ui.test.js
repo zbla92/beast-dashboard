@@ -278,3 +278,69 @@ test('saveAnswer posts to plan-answer and reloads the plans', async () => {
   assert.deepStrictEqual(JSON.parse(JSON.stringify(calls.api[0])), ['plan-answer', { id: 'demo-app/search-v2', q: 'q1', text: 'copy them' }]);
   assert.deepStrictEqual(calls.api[1], ['plans?v=2', undefined]);
 });
+
+const detail = {
+  topic: 'checkout',
+  phases: [
+    { n: 1, name: 'Shell and connect with a very long phase title that gets cut off', done: 1, total: 2, tasks: [
+      { id: 'T1', title: 'Build the shell', status: 'done', model: 'Opus', body: 'Card one', by: [], gate: { ok: true, text: 'npm test all green' } },
+      { id: 'T2', title: 'Wire the stepper to the router', status: 'blocked', model: 'Sonnet', body: '', by: ['q1'], gate: null },
+    ] },
+    { n: 2, name: 'Polish', done: 0, total: 0, tasks: [] },
+  ],
+  timeline: [
+    ev('start', { task: 'T1' }), ev('done', { task: 'T1', gate: { ok: true, text: 'npm test all green' } }),
+    ev('ask', { q: 'q1', task: 'T2', text: 'Pin the SDK to v14 or v15 for the checkout flow?' }),
+    ev('note', { text: 'phase level note' }),
+  ],
+};
+const detailBoot = () => {
+  const dom = fakeDom();
+  return { dom, p: boot({ document: dom.document, h: dom.h, ico: dom.ico }) };
+};
+const find = (n, pred, out = []) => {
+  if (n && typeof n === 'object') { if (pred(n)) out.push(n); for (const k of n.kids) find(k, pred, out); }
+  return out;
+};
+const navStub = () => { const calls = []; return { calls, nav: { task: id => calls.push('task ' + id), phase: n => calls.push('phase ' + n) } }; };
+
+test('phaseSheet shows the full title, every task with status and what it waits on, and the phase log in full', () => {
+  const { dom, p } = detailBoot();
+  const { calls, nav } = navStub();
+  const s = p.phaseSheet({ topic: 'checkout' }, detail, 1, nav);
+  const t = dom.text(s.body);
+  assert.strictEqual(s.title, 'Phase 1');
+  assert.ok(t.includes('Shell and connect with a very long phase title that gets cut off'));
+  assert.ok(t.includes('Build the shell') && t.includes('Wire the stepper to the router'));
+  assert.ok(t.includes('waits on q1'));
+  assert.ok(t.includes('1/2 tasks done'));
+  assert.ok(t.includes('phase level note') || t.includes('Pin the SDK'));
+  const rows = find(s.body, n => n.tag === 'button' && n.attrs.class === 'fp2-dtr');
+  assert.strictEqual(rows.length, 2);
+  rows[1].attrs.onclick();
+  assert.deepStrictEqual(calls, ['task T2']);
+  assert.strictEqual(p.phaseSheet({ topic: 'checkout' }, detail, 9, nav), null);
+});
+
+test('taskSheet shows title, model, phase, gate with time, its log and the card body', () => {
+  const { dom, p } = detailBoot();
+  const { calls, nav } = navStub();
+  const s = p.taskSheet({ topic: 'checkout' }, detail, 'T1', nav);
+  const t = dom.text(s.body);
+  assert.strictEqual(s.title, 'Task T1');
+  for (const part of ['Build the shell', 'Opus', 'done', 'P1 Shell and connect', '✓ npm test all green', 'started', 'Card one']) assert.ok(t.includes(part), part);
+  assert.ok(find(s.body, n => n.attrs.class === 'fp2-dgate ok').length === 1);
+  find(s.body, n => n.attrs.class === 'fp2-dlink')[0].attrs.onclick();
+  assert.deepStrictEqual(calls, ['phase 1']);
+  const w = dom.text(p.taskSheet({ topic: 'checkout' }, detail, 'T2', nav).body);
+  assert.ok(w.includes('waits on q1') && w.includes('Pin the SDK to v14 or v15 for the checkout flow?') && w.includes('No task card.'));
+  assert.strictEqual(p.taskSheet({ topic: 'checkout' }, detail, 'T9', nav), null);
+});
+
+test('the plan head lets the phase name shrink and the panel lines are real buttons', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'f-plan2.css'), 'utf8');
+  assert.ok(!/\.fp2-head \.dim\s*\{/.test(css));
+  const rule = /\.fp2-phase \{([^}]*)\}/.exec(css)[1];
+  for (const part of ['min-width: 0', 'overflow: hidden', 'text-overflow: ellipsis', 'white-space: nowrap']) assert.ok(rule.includes(part), part);
+  for (const sel of ['fp2-ev', 'fp2-pn', 'fp2-task-t', 'fp2-gate']) assert.ok(src.includes(`h('button', { class: '${sel}`) || src.includes(`h('button', { class: 'fp2-gate`), sel);
+});
