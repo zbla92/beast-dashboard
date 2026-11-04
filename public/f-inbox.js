@@ -40,7 +40,7 @@
     const ta = h('textarea', { class: 'ibx-ta', rows: 1, placeholder: 'Reply to Claude…', autocomplete: 'off', autocapitalize: 'sentences', spellcheck: true, title: 'Enter sends · Shift+Enter = new line' });
     ta.value = loadDraft(name);
     const grow = () => { ta.style.height = '40px'; if (ta.value) ta.style.height = Math.min(Math.max(40, ta.scrollHeight), 140) + 'px'; saveDraft(name, ta.value); };
-    const sentTag = h('span', { class: 'ibx-sent hidden' }, 'sent ✓');
+    const sentTag = h('span', { class: 'ibx-sent hidden' }, 'sent ', ico('check', 12));
     let shelling = false;
     const send = async () => {
       const v = ta.value.trim(); if (!v) return;

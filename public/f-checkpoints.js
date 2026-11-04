@@ -118,11 +118,11 @@
     const rows = c.items.filter(e => e.endAt).map(e => {
       const t = totals(e); const u = e.kind === 'turn' ? undoneBy(c.items, e) : null;
       return h('div', { class: 'chfile ckp-li' + (e.kind === 'undo' ? ' isundo' : '') + (u ? ' undone' : ''), onclick: () => openTurn(name, e.id) },
-        h('span', { class: 'ckp-num mono' }, e.kind === 'undo' ? '↶' : '#' + e.n),
+        h('span', { class: 'ckp-num mono' }, e.kind === 'undo' ? ico('undo', 13) : '#' + e.n),
         h('span', { class: 'ckp-when mono' }, hm(e.startAt)),
         h('span', { class: 'chpath ckp-pr' }, e.kind === 'undo' ? e.prompt : e.prompt || '(no prompt text)'),
         h('span', { class: 'mono ckp-tot' }, plural(t.files, 'file'), ' ', h('b', { class: 'ckp-a' }, '+' + t.add), ' ', h('b', { class: 'ckp-d' }, '−' + t.del)),
-        u ? h('span', { class: 'ckp-tag' }, 'undone') : null, h('span', { class: 'caret' }, '▸'));
+        u ? h('span', { class: 'ckp-tag' }, 'undone') : null, h('span', { class: 'caret' }, ico('chevronRight', 12)));
     });
     let close = null;
     const box = h('div', { class: 'box settings ckp-box ckp-listbox' },

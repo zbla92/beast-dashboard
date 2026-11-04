@@ -912,9 +912,15 @@ main { padding: 8px 28px 60px; }
 /* syntax colours + file type marks */
 .hljs { background: transparent !important; color: var(--text); }
 .fcode.hljs, .fdiff.hljs, .chdiff.hljs { background: var(--code-bg) !important; }
-.fi { display: inline-grid; place-items: center; min-width: 20px; height: 16px; padding: 0 4px; border-radius: 4px; font-family: var(--mono); font-size: 9.5px; font-weight: 600; letter-spacing: 0; line-height: 1; background: var(--fill2); color: var(--muted); flex: none; }
-.fi.i-img { font-size: var(--fs-xs); } .fi.i-doc { font-size: var(--fs-xs); } .fi.i-lock, .fi.i-txt { color: var(--dim); }
-.fi.i-docker { font-size: var(--fs-xs); } .fi.i-npm { font-size: 8.5px; } .fi.i-git { font-size: 8.5px; }
+.fi { display: inline-grid; place-items: center; min-width: 20px; height: 18px; padding: 0; background: none; color: var(--ft, var(--muted)); flex: none; }
+.fi .ico { width: 16px; height: 16px; opacity: .95; }
+.fi.i-js { --ft: color-mix(in srgb, #f0d35a 72%, var(--muted)); } .fi.i-ts { --ft: color-mix(in srgb, #5aa2f0 72%, var(--muted)); }
+.fi.i-json, .fi.i-npm { --ft: color-mix(in srgb, #e9a850 72%, var(--muted)); } .fi.i-md, .fi.i-doc { --ft: color-mix(in srgb, #8fb4d8 70%, var(--muted)); }
+.fi.i-css, .fi.i-gql { --ft: color-mix(in srgb, #b58af0 72%, var(--muted)); } .fi.i-html, .fi.i-rs, .fi.i-git { --ft: color-mix(in srgb, #ef8a5a 72%, var(--muted)); }
+.fi.i-py, .fi.i-go, .fi.i-docker, .fi.i-tf { --ft: color-mix(in srgb, #5ac4d8 72%, var(--muted)); } .fi.i-sh, .fi.i-csv { --ft: color-mix(in srgb, #6fd08c 72%, var(--muted)); }
+.fi.i-yml, .fi.i-env, .fi.i-java, .fi.i-rb { --ft: color-mix(in srgb, #ee7a8a 72%, var(--muted)); } .fi.i-sql, .fi.i-img { --ft: color-mix(in srgb, #4fc9b4 72%, var(--muted)); }
+.fi.i-claude { --ft: var(--accent); } .fi.i-lock, .fi.i-txt { --ft: var(--dim); }
+.caret .ico, .fcaret .ico { width: 11px; height: 11px; vertical-align: middle; }
 
 /* ================= settings-style sheets ================= */
 .modal .box.settings { width: min(660px, 94vw); padding: 0; max-height: 88vh; display: flex; flex-direction: column; overflow: hidden; }

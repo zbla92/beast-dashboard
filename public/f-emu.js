@@ -55,7 +55,7 @@
     }
     const t = EMU.tile, d = usable().find(x => x.serial === EMU.serial) || usable()[0];
     if (d) {
-      t.name.textContent = '📱 ' + devName(d);
+      t.name.replaceChildren(ico('phone', 13), ' ' + devName(d));
       const p = (EMU.st.procs || []).find(x => x.avd === d.avd);
       t.sub.textContent = [d.booted ? null : 'booting…', d.w ? d.w + '×' + d.hgt : null, p ? p.gpu + ' GPU' + (p.gpu === 'host' ? '' : ' (slow)') : null, p ? p.cpu + '% cpu' : null].filter(Boolean).join(' · ');
       if (t.serial !== d.serial) { t.serial = d.serial; thumb(true); }
@@ -166,7 +166,7 @@
       const txt = h('input', { class: 'txt emu-text', type: 'text', maxlength: '500', placeholder: 'Type on the device (ASCII)…', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false' });
       const sendTxt = async () => { const v = txt.value; if (!v) return; await send({ kind: 'text', text: v }); txt.value = ''; };
       txt.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); sendTxt(); } });
-      const nav = (label, key, title) => h('button', { class: 'btn emu-nav', title, onclick: () => send({ kind: 'key', key }) }, label);
+      const nav = (label, key, title) => h('button', { class: 'btn emu-nav', title, onclick: () => send({ kind: 'key', key }) }, gl(label));
       body.replaceChildren(head(pick),
         h('div', { class: 'emu-main' },
           h('div', { class: 'emu-screenwrap' }, img, h('div', { class: 'emu-ph dim' }, 'Loading picture…')),

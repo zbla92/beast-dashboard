@@ -116,7 +116,7 @@
 
   const planLabel = p => p.title || p.topic;
 
-  const gateChip = (g, onOpen) => g ? h('button', { class: 'fp2-gate ' + (g.ok ? 'ok' : 'bad'), title: ['last gate', g.task, g.text, g.at ? clock(g.at) : ''].filter(Boolean).join(' · '), onclick: onOpen }, `${g.ok ? '✓' : '✗'} ${g.text || 'gate'}`) : null;
+  const gateChip = (g, onOpen) => g ? h('button', { class: 'fp2-gate ' + (g.ok ? 'ok' : 'bad'), title: ['last gate', g.task, g.text, g.at ? clock(g.at) : ''].filter(Boolean).join(' · '), onclick: onOpen }, gl(`${g.ok ? '✓' : '✗'} ${g.text || 'gate'}`)) : null;
   const modelChip = m => m ? h('span', { class: 'fp2-model' }, m) : null;
   const spin = () => h('span', { class: 'fp2-spin' });
 
@@ -490,7 +490,7 @@
     const gateEv = [...evs].reverse().find(e => e.gate);
     const wait = waitsOn(t);
     const gate = t.gate ? detailSection('Gate',
-      h('div', { class: 'fp2-dgate ' + (t.gate.ok ? 'ok' : 'bad') }, `${t.gate.ok ? '✓' : '✗'} ${t.gate.text || 'gate'}`),
+      h('div', { class: 'fp2-dgate ' + (t.gate.ok ? 'ok' : 'bad') }, gl(`${t.gate.ok ? '✓' : '✗'} ${t.gate.text || 'gate'}`)),
       gateEv ? h('div', { class: 'fp2-dmeta' }, askedAt(gateEv.ts)) : null) : null;
     return {
       title: 'Task ' + id, sub: p.topic,
@@ -515,7 +515,7 @@
   const gateSheet = p => ({
     title: 'Last gate', sub: p.topic,
     body: h('div', { class: 'fp2-dbody' },
-      h('div', { class: 'fp2-dgate ' + (p.lastGate.ok ? 'ok' : 'bad') }, `${p.lastGate.ok ? '✓' : '✗'} ${p.lastGate.text || 'gate'}`),
+      h('div', { class: 'fp2-dgate ' + (p.lastGate.ok ? 'ok' : 'bad') }, gl(`${p.lastGate.ok ? '✓' : '✗'} ${p.lastGate.text || 'gate'}`)),
       p.lastGate.at ? h('div', { class: 'fp2-dmeta' }, askedAt(p.lastGate.at)) : null),
   });
 
@@ -681,7 +681,7 @@
     const toggleList = () => { EXP.menu = !EXP.menu; EXP.act = false; if (EXP.menu) loadArchived(); rerender(); };
     return [
       h('div', { class: 'fp2-row' },
-        h('button', { class: 'fp2-pname' + (EXP.menu ? ' on' : ''), 'aria-expanded': String(EXP.menu), title: planLabel(p), onclick: toggleList }, h('span', { class: 'fp2-ptopic' }, p.topic), h('small', null, `${EXP.menu ? '▴' : '▾'}${others > 0 ? ` +${others}` : ''}`)),
+        h('button', { class: 'fp2-pname' + (EXP.menu ? ' on' : ''), 'aria-expanded': String(EXP.menu), title: planLabel(p), onclick: toggleList }, h('span', { class: 'fp2-ptopic' }, p.topic), h('small', null, ico(EXP.menu ? 'chevronUp' : 'chevronDown', 11), others > 0 ? ` +${others}` : '')),
         h('span', { class: 'fp2-sp' }),
         h('button', { class: 'btn fp2-edit' + (live ? '' : ' off'), 'aria-disabled': live ? null : 'true', title: live ? 'Tell Claude what to change' : NOT_LIVE, onclick: () => { if (live) openUpdate(p); else toast(NOT_LIVE, 'err'); } }, ico('pencil', 14), 'Edit plan'),
         actionsMenu(p, rerender),
@@ -690,7 +690,7 @@
         gateChip(p.lastGate, () => { if (p.lastGate.task) nav.task(p.lastGate.task); else sheet(gateSheet(p)); }),
         allDone(p) ? h('span', { class: 'fp2-pstate' }, 'All done')
           : p.phase ? h('button', { class: 'fp2-phase', title: `Phase ${p.phase.n} · ${p.phase.name}`, onclick: () => nav.phase(p.phase.n) }, `Phase ${p.phase.n} of ${p.phase.of}`) : null),
-      c.own && c.own.id !== p.id ? h('button', { class: 'fp2-link back', onclick: () => pickPlan(c.own.id) }, '← this session’s plan') : null,
+      c.own && c.own.id !== p.id ? h('button', { class: 'fp2-link back', onclick: () => pickPlan(c.own.id) }, gl('← this session’s plan')) : null,
     ];
   }
 
@@ -727,7 +727,7 @@
     const open = stepsOpen(p);
     return open && !allDone(p)
       ? [h('button', { class: 'btn fp2-wide off', disabled: true }, 'Complete plan'), h('div', { class: 'fp2-fnote' }, open)]
-      : [h('button', { class: 'btn fp2-wide grn', onclick: () => confirmComplete(p) }, '✓ Complete plan')];
+      : [h('button', { class: 'btn fp2-wide grn', onclick: () => confirmComplete(p) }, gl('✓ Complete plan'))];
   }
 
   function panel(phone) {
@@ -745,7 +745,7 @@
       top.replaceChildren(...(c.preview ? previewHead(p) : planHead(c, rerender)).filter(Boolean));
       drop.replaceChildren(...(!c.preview && EXP.menu ? [planDrop(c)] : []));
       body.replaceChildren(...panelBody(p, rerender, !!c.preview));
-      foot.replaceChildren(...(c.preview ? [h('button', { class: 'btn fp2-wide', disabled: !!APV.restored, onclick: () => restorePlan(p) }, '↶ Restore this plan')] : planFoot(p)));
+      foot.replaceChildren(...(c.preview ? [h('button', { class: 'btn fp2-wide', disabled: !!APV.restored, onclick: () => restorePlan(p) }, gl('↶ Restore this plan'))] : planFoot(p)));
       body.classList.toggle('covered', covered);
       foot.classList.toggle('covered', covered);
       body.scrollTop = same ? scroll : 0;
@@ -930,7 +930,7 @@
       ? { class: 'fp-chip' + (t.complete ? ' done' : ''), title: label, onclick: ev => { ev.stopPropagation(); openTerm(sess); } }
       : { class: 'fp-chip static' + (t.complete ? ' done' : ''), title: label + ' — no session is on this plan' };
     return h(sess ? 'button' : 'div', attrs,
-      h('span', { class: 'fp-chip-top' }, h('span', { class: 'fp-ck' }, '☑'), h('span', { class: 'fp-chip-t' }, t.topic), h('span', { class: 'fp-chip-n' }, `${t.done}/${t.total}`), l.length > 1 ? h('span', { class: 'fp-chip-more' }, '+' + (l.length - 1)) : null),
+      h('span', { class: 'fp-chip-top' }, h('span', { class: 'fp-ck' }, ico('checkSquare', 13)), h('span', { class: 'fp-chip-t' }, t.topic), h('span', { class: 'fp-chip-n' }, `${t.done}/${t.total}`), l.length > 1 ? h('span', { class: 'fp-chip-more' }, '+' + (l.length - 1)) : null),
       h('div', { class: 'fp-bar' + (t.complete ? ' full' : '') }, h('i', { style: `width:${t.pct}%` })));
   }
 

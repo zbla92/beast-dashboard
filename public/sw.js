@@ -3,8 +3,8 @@ self.addEventListener('activate', e => e.waitUntil(Promise.all([self.clients.cla
 self.addEventListener('push', e => {
   let d = {}; try { d = e.data ? e.data.json() : {}; } catch { d = { title: 'Beast Dash', body: e.data ? e.data.text() : '' }; }
   // quick replies straight from the notification (Chrome/Android/macOS show them; iOS ignores `actions` and just opens)
-  const actions = d.kind === 'permission' ? [{ action: 'allow', title: '✓ Allow' }, { action: 'deny', title: '✕ Deny' }, { action: 'open', title: 'Open' }]
-    : d.kind === 'done' ? [{ action: 'go', title: '👍 Yes, go on' }, { action: 'open', title: 'Open' }]
+  const actions = d.kind === 'permission' ? [{ action: 'allow', title: 'Allow' }, { action: 'deny', title: 'Deny' }, { action: 'open', title: 'Open' }]
+    : d.kind === 'done' ? [{ action: 'go', title: 'Yes, go on' }, { action: 'open', title: 'Open' }]
     : d.session ? [{ action: 'open', title: 'Open' }] : [];
   e.waitUntil(self.registration.showNotification(d.title || 'Beast Dash', { body: d.body || '', tag: d.tag || 'beast', renotify: true, icon: '/icon-192.png', badge: '/icon-192.png', actions, data: { url: d.url || '/', session: d.session || null, since: d.since ?? null } }));
 });

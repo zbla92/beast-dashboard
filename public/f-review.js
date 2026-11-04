@@ -104,7 +104,7 @@
     const pre = RV.list.slice().reverse().find(c => c.session)?.session;
     const { all, near } = sessionsFor(roots[0]);
     const def = (pre && all.some(s => s.name === pre) && pre) || (TERM.active && near.some(s => s.name === TERM.active) && TERM.active) || near[0]?.name || all[0]?.name || '';
-    const sel = h('select', { class: 'txt rv-sel' }, ...all.map(s => h('option', { value: s.name }, (near.includes(s) ? '● ' : '') + sessTitle(s) + ' · ' + s.name)));
+    const sel = h('select', { class: 'txt rv-sel' }, ...all.map(s => h('option', { value: s.name }, (near.includes(s) ? 'near · ' : '') + sessTitle(s) + ' · ' + s.name)));
     sel.value = def;
     const list = h('div', { class: 'rv-list' });
     const draw = () => {

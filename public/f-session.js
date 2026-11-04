@@ -68,7 +68,7 @@
 
     const renderChip = () => {
       const c = target(); const sure = G.manual || (G.res && G.res.confident) || c.kind !== 'project';
-      chip.replaceChildren(...[h('span', { class: 'dim ns-in' }, 'in'), tileOf(c), h('span', { class: 'ns-cn' }, c.name), !sure ? h('span', { class: 'ns-q', title: 'a guess — check it' }, '?') : null, h('span', { class: 'caret' }, '▾')].filter(Boolean));
+      chip.replaceChildren(...[h('span', { class: 'dim ns-in' }, 'in'), tileOf(c), h('span', { class: 'ns-cn' }, c.name), !sure ? h('span', { class: 'ns-q', title: 'a guess — check it' }, '?') : null, h('span', { class: 'caret' }, ico('chevronDown', 12))].filter(Boolean));
       chip.title = subOf(c) + ' — click to change';
       chip.classList.toggle('guess', !sure);
       renderHint();
@@ -127,16 +127,16 @@
 
     const hq = h('input', { class: 'txt', placeholder: 'Search past conversations — title, prompt, project, folder…', autocomplete: 'off' });
     const hlist = h('div', { class: 'ntlist ns-hist' });
-    const deep = h('button', { class: 'btn sm ghost ns-deep', title: 'full-text search inside every conversation (both accounts)', onclick: () => { const q = hq.value.trim(); close(); openPalette('search'); if (q) setTimeout(() => { const i = $('#pal-in'); if (i) { i.value = '? ' + q; i.dispatchEvent(new Event('input', { bubbles: true })); } }, 20); } }, '⌕ Search inside conversations');
+    const deep = h('button', { class: 'btn sm ghost ns-deep', title: 'full-text search inside every conversation (both accounts)', onclick: () => { const q = hq.value.trim(); close(); openPalette('search'); if (q) setTimeout(() => { const i = $('#pal-in'); if (i) { i.value = '? ' + q; i.dispatchEvent(new Event('input', { bubbles: true })); } }, 20); } }, gl('⌕ Search inside conversations'));
     const histRow = it => {
       const pid = it.project || (it.projects || [])[0];
       const chips = (it.projects || []).slice(0, 3).map(id => h('span', { class: 'ns-pchip' }, projName(id)));
       const more = (it.projects || []).length > 3 ? h('span', { class: 'dim ns-more' }, '+' + ((it.projects || []).length - 3)) : null;
-      const sub = it.lastPrompt && it.lastPrompt !== it.firstPrompt ? '❯ ' + it.lastPrompt : tilde(it.cwd);
+      const sub = it.lastPrompt && it.lastPrompt !== it.firstPrompt ? [ico('prompt', 11), ' ' + it.lastPrompt] : tilde(it.cwd);
       return h('div', { class: 'ntrow ns-hrow', onclick: () => resume(it) },
         pid ? avatar(pid, 'sm') : rootTile(),
         h('div', { class: 'ntn' }, h('div', { class: 'ntt' }, h('span', { class: 'ns-ht' }, titleOf(it)), it.live ? h('span', { class: 'badge tag chat', title: 'running now: ' + it.live }, 'live') : null), h('div', { class: 'nts' }, sub), chips.length ? h('div', { class: 'ns-chips' }, chips, more) : null),
-        h('div', { class: 'ns-meta dim' }, h('span', null, ago(it.lastAt)), it.prompts ? h('span', { title: 'prompts' }, it.prompts + ' ❯') : null));
+        h('div', { class: 'ns-meta dim' }, h('span', null, ago(it.lastAt)), it.prompts ? h('span', { title: 'prompts' }, it.prompts, ' ', ico('prompt', 11)) : null));
     };
     const resume = it => {
       close();

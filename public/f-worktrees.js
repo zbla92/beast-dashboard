@@ -80,7 +80,7 @@ FEAT.worktrees = (() => {
           h('span', { class: 'wtx-sp' }),
           isDirty(w) ? h('span', { class: 'wtx-pb warn' }, 'uncommitted') : null,
           w.sessions.length ? h('span', { class: 'wtx-pb live' }, plural(w.sessions.length, 'session')) : null,
-          w.merged ? h('span', { class: 'wtx-pb mute' }, 'merged') : w.ahead ? h('span', { class: 'wtx-pb' }, '↑' + w.ahead) : null),
+          w.merged ? h('span', { class: 'wtx-pb mute' }, 'merged') : w.ahead ? h('span', { class: 'wtx-pb' }, ico('arrowUp', 11), w.ahead) : null),
         h('div', { class: 'wtx-pp mono', title: w.path }, w.path.split('/').slice(-2).join('/')),
         w.last ? h('div', { class: 'wtx-pl' }, w.last.subject, h('i', null, ' · ' + ago(w.last.ts))) : null));
     };
@@ -173,9 +173,9 @@ FEAT.worktrees = (() => {
     const badges = [
       w.detached ? h('span', { class: 'wtx-pill mute' }, 'detached') : null,
       w.active ? h('span', { class: 'wtx-pill info', title: `files changed in the last ${ACTIVE_MIN} minutes: maybe an agent is working here` }, 'active') : null,
-      w.locked ? h('span', { class: 'wtx-pill mute' }, '🔒 locked') : null,
+      w.locked ? h('span', { class: 'wtx-pill mute' }, gl('🔒 locked')) : null,
       w.prunable ? h('span', { class: 'wtx-pill hot', title: 'the folder no longer exists: use Prune' }, 'folder missing') : null,
-      isDirty(w) ? h('span', { class: 'wtx-pill warn', title: `${w.dirty} modified, ${w.untracked} untracked` }, `● ${w.dirty + w.untracked} uncommitted`) : null,
+      isDirty(w) ? h('span', { class: 'wtx-pill warn', title: `${w.dirty} modified, ${w.untracked} untracked` }, [ico('dot', 9), ` ${w.dirty + w.untracked} uncommitted`]) : null,
       w.merged ? h('span', { class: 'wtx-pill ok', title: 'the branch tip is in ' + d.base }, gl('✓ merged')) : (w.ahead ? h('span', { class: 'wtx-pill info' }, `${w.ahead} to merge`) : null),
       stale && !w.prunable ? h('span', { class: 'wtx-pill mute', title: 'merged, nothing running in it: safe to remove' }, 'stale') : null,
     ];
@@ -232,7 +232,7 @@ FEAT.worktrees = (() => {
     return h('div', { class: 'wtx-card' + (w.active ? ' active' : '') + (isDirty(w) ? ' dirty' : '') + (stale ? ' stale' : '') },
       h('div', { class: 'wtx-top' },
         h('span', { class: 'wtx-name' }, h('span', { class: 'ico' }, ico('branch', 13)), h('b', null, w.branch || ('HEAD@' + w.head))),
-        h('span', { class: 'wtx-ab', title: `vs ${d.base}: ${w.ahead} ahead, ${w.behind} behind` }, w.ahead ? h('span', { class: 'up' }, '↑' + w.ahead) : null, w.behind ? h('span', { class: 'dn' }, '↓' + w.behind) : null, !w.ahead && !w.behind ? h('span', { class: 'dim' }, '=') : null),
+        h('span', { class: 'wtx-ab', title: `vs ${d.base}: ${w.ahead} ahead, ${w.behind} behind` }, w.ahead ? h('span', { class: 'up' }, ico('arrowUp', 11), w.ahead) : null, w.behind ? h('span', { class: 'dn' }, ico('arrowDown', 11), w.behind) : null, !w.ahead && !w.behind ? h('span', { class: 'dim' }, '=') : null),
         h('span', { class: 'wtx-sp' }), ...badges),
       h('div', { class: 'wtx-path mono', title: w.path }, w.path),
       h('div', { class: 'wtx-meta' },

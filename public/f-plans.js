@@ -36,7 +36,7 @@
     const l = topics(p.id); if (!l.length) return null;
     const t = l[0];   // summary is ordered most recently changed first
     return h('button', { class: 'fp-chip' + (t.total && t.done >= t.total ? ' done' : ''), title: `${t.topic}${t.total ? ` ${t.done}/${t.total}` : ''}${t.next ? ' — next: ' + t.next : ''}`, onclick: ev => { ev.stopPropagation(); PICK[p.id] = t.topic; openDrawer(p.id, TAB); } },
-      h('span', { class: 'fp-chip-top' }, h('span', { class: 'fp-ck' }, '☑'), h('span', { class: 'fp-chip-t' }, t.topic), t.total ? h('span', { class: 'fp-chip-n' }, `${t.done}/${t.total}`) : null, l.length > 1 ? h('span', { class: 'fp-chip-more' }, '+' + (l.length - 1)) : null),
+      h('span', { class: 'fp-chip-top' }, h('span', { class: 'fp-ck' }, ico('checkSquare', 13)), h('span', { class: 'fp-chip-t' }, t.topic), t.total ? h('span', { class: 'fp-chip-n' }, `${t.done}/${t.total}`) : null, l.length > 1 ? h('span', { class: 'fp-chip-more' }, '+' + (l.length - 1)) : null),
       t.total ? bar(t.done, t.total) : null);
   }
 
@@ -101,7 +101,7 @@
     for (const it of items) { const k = it.section || ''; if (!idx.has(k)) { const g = { name: k, items: [] }; idx.set(k, g); groups.push(g); } idx.get(k).items.push(it); }
     const wrap = h('div', { class: 'fp-list' });
     const mk = it => h('div', { class: 'fp-item' + (it.done ? ' done' : '') + (it === next ? ' next' : ''), style: it.depth ? `margin-left:${Math.min(it.depth, 4) * 16}px` : null },
-      h('span', { class: 'fp-box' }, it.done ? '✓' : ''), h('span', { class: 'fp-it' }, it.text));
+      h('span', { class: 'fp-box' }, it.done ? ico('check', 12) : ''), h('span', { class: 'fp-it' }, it.text));
     if (groups.length === 1 && !groups[0].name) { wrap.append(...groups[0].items.map(mk)); return wrap; }
     for (const g of groups) {
       const dn = g.items.filter(i => i.done).length; const all = dn === g.items.length;

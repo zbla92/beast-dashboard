@@ -21,14 +21,14 @@
   };
   function chipLabel(agents) {
     const run = agents.filter(a => a.running).length;
-    return run ? { t: '◇ ' + run + ' running', run: true } : { t: '◇ ' + agents.length + ' agent' + (agents.length === 1 ? '' : 's'), run: false };
+    return run ? { t: run + ' running', run: true } : { t: agents.length + ' agent' + (agents.length === 1 ? '' : 's'), run: false };
   }
   function paintChips(name) {
     for (const c of CHIPS) {
       if (c.name !== name) continue;
       const ag = (DATA.get(name)?.j?.agents) || [];
       if (!ag.length) { c.el.style.display = 'none'; continue; }
-      const l = chipLabel(ag); c.el.style.display = ''; c.el.textContent = l.t; c.el.classList.toggle('sa-run', l.run);
+      const l = chipLabel(ag); c.el.style.display = ''; c.el.replaceChildren(ico('diamond', 11), ' ' + l.t); c.el.classList.toggle('sa-run', l.run);
       c.el.title = ag.length + ' subagent' + (ag.length === 1 ? '' : 's') + ' in this session · ' + money(ag.reduce((s, a) => s + a.cost, 0)) + ' API-equivalent';
     }
   }
@@ -51,7 +51,7 @@
 
   function sessMenu(name, sess, cl) {
     if (!cl) return null;
-    const count = () => { const ag = DATA.get(name)?.j?.agents; return !ag ? '' : !ag.length ? 'none yet' : chipLabel(ag).t.slice(2); };
+    const count = () => { const ag = DATA.get(name)?.j?.agents; return !ag ? '' : !ag.length ? 'none yet' : chipLabel(ag).t; };
     const sub = h('span', { class: 'c' }, count());
     fetchAgents(name).then(() => { sub.textContent = count(); });
     return { el: h('div', { class: 'mi', title: 'subagents of this session, with their cost', onclick: () => { closeMenu(); sheet(name); } }, h('span', { class: 'ico' }, ico('diamond', 15)), h('span', { class: 'k' }, 'Subagents'), sub) };
@@ -68,7 +68,7 @@
     const onOut = e => { if (e.target === m) close(); };
     document.addEventListener('keydown', esc, true);
     const title = h('h3', null, gl('◇ Subagents'));
-    const back = h('button', { class: 'btn sm ghost', onclick: () => { st.agent = null; draw(); } }, '← all');
+    const back = h('button', { class: 'btn sm ghost', onclick: () => { st.agent = null; draw(); } }, gl('← all'));
     const body = h('div', { class: 'sa-body' });
     box = h('div', { class: 'box sa-box' }, h('div', { class: 'sa-head' }, back, title, h('span', { class: 'sa-sp' }), h('span', { class: 'dim mono sa-sess' }, name), h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', onclick: close }, ico('x', 15))), body);
     m.replaceChildren(box); m.onclick = onOut;
@@ -89,7 +89,7 @@
     }
     function drawDetail() {
       const a = st.agent; title.replaceChildren(...gl('◇ ' + a.type));
-      const head = h('div', { class: 'sa-dh' }, modelBadge(a), a.running ? h('span', { class: 'sa-live' }, 'running') : null, h('span', { class: 'mono dim' }, agentDur(a) + ' · ' + money(a.cost) + ' · ' + a.tools + ' tools'), h('div', { class: 'sa-desc', style: 'flex-basis:100%' }, a.description || ''), a.flag ? h('div', { class: 'sa-flag', style: 'flex-basis:100%' }, '⚠ ' + a.flag) : null);
+      const head = h('div', { class: 'sa-dh' }, modelBadge(a), a.running ? h('span', { class: 'sa-live' }, 'running') : null, h('span', { class: 'mono dim' }, agentDur(a) + ' · ' + money(a.cost) + ' · ' + a.tools + ' tools'), h('div', { class: 'sa-desc', style: 'flex-basis:100%' }, a.description || ''), a.flag ? h('div', { class: 'sa-flag', style: 'flex-basis:100%' }, gl('⚠ ' + a.flag, 12)) : null);
       if (!detail) return body.replaceChildren(head, h('div', { class: 'sa-empty dim' }, 'Loading…'));
       if (detail.error) return body.replaceChildren(head, h('div', { class: 'sa-empty dim' }, detail.error));
       const steps = detail.steps.map(s => s.k === 'text' ? h('div', { class: 'sa-step sa-st-text ttext', html: mdLite(s.text) }) : h('div', { class: 'sa-step sa-st-tool mono' }, h('b', null, s.name), ' ', s.summary));

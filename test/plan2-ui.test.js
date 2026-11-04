@@ -197,12 +197,12 @@ const fakeDom = () => {
     body: { append: (...k) => body.push(...k) },
   };
   const key = k => { const ev = { key: k, preventDefault() {}, stopPropagation() {} }; for (const l of listeners.filter(x => x.type === 'keydown')) l.fn(ev); };
-  return { document, body, listeners, key, text, h: (tag, attrs, ...kids) => node(tag, attrs, kids), ico: () => null };
+  return { document, body, listeners, key, text, h: (tag, attrs, ...kids) => node(tag, attrs, kids), ico: () => null, gl: (label) => [label] };
 };
 
 test('sheet keeps one open at a time and closes on Escape, once', () => {
   const dom = fakeDom();
-  const p = boot({ document: dom.document, h: dom.h, ico: dom.ico });
+  const p = boot({ document: dom.document, h: dom.h, ico: dom.ico, gl: dom.gl });
   const closed = [];
   const close1 = p.sheet({ title: 'A', body: 'a', onClose: () => closed.push('A') });
   assert.strictEqual(dom.body.length, 2);
@@ -219,7 +219,7 @@ test('sheet keeps one open at a time and closes on Escape, once', () => {
 
 test('the panel shows one quiet questions row with the count and what the questions block', () => {
   const dom = fakeDom();
-  const p = boot({ document: dom.document, h: dom.h, ico: dom.ico });
+  const p = boot({ document: dom.document, h: dom.h, ico: dom.ico, gl: dom.gl });
   const row = p.questionsRow({ id: 'a/b', waiting: [{ id: 'q1', q: 'x', blocks: ['T9'] }, { id: 'q2', q: 'y', blocks: ['T9', 'T10'] }, { id: 'q3', q: 'z', blocks: [] }] });
   assert.strictEqual(row.attrs.class, 'fp2-qrow');
   assert.strictEqual(dom.text(row), '3 open questionsblocks T9 · T10');
@@ -299,7 +299,7 @@ const detail = {
 };
 const detailBoot = () => {
   const dom = fakeDom();
-  return { dom, p: boot({ document: dom.document, h: dom.h, ico: dom.ico }) };
+  return { dom, p: boot({ document: dom.document, h: dom.h, ico: dom.ico, gl: dom.gl }) };
 };
 const find = (n, pred, out = []) => {
   if (n && typeof n === 'object') { if (pred(n)) out.push(n); for (const k of n.kids) find(k, pred, out); }
@@ -371,7 +371,7 @@ const noteBoot = (sessions, active) => {
   const dom = fakeDom();
   const calls = { api: [] };
   const p = boot({
-    document: dom.document, h: dom.h, ico: dom.ico, requestAnimationFrame() {},
+    document: dom.document, h: dom.h, ico: dom.ico, gl: dom.gl, requestAnimationFrame() {},
     S: { settings: { plans: true }, runtime: { sessions } }, TERM: { open: false, active },
     claudeOf: name => (sessions.find(s => s.name === name) || {}).claude || null,
     sessTitle: s => 'L:' + s.name, toast() {},
@@ -453,7 +453,7 @@ const lifeBoot = async ({ sums, archived = [], files = false, stored = null, pho
   const S = { settings: { plans: true }, projects, runtime: { sessions: [{ name: active, project, claude }] } };
   const TERM = { open: true, active };
   const p = boot({
-    document: dom.document, h, ico: dom.ico, requestAnimationFrame() {}, S,
+    document: dom.document, h, ico: dom.ico, gl: dom.gl, requestAnimationFrame() {}, S,
     FEAT: { code: { filesOn: () => filesState.on } },
     feat: (hook, ...a) => { calls.feat.push([hook, ...a]); return []; },
     localStorage: { getItem: () => stored, setItem: (k, v) => calls.saved.push(JSON.parse(v)) },
@@ -1248,11 +1248,11 @@ test('Edit plan with no live session stays visible, disabled with the hint, and 
 
 test('the header shows the plan name with the number of other plans', async () => {
   const one = await lifeBoot({ sums: [plan('web/own', 'web', { sessions: ['claude-a'] })] });
-  assert.strictEqual(one.dom.text(one.byClass('fp2-pname')[0]), 'own▾');
+  assert.strictEqual(one.dom.text(one.byClass('fp2-pname')[0]), 'own');
   const three = await lifeBoot({ sums: [plan('web/own', 'web', { sessions: ['claude-a'] }), plan('web/two', 'web'), plan('api/three', 'api')] });
-  assert.strictEqual(three.dom.text(three.byClass('fp2-pname')[0]), 'own▾ +2');
+  assert.strictEqual(three.dom.text(three.byClass('fp2-pname')[0]), 'own +2');
   three.openList();
-  assert.strictEqual(three.dom.text(three.byClass('fp2-pname')[0]), 'own▴ +2');
+  assert.strictEqual(three.dom.text(three.byClass('fp2-pname')[0]), 'own +2');
 });
 
 test('the plan list has its groups, row states, All done rows with Complete, and Archived N', async () => {

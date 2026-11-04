@@ -98,7 +98,7 @@ function vscodeUrl(path) { const s = S.settings; return `vscode://vscode-remote/
 // is what makes clipboard, paste-image and the mobile keyboard fit work without workarounds; plain HTTP goes to :7681.
 function termUrl(session) { return (location.protocol === 'https:' ? '' : `http://${publicHost()}:${S.host.terminalPort || 7681}`) + `/term/?arg=${encodeURIComponent(session)}`; }
 // ---------- terminals panel (embedded ttyd, one iframe per opened session, kept alive for instant switching) ----------
-// Line icons (SF-Symbols-ish, 1.8 stroke, currentColor) instead of emoji — one look on Mac, iPhone and Linux.
+// Line icons (SF-Symbols-ish, 1.6 stroke, currentColor) instead of emoji — one look on Mac, iPhone and Linux.
 const ICONS = {
   terminal: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="m7 9 3 3-3 3M13 15h4"/>',
   chat: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1.1-4.2A8 8 0 1 1 21 12z"/>',
@@ -174,26 +174,55 @@ const ICONS = {
   minus: '<path d="M5 12h14"/>',
   info: '<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5M12 7.8h.01"/>',
   shrink: '<path d="M4 14h6v6M20 10h-6V4"/>',
+  dot: '<circle cx="12" cy="12" r="4.2" fill="currentColor"/>',
+  ring: '<circle cx="12" cy="12" r="5.6"/>',
+  halfDot: '<circle cx="12" cy="12" r="5.6"/><path d="M12 6.4a5.6 5.6 0 0 1 0 11.2z" fill="currentColor"/>',
+  link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+  pulse: '<path d="M3 12h4l2.5-6 4 12 2.5-6H21"/>',
+  square: '<rect x="5" y="5" width="14" height="14" rx="3.5"/>',
+  enter: '<path d="M19 6v6a2 2 0 0 1-2 2H5M9 10l-4 4 4 4"/>',
+  backspace: '<path d="M9 6h9a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H9l-6-6z"/><path d="m12 10 4 4M16 10l-4 4"/>',
+  tab: '<path d="M4 12h13M13 8l4 4-4 4M20 6v12"/>',
+  tabBack: '<path d="M20 12H7M11 8l-4 4 4 4M4 6v12"/>',
+  archive: '<rect x="3.5" y="4.5" width="17" height="4.5" rx="1.5"/><path d="M5 9v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9M10 13h4"/>',
+  trash: '<path d="M5 7h14M10 7V4.5h4V7M7 7l.8 12a1.5 1.5 0 0 0 1.5 1.4h5.4a1.5 1.5 0 0 0 1.5-1.4L17 7M10 11v5M14 11v5"/>',
+  save: '<path d="M5 4h11l3 3v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2z"/><path d="M8 4v5h7V4M8 20v-6h8v6"/>',
+  lock: '<rect x="5" y="10.5" width="14" height="10" rx="3"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/>',
+  eyeOff: '<path d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z"/><circle cx="12" cy="12" r="2.5"/><path d="m4 4 16 16"/>',
+  fast: '<path d="M4.5 6.5v11l7-5.5zM12.5 6.5v11l7-5.5z"/>',
+  atom: '<circle cx="12" cy="12" r="1.4"/><ellipse cx="12" cy="12" rx="9" ry="3.6"/><ellipse cx="12" cy="12" rx="9" ry="3.6" transform="rotate(60 12 12)"/><ellipse cx="12" cy="12" rx="9" ry="3.6" transform="rotate(-60 12 12)"/>',
+  music: '<path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>',
+  chevronUp: '<path d="m6 15 6-6 6 6"/>',
+  chevronLeft: '<path d="m15 5-7 7 7 7"/>',
+  arrowLeft: '<path d="M19 12H5M11 6l-6 6 6 6"/>',
+  table: '<rect x="4" y="5" width="16" height="14" rx="3"/><path d="M4 10h16M10 10v9"/>',
+  triangle: '<path d="M12 5 20 19H4z"/>',
+  fileCode: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M10 12.5l-1.8 1.8 1.8 1.8M14 12.5l1.8 1.8-1.8 1.8"/>',
+  fileGear: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><circle cx="12" cy="15" r="2"/>',
   globe: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.4 2.4 3.6 5.2 3.6 8.5s-1.2 6.1-3.6 8.5c-2.4-2.4-3.6-5.2-3.6-8.5s1.2-6.1 3.6-8.5z"/>',
 };
 function ico(name, size = 15) {
   const e = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  e.setAttribute('viewBox', '0 0 24 24'); e.setAttribute('width', size); e.setAttribute('height', size); e.setAttribute('fill', 'none'); e.setAttribute('stroke', 'currentColor'); e.setAttribute('stroke-width', '1.75'); e.setAttribute('stroke-linecap', 'round'); e.setAttribute('stroke-linejoin', 'round'); e.setAttribute('class', 'ico ico-' + name); e.setAttribute('aria-hidden', 'true');
+  e.setAttribute('viewBox', '0 0 24 24'); e.setAttribute('width', size); e.setAttribute('height', size); e.setAttribute('fill', 'none'); e.setAttribute('stroke', 'currentColor'); e.setAttribute('stroke-width', '1.6'); e.setAttribute('stroke-linecap', 'round'); e.setAttribute('stroke-linejoin', 'round'); e.setAttribute('class', 'ico ico-' + name); e.setAttribute('aria-hidden', 'true');
   e.innerHTML = ICONS[name] || ''; return e;
 }
 const GLYPH = {
-  '⚙': 'gear', '🐳': 'box', '▶': 'play', '■': 'stop', '⌨': 'keyboard', '☰': 'menu', '≡': 'menu', '↻': 'refresh', '↺': 'undo', '⎇': 'branch',
-  '✦': 'sparkle', '⏳': 'hourglass', '📌': 'pin', '⚠': 'alert', '✕': 'x', '✗': 'x', '✓': 'check', '✎': 'pencil', '⬇': 'download', '⇩': 'download',
-  '⇣': 'download', '↓': 'arrowDown', '↑': 'arrowUp', '⬆': 'upload', '→': 'arrowRight', '🔍': 'search', '⌕': 'search', '☑': 'checkSquare', '▤': 'grid', '⎘': 'copy',
+  '⚙': 'gear', '🐳': 'box', '▶': 'play', '■': 'stop', '⌨': 'keyboard', '☰': 'menu', '≡': 'menu', '↻': 'refresh', '↺': 'undo', '↶': 'undo', '⎇': 'branch',
+  '✦': 'sparkle', '✻': 'sparkle', '⏳': 'hourglass', '📌': 'pin', '⚠': 'alert', '✕': 'x', '✗': 'x', '✓': 'check', '✎': 'pencil', '⬇': 'download', '⇩': 'download',
+  '⇣': 'download', '↓': 'arrowDown', '↑': 'arrowUp', '⬆': 'upload', '→': 'arrowRight', '←': 'arrowLeft', '🔍': 'search', '⌕': 'search', '☑': 'checkSquare', '▤': 'grid', '⎘': 'copy',
   '⧉': 'layers', '↗': 'ext', '☾': 'moon', '⇄': 'swap', '⊘': 'ban', '☁': 'cloud', '⋯': 'dots', '◇': 'diamond', '◆': 'zap', '◈': 'chip',
   '⌂': 'home', '⛶': 'full', '📱': 'phone', '🖼': 'image', '◱': 'file', '📂': 'folderOpen', '📁': 'folder', '❯': 'prompt', '$': 'prompt', '★': 'star',
   '🔥': 'flame', '💡': 'bulb', '⚒': 'hammer', '⏰': 'clock', '−': 'minus', 'ⓘ': 'info', '+': 'plus',
+  '●': 'dot', '○': 'ring', '◐': 'halfDot', '◌': 'eyeOff', '⛓': 'link', '⚕': 'pulse', '◁': 'back', '▢': 'square', '☐': 'square', '⏎': 'enter', '⌫': 'backspace',
+  '⇥': 'tab', '⇤': 'tabBack', '⏻': 'power', '⊟': 'archive', '▶▶': 'fast', '⚡': 'zap', '🗑': 'trash', '💾': 'save', '🔒': 'lock', '📄': 'fileText', '⚛': 'atom',
+  '📎': 'clip', '🎤': 'mic', '⊞': 'table', '▲': 'triangle', '♪': 'music', '▸': 'chevronRight', '▾': 'chevronDown', '▴': 'chevronUp',
+  '🦊': 'globe', '🌐': 'globe', '🔨': 'hammer', '🐘': 'box', '🐍': 'code', '☕': 'flame', '🟦': 'code', '🟩': 'code', '🟪': 'code',
 };
 const gico = (g, size = 15) => { const k = typeof g === 'string' ? GLYPH[g.trim()] || (ICONS[g] ? g : null) : null; return k ? ico(k, size) : g; };
 function gl(label, size = 14) {
   if (typeof label !== 'string') return [label];
   const m = label.match(/^(\S+)(\s+)(.*)$/s), k = m && GLYPH[m[1]];
-  if (k) return m[3] ? [ico(k, size), h('span', {}, m[3])] : [ico(k, size), m[2]];
+  if (k) return m[3] ? [ico(k, size), ' ', h('span', {}, m[3])] : [ico(k, size), m[2]];
   return GLYPH[label.trim()] ? [ico(GLYPH[label.trim()], size)] : [label];
 }
 // Terminal / Chat is ONE global switch for this device (Mac, phone …): every Claude session shows the same way.
@@ -323,7 +352,7 @@ function askCard(box, name, req, done) {
       h('div', { class: 'askrow' }, h('button', { class: 'btn sm primary', onclick: () => reply('allow', {}) }, isPlan ? 'Approve and start' : 'Allow'),
         h('button', { class: 'btn sm', onclick: () => reply('deny', null, isPlan ? 'The user wants to keep planning.' : 'The user denied this.') }, isPlan ? 'Keep planning' : 'Deny')));
   } else if (req.kind !== 'question') {
-    card = h('div', { class: 'turn assistant cmenu ask' }, h('div', { class: 'who' }, '⚠ Claude wants to use ' + (req.tool || 'a tool')), h('div', { class: 'cmenu-q mono' }, req.what || req.tool || ''),
+    card = h('div', { class: 'turn assistant cmenu ask' }, h('div', { class: 'who' }, gl('⚠ Claude wants to use ' + (req.tool || 'a tool'))), h('div', { class: 'cmenu-q mono' }, req.what || req.tool || ''),
       h('div', { class: 'askrow' }, h('button', { class: 'btn sm primary', onclick: () => reply('allow') }, 'Allow'), h('button', { class: 'btn sm', onclick: () => reply('deny', null, 'The user denied this.') }, 'Deny')));
   } else {
     const qs = req.questions || []; const picked = qs.map(() => new Set()); const other = qs.map(() => '');
@@ -582,8 +611,8 @@ const STATE_ICON = { working: '●', background: '◐', permission: '⚠', 'need
 const STATE_SHORT = { working: 'working', background: 'background', permission: 'permission', 'needs-you': 'needs you', error: 'error', limit: 'limit', idle: 'idle', unknown: '—', ended: 'exited' };
 function stateBadge(cl, compact = false) {
   if (!cl) return null; const st = cl.state || 'unknown';
-  if (compact) return h('span', { class: 'cst ' + st, title: (STATE_LABEL[st] || st) }, h('i', null, STATE_ICON[st] || '·'), cl.since && st !== 'unknown' ? h('b', null, ' ' + ago(cl.since)) : null);
-  return h('span', { class: 'cst ' + st, title: (STATE_LABEL[st] || st) + (cl.since ? ' since ' + new Date(cl.since).toLocaleTimeString() : '') }, h('i', null, STATE_ICON[st] || '·'), ' ', STATE_SHORT[st] || st, cl.since && st !== 'unknown' ? h('b', null, ' ' + ago(cl.since)) : null);
+  if (compact) return h('span', { class: 'cst ' + st, title: (STATE_LABEL[st] || st) }, h('i', null, gico(STATE_ICON[st] || '·', 11)), cl.since && st !== 'unknown' ? h('b', null, ' ' + ago(cl.since)) : null);
+  return h('span', { class: 'cst ' + st, title: (STATE_LABEL[st] || st) + (cl.since ? ' since ' + new Date(cl.since).toLocaleTimeString() : '') }, h('i', null, gico(STATE_ICON[st] || '·', 11)), ' ', STATE_SHORT[st] || st, cl.since && st !== 'unknown' ? h('b', null, ' ' + ago(cl.since)) : null);
 }
 // which Claude on a project this is: the base one (by account), a numbered extra instance, or a git worktree
 function instOf(it) {
@@ -606,7 +635,7 @@ function selectTab(key, name) { GROUP_SEL[key] = name; localStorage.setItem('bd.
 // "+" on a card / group: another instance or a worktree on that project (same menu as the ✦ Claude ▾ button)
 function plusClaude(ev, pid) { ev.stopPropagation(); const p = pid && byId()[pid]; if (!p) return toast('no project for this session', 'err'); claudeMenu(ev, p); }
 // branch / worktree tag: a worktree gets its own colour and the path on hover
-const nice = n => n.startsWith('claude-') ? '✦ ' + n.replace(/^claude-/, '').replace(/-company$/, ' (' + acctL('company') + ')') : n.startsWith('bd_') ? '▶ ' + n.replace(/^bd_/, '').replace('__', ' · ') : n === 'shell' ? 'bash' : n.startsWith('sh-') ? '$ ' + n : n;
+const nice = n => n.startsWith('claude-') ? n.replace(/^claude-/, '').replace(/-company$/, ' (' + acctL('company') + ')') : n.startsWith('bd_') ? n.replace(/^bd_/, '').replace('__', ' · ') : n === 'shell' ? 'bash' : n.startsWith('sh-') ? n : n;
 function renderTermPanel(force) {
   const el = $('#termpanel'); const live = S.runtime.sessions.length; $('#term-count').textContent = live;
   if (TERM.open && !document.body.classList.contains('term-open')) TERM.pageY = window.scrollY;   // body goes position:fixed -> remember where the page was
@@ -636,13 +665,13 @@ function renderTermPanel(force) {
   // Sidebar card: avatar · name + account · state pill + model · branch / title. Three clear lines, actions on hover.
   const item = (it, kind, sub) => {
     const isActive = TERM.active === it.name; const opened = TERM.frames.has(it.name); const cl = it.claude; const i = kind === 'claude' ? instOf(it) : null;
-    const where = i && (i.wt ? h('span', { class: 'grp wt', title: i.wt.path ? 'git worktree · ' + home(i.wt.path) : 'git worktree' }, '⎇ ' + i.wt.name + (i.branch && i.branch !== i.wt.name ? ' · ' + i.branch : '')) : i.branch ? h('span', { class: 'grp', title: 'branch' }, '⎇ ' + i.branch) : null);
-    const name = kind === 'claude' ? (sub ? h('span', { class: 'inst' }, i.label) : isNewChat(it.name) ? chatTitle(cl) : (cl?.label || it.project)) : kind === 'dev' ? it.project : it.name.startsWith('sh-') ? it.name : it.name;
+    const where = i && (i.wt ? h('span', { class: 'grp wt', title: i.wt.path ? 'git worktree · ' + home(i.wt.path) : 'git worktree' }, ico('branch', 12), ' ' + i.wt.name + (i.branch && i.branch !== i.wt.name ? ' · ' + i.branch : '')) : i.branch ? h('span', { class: 'grp', title: 'branch' }, ico('branch', 12), ' ' + i.branch) : null);
+    const name = kind === 'claude' ? (sub ? h('span', { class: 'inst' }, gl(i.label, 12)) : isNewChat(it.name) ? chatTitle(cl) : (cl?.label || it.project)) : kind === 'dev' ? it.project : it.name.startsWith('sh-') ? it.name : it.name;
     const tag = kind === 'claude' ? (multiAcct() ? h('span', { class: 'badge tag acc ' + it.account }, acct(it.account)) : null) : kind === 'dev' ? h('span', { class: 'grp' }, it.label) : it.name.startsWith('sh-') ? h('span', { class: 'grp' }, 'bash') : null;
-    const line2 = cl ? [h('span', { class: 'cst mini ' + cl.state }, STATE_ICON[cl.state] || '·', ' ', STATE_LABEL[cl.state] || cl.state), cl.model ? h('span', { class: 'mdl' }, modelName(cl.model)) : null, !sub && i && i.n ? h('span', { class: 'grp' }, '#' + i.n) : null]
+    const line2 = cl ? [h('span', { class: 'cst mini ' + cl.state }, gico(STATE_ICON[cl.state] || '·', 10), ' ', STATE_LABEL[cl.state] || cl.state), cl.model ? h('span', { class: 'mdl' }, modelName(cl.model)) : null, !sub && i && i.n ? h('span', { class: 'grp' }, '#' + i.n) : null]
       : [h('span', { class: 'grp' }, [it.group, it.org].filter(Boolean).join(' · ') || home(it.cwd)), h('span', { class: 'grp' }, `${ago(it.started)} · ${it.cpu.toFixed(0)}% · ${fmtB(it.mem)}`)];
     const others = cl && isNewChat(it.name) ? (cl.projects || []).filter(x => x !== it.pid).slice(0, 2).map(x => h('span', { class: 'grp pchip' }, byId()[x]?.name || x)) : [];
-    const line3 = cl ? [where, ...others, isNewChat(it.name) && !sub ? (it.pid ? null : h('span', { class: 'grp' }, home(it.cwd))) : cl.title ? h('span', { class: 'ttl', title: cl.title }, cl.title) : cl.lastPrompt ? h('span', { class: 'ttl dim', title: cl.lastPrompt }, '❯ ' + cl.lastPrompt) : null] : null;
+    const line3 = cl ? [where, ...others, isNewChat(it.name) && !sub ? (it.pid ? null : h('span', { class: 'grp' }, home(it.cwd))) : cl.title ? h('span', { class: 'ttl', title: cl.title }, cl.title) : cl.lastPrompt ? h('span', { class: 'ttl dim', title: cl.lastPrompt }, ico('prompt', 12), ' ' + cl.lastPrompt) : null] : null;
     return h('div', { class: 'titem ' + kind + (sub ? ' sub' : '') + (isActive ? ' on' : '') + (opened ? ' opened' : '') + (cl ? ' st-' + cl.state : ''), style: `--org:${orgColor(it.org)}`, onclick: () => openTerm(it.name), title: it.name },
       kind === 'claude' && !sub ? avatar(it.pid) : h('span', { class: 'dot' }),
       h('div', { class: 'tt' },
@@ -671,7 +700,7 @@ function renderTermPanel(force) {
   list.append(...(S3.claude.length ? [h('div', { class: 'tsec' }, 'Claude instances', h('span', { class: 'n' }, S3.claude.length)), ...claudeRows] : []), ...section('Dev servers', S3.dev, 'dev'), ...section('Other tmux', S3.other, 'other'));
   // opened frames whose session vanished (or plain shells)
   if (extra.length) list.append(h('div', { class: 'tsec' }, 'Open tabs', h('span', { class: 'n' }, extra.length)), ...extra.map(k => h('div', { class: 'titem other' + (TERM.active === k ? ' on' : ''), onclick: () => { TERM.active = k; renderTermPanel(true); } }, h('span', { class: 'dot', style: k === 'shell' ? 'background:var(--accent)' : 'background:var(--dim)' }), h('div', { class: 'tt' }, h('div', { class: 'tn' }, k === 'shell' ? 'bash · ' + home(S.host.devRoot || '~') : k), h('div', { class: 'ts' }, k === 'shell' ? 'plain shell' : 'session ended')), h('button', { class: 'x', title: 'close tab', onclick: ev => { ev.stopPropagation(); dropFrame(k); } }, ico('x', 13)))));
-  if (!S.runtime.sessions.length && !TERM.frames.size) list.append(h('div', { class: 'note', style: 'padding:12px' }, 'No tmux sessions. Start a Claude session from a project card (✦ Claude ▾) or a dev server (▶), or open a shell.'));
+  if (!S.runtime.sessions.length && !TERM.frames.size) list.append(h('div', { class: 'note', style: 'padding:12px' }, 'No tmux sessions. Start a Claude session from a project card (', ico('sparkle', 13), ' Claude ', ico('chevronDown', 11), ') or a dev server (', ico('play', 12), '), or open a shell.'));
   const bar = $('#term-bar'); bar.innerHTML = '';
   const barAdd = (...xs) => bar.append(...xs.filter(x => x != null && x !== false)); // Element.append() would render a literal "null" for sessions without a project
   const act = S.runtime.sessions.find(s => s.name === TERM.active); const cl = act && act.claude;
@@ -730,7 +759,7 @@ async function claudeMenu(ev, p) {
     { header: 'New chat' },
     ...accts.map(a => ({ label: two ? acct(a) : 'New chat', sub: 'type the first message', icon: '◇', onclick: () => newSessionModal('new', '', { project: p.id, account: a }) })),
     mine.length ? 'sep' : null,
-    ...mine.map(s => ({ label: nice(s.name).replace(/^✦ /, ''), sub: (s.claude && (STATE_LABEL[s.claude.state] + (s.claude.title ? ' · ' + s.claude.title : ''))) || 'running → open', icon: '●', cur: true, onclick: () => openTerm(s.name) })),
+    ...mine.map(s => ({ label: nice(s.name), sub: (s.claude && (STATE_LABEL[s.claude.state] + (s.claude.title ? ' · ' + s.claude.title : ''))) || 'running → open', icon: '●', cur: true, onclick: () => openTerm(s.name) })),
     'sep',
     ...accts.map(a => { const l = last && last[a]; return { label: two ? 'Resume last chat · ' + acct(a) : 'Resume last chat in this folder', sub: l ? (l.title || 'previous conversation').slice(0, 50) + ' · ' + ago(l.lastAt) + ' ago' : last ? 'no earlier conversation in this folder' : '', icon: '↺', disabled: !!last && !l, onclick: () => startClaude(p, a, { resume: true }) }; }),
     p.isGit ? 'sep' : null,
@@ -742,7 +771,7 @@ function reachable(p) { return !p.loopback || !!exposedPort(p.port); }
 
 // ---------- header ----------
 function renderHeader() {
-  const mac = (S.host.tailscale?.peers || []).find(p => p.os === 'macOS'); const macTxt = mac ? ` · mac ${mac.online ? '● online' : '○ offline'}` : '';
+  const mac = (S.host.tailscale?.peers || []).find(p => p.os === 'macOS'); const macTxt = mac ? ` · mac ${mac.online ? 'online' : 'offline'}` : '';
   $('#hostline').textContent = `${S.host.hostname || ''}${mac ? (mac.online ? ' · mac online' : ' · mac offline') : ''}`; $('#hostline').title = `${S.host.tsName || ''} · ${S.host.tsIp || publicHost()}${macTxt} · ${S.projects.filter(p => !p.hidden).length} projects · dev root ${S.host.devRoot}`;
   renderLiveDot();
   const orgs = [...new Set(S.projects.map(p => p.org))];
@@ -826,7 +855,7 @@ function tempChip(t, what) {
 // battery: where the power comes from (chip) and what that means in time (line under the number)
 // draining = unplugged, or plugged into a charger too weak to keep up: that's when low charge matters
 const batDrain = b => !b.ac || b.status === 'Discharging';
-const batSrc = b => b.status === 'Charging' ? '⚡ charging' : b.ac && b.status === 'Discharging' ? '⚡ AC, draining' : b.ac ? '⚡ on AC' : 'on battery';
+const batSrc = b => b.status === 'Charging' ? [ico('zap', 12), ' charging'] : b.ac && b.status === 'Discharging' ? [ico('zap', 12), ' AC, draining'] : b.ac ? [ico('zap', 12), ' on AC'] : 'on battery';
 function batChip(b) { return h('span', { class: 'bchip ' + (batDrain(b) ? 'dis' : 'ac'), title: `${b.name} · ${b.status}${b.ac ? ' · plugged in' : ' · unplugged'}` }, batSrc(b)); }
 function batLine(b) {
   const tail = [b.watts ? b.watts + ' W' : null, b.health ? 'health ' + b.health + '%' : null, b.cycles ? b.cycles + ' cycles' : null].filter(Boolean);
@@ -933,7 +962,7 @@ function renderRailFoot() {
     const b = rf.children[i]; const bat = k === 'bat';   // battery: low is the bad end, and only while unplugged
     b.className = 'rm' + (bat ? (!batDrain(bt) ? ' ac' : v <= 10 ? ' hot' : v <= 25 ? ' warn' : '') : v > 85 ? ' hot' : v > 60 ? ' warn' : '');
     b.title = bat ? `Battery ${v}% · ${batLine(bt)} — click: 24 h history` : `${l} ${v.toFixed(0)}%${t ? ' · ' + t.toFixed(0) + ' °C' : ''} — click: 24 h history`;
-    b.querySelector('b').style.width = Math.min(100, Math.max(2, v)) + '%'; b.querySelector('.rv').textContent = (bat && bt.ac ? '⚡' : '') + v.toFixed(0) + '%';
+    b.querySelector('b').style.width = Math.min(100, Math.max(2, v)) + '%'; b.querySelector('.rv').replaceChildren(...(bat && bt.ac ? [ico('zap', 11)] : []), v.toFixed(0) + '%');
   });
 }
 // Heavy processes: only when something keeps a core busy or holds a lot of memory. One row per process — what it is
@@ -954,7 +983,7 @@ function hogsTile(s) {
           h('span', { class: 'hog-m mono', title: `${x.cpu}% of one core = ${share.toFixed(0)}% of the whole CPU (${cores} threads)` }, h('span', { class: 'lbl' }, 'CPU'), h('span', { class: 'bar' }, h('b', { style: `width:${Math.max(2, share)}%` })), h('span', { class: 'val' }, x.cpu + '%')),
           h('span', { class: 'hog-m mono', title: 'resident memory' }, h('span', { class: 'lbl' }, 'RAM'), h('span', { class: 'bar mem' }, h('b', { style: `width:${Math.max(2, Math.min(100, x.rss / s.mem.total * 100))}%` })), h('span', { class: 'val' }, fmtB(x.rss))),
           h('span', { class: 'hog-t mono dim' }, 'heavy ' + fmtDur(x.heavyFor) + ' · up ' + fmtDur(x.runningFor))),
-        x.tip ? h('div', { class: 'hog-tip' }, gl('💡 '), x.tip) : null),
+        x.tip ? h('div', { class: 'hog-tip' }, ico('bulb', 13), ' ', x.tip) : null),
       x.mine ? h('div', { class: 'hog-act' }, h('button', { class: 'btn sm ghost', title: 'ask it to stop (SIGTERM)', onclick: ev => { ev.stopPropagation(); killP(x, 'TERM'); } }, 'Stop'), h('button', { class: 'btn sm ghost danger', title: 'force-kill (SIGKILL)', onclick: ev => { ev.stopPropagation(); killP(x, 'KILL'); } }, 'Kill')) : null);
   });
   return h('div', { class: 'tile wfull hogs' + (hot ? ' is-hot' : ''), 'data-k': 'hogs' },
@@ -1071,7 +1100,7 @@ function sessMenu(ev, name) {
   const proj = sess && byId()[sess.project]; const git = proj && gitOf(proj);
   const dirty = git && !git.error ? git.dirty + git.untracked : 0;
   const upgrading = CLAUDE_UPGRADING; const upd = cl && S.claude?.update;
-  const wt = cl && cl.worktree; const where = !cl ? '' : wt ? '⎇ ' + wt.name + (cl.branch && cl.branch !== wt.name ? ' · ' + cl.branch : '') : cl.branch ? '⎇ ' + cl.branch : '';
+  const wt = cl && cl.worktree; const where = !cl ? '' : wt ? wt.name + (cl.branch && cl.branch !== wt.name ? ' · ' + cl.branch : '') : cl.branch ? cl.branch : '';
   const title = sessTitle(sess || { name });
   openMenu(ev, [
     cl && cl.model ? sessInfoRow('Model', modelName(cl.model) + (cl.effort ? ' · ' + cl.effort : ''), `model: ${cl.model}${cl.effort ? ' · effort ' + cl.effort : ''}`) : null,
@@ -1196,7 +1225,7 @@ function renderRunning() {
     h('span', { class: 'sp' }),
     h('label', { class: 'dim', style: 'font-size:12px;display:inline-flex;gap:6px;align-items:center;cursor:pointer' }, h('input', { type: 'checkbox', checked: RUN.stopped, onchange: e => { RUN.stopped = e.target.checked; renderRunning(); } }), 'stopped containers'),
     counts.dev ? h('button', { class: 'btn sm danger', title: 'stop every dev server started from the dashboard', onclick: async () => { if (!confirm('Stop all ' + counts.dev + ' dev servers?')) return; for (const r of rows.filter(r => r.kind === 'dev')) await act('Stop ' + r.what, api('stop', { session: r.session })); } }, gl('■ Stop all dev')) : null));
-  if (!shown.length) { el.append(h('div', { class: 'tsempty' }, rows.length ? 'Nothing of this kind.' : 'Nothing running. Start a dev server from ', h('a', { href: '#', onclick: ev => { ev.preventDefault(); goView('projects'); } }, 'Projects'), ' (▶) or open a shell.')); return; }
+  if (!shown.length) { el.append(h('div', { class: 'tsempty' }, rows.length ? 'Nothing of this kind.' : 'Nothing running. Start a dev server from ', h('a', { href: '#', onclick: ev => { ev.preventDefault(); goView('projects'); } }, 'Projects'), ' (', ico('play', 12), ') or open a shell.')); return; }
   const tbl = h('table', { class: 'runtbl' },
     h('thead', null, h('tr', null, h('th', { class: 'ck' }), h('th', { class: 'cname' }, 'Project'), h('th', { class: 'cwhat' }, 'What'), h('th', { class: 'ccmd' }, 'Command'), h('th', null, 'Ports'), h('th', { class: 'num' }, 'CPU'), h('th', { class: 'num' }, 'Mem'), h('th', { class: 'num' }, 'Up'), h('th', { class: 'cact' }))),
     h('tbody', null, shown.map(r => h('tr', { class: 'rr ' + r.kind + (r.dead ? ' dead' : ''), style: `--org:${orgColor(r.org)}`, title: r.title || (r.id ? 'open project details' : ''), onclick: ev => { if (ev.target.closest('a,button')) return; if (r.id) openDrawer(r.id, r.kind === 'docker' ? 'docker' : 'logs', r.session || null); } },
@@ -1304,9 +1333,9 @@ function gitRow(p) {
   if (g.error) return h('div', { class: 'gitrow' }, h('span', { style: 'color:var(--red)' }, g.error));
   const target = p.isGit ? p : byId()[p.parent];
   return h('div', { class: 'gitrow' },
-    h('button', { class: 'branch', title: 'switch branch', onclick: ev => branchMenu(ev, target) }, h('span', { class: 'ico' }, ico('branch', 13)), h('span', { class: 'b' }, g.branch), h('span', { class: 'caret' }, '▾')),
-    g.dirty + g.untracked ? h('span', { class: 'dirty', title: `${g.dirty} modified, ${g.untracked} untracked` }, '● ' + (g.dirty + g.untracked)) : null,
-    g.ahead ? h('span', { class: 'ab', title: 'ahead' }, '↑' + g.ahead) : null, g.behind ? h('span', { class: 'ab behind', title: 'behind' }, '↓' + g.behind) : null,
+    h('button', { class: 'branch', title: 'switch branch', onclick: ev => branchMenu(ev, target) }, h('span', { class: 'ico' }, ico('branch', 13)), h('span', { class: 'b' }, g.branch), h('span', { class: 'caret' }, ico('chevronDown', 12))),
+    g.dirty + g.untracked ? h('span', { class: 'dirty', title: `${g.dirty} modified, ${g.untracked} untracked` }, ico('dot', 9), ' ' + (g.dirty + g.untracked)) : null,
+    g.ahead ? h('span', { class: 'ab', title: 'ahead' }, ico('arrowUp', 11), g.ahead) : null, g.behind ? h('span', { class: 'ab behind', title: 'behind' }, ico('arrowDown', 11), g.behind) : null,
     g.stashes ? h('span', { class: 'stash', title: 'stashes' }, [ico('layers', 12), ' ' + g.stashes]) : null,
     g.last ? h('span', { class: 'last', title: g.last.subject }, h('b', null, g.last.hash), ' ', g.last.subject, ' · ', g.last.rel) : null);
 }
@@ -1334,13 +1363,13 @@ function card(p) {
     ...r.external.map(e => h('span', { class: 'lchip ext', title: e.cmd }, h('i', { class: 'd' }), e.label || e.comm, ...(e.ports || []).filter(x => !x.ephemeral).slice(0, 2).map(x => portChip(x)))),
     conts.length ? h('button', { class: 'lchip dock', title: conts.map(c => c.service || c.name).join(', '), onclick: () => openDrawer(p.id, 'docker') }, h('i', { class: 'd' }), `${conts.length} container${conts.length > 1 ? 's' : ''}`) : null) : null;
   const gitLine = !g ? null : g.error ? h('div', { class: 'gitrow' }, h('span', { style: 'color:var(--red)' }, g.error)) : h('div', { class: 'gitrow' },
-    h('button', { class: 'branch', title: 'switch branch', onclick: ev => branchMenu(ev, target) }, h('span', { class: 'ico' }, ico('branch', 13)), h('span', { class: 'b' }, g.branch), h('span', { class: 'caret' }, '▾')),
-    g.dirty + g.untracked ? h('button', { class: 'dirty', title: `${g.dirty} modified, ${g.untracked} untracked — open changes`, onclick: () => openDrawer(p.id, 'changes') }, '● ' + (g.dirty + g.untracked)) : null,
-    g.ahead ? h('span', { class: 'ab', title: 'ahead of upstream' }, '↑' + g.ahead) : null, g.behind ? h('span', { class: 'ab behind', title: 'behind upstream — pull' }, '↓' + g.behind) : null,
+    h('button', { class: 'branch', title: 'switch branch', onclick: ev => branchMenu(ev, target) }, h('span', { class: 'ico' }, ico('branch', 13)), h('span', { class: 'b' }, g.branch), h('span', { class: 'caret' }, ico('chevronDown', 12))),
+    g.dirty + g.untracked ? h('button', { class: 'dirty', title: `${g.dirty} modified, ${g.untracked} untracked — open changes`, onclick: () => openDrawer(p.id, 'changes') }, ico('dot', 9), ' ' + (g.dirty + g.untracked)) : null,
+    g.ahead ? h('span', { class: 'ab', title: 'ahead of upstream' }, ico('arrowUp', 11), g.ahead) : null, g.behind ? h('span', { class: 'ab behind', title: 'behind upstream — pull' }, ico('arrowDown', 11), g.behind) : null,
     g.last ? h('span', { class: 'last', title: g.last.subject }, g.last.subject, h('i', null, ' · ' + g.last.rel)) : null);
   const startBtn = pc ? h('div', { class: 'split' },
     h('button', { class: 'btn sm', disabled: running.has(pc.name), title: pc.cmd, onclick: () => { noteBundle(p, { kind: 'cmd', name: pc.name }); act(`${p.name}: ${pc.name}`, api('run', { id: p.id, name: pc.name })); } }, gl('▶ '), pc.name),
-    h('button', { class: 'btn sm', title: 'all commands', onclick: ev => cmdMenu(ev, p) }, h('span', { class: 'caret' }, '▾'))) : (p.commands.length ? h('button', { class: 'btn sm', onclick: ev => cmdMenu(ev, p) }, gl('▶ Run '), h('span', { class: 'caret' }, '▾')) : null);
+    h('button', { class: 'btn sm', title: 'all commands', onclick: ev => cmdMenu(ev, p) }, h('span', { class: 'caret' }, ico('chevronDown', 12)))) : (p.commands.length ? h('button', { class: 'btn sm', onclick: ev => cmdMenu(ev, p) }, gl('▶ Run '), h('span', { class: 'caret' }, ico('chevronDown', 12))) : null);
   return h('div', { class: 'card' + (live ? ' live' : '') + (p.parent ? ' sub' : ''), style: `--org:${orgColor(p.org)};--pc:${projColor(p)}`, 'data-id': p.id },
     h('div', { class: 'head' }, avatar(p.id, 'lg'),
       h('div', { class: 'hd' },
@@ -1350,7 +1379,7 @@ function card(p) {
     gitLine, liveRow,
     (() => { const c = feat('cardChips', p); return c.length ? h('div', { class: 'feat-chips' }, c) : null; })(),
     h('div', { class: 'actions' },
-      h('button', { class: 'btn sm claude' + (claudes.length ? ' on' : ''), title: `Claude Code session (${acctL('personal')} / ${acctL('company')})`, onclick: ev => claudeMenu(ev, p) }, ico('chat', 14), 'Claude', h('span', { class: 'caret' }, '▾')),
+      h('button', { class: 'btn sm claude' + (claudes.length ? ' on' : ''), title: `Claude Code session (${acctL('personal')} / ${acctL('company')})`, onclick: ev => claudeMenu(ev, p) }, ico('chat', 14), 'Claude', h('span', { class: 'caret' }, ico('chevronDown', 12))),
       startBtn, h('span', { class: 'sp' }),
       h('button', { class: 'btn sm open', title: 'project details — changes, files, logs, branches, docker', onclick: () => openDrawer(p.id, 'overview') }, 'Open', ico('back', 13))));
 }
@@ -1374,7 +1403,7 @@ function renderMain() {
     const ps = shown.filter(p => p.org === org);
     const live = ps.filter(p => isLive(p.id)).length; const collapsed = UI.collapsed[org] && !UI.q && UI.filter === 'all';
     const section = h('section', { class: 'group', style: `--org:${orgColor(org)}` });
-    section.append(h('div', { class: 'ghead' }, h('h2', null, h('span', { class: 'sw' }), ...feat('orgBadge', org, ps), org), h('span', { class: 'meta' }, `${ps.length} projects${live ? ` · ${live} live` : ''}`), h('span', { class: 'sp' }), ...feat('orgActions', org, ps), h('a', { class: 'btn sm ghost vsc', href: vscodeUrl(S.host.devRoot + '/' + org), title: 'open org folder in VS Code' }, vscIcon(), ' folder'), h('button', { class: 'btn sm ghost', onclick: () => { UI.collapsed[org] = !UI.collapsed[org]; localStorage.setItem('bd.collapsed', JSON.stringify(UI.collapsed)); render(); } }, collapsed ? '▸ expand' : '▾ collapse')));
+    section.append(h('div', { class: 'ghead' }, h('h2', null, h('span', { class: 'sw' }), ...feat('orgBadge', org, ps), org), h('span', { class: 'meta' }, `${ps.length} projects${live ? ` · ${live} live` : ''}`), h('span', { class: 'sp' }), ...feat('orgActions', org, ps), h('a', { class: 'btn sm ghost vsc', href: vscodeUrl(S.host.devRoot + '/' + org), title: 'open org folder in VS Code' }, vscIcon(), ' folder'), h('button', { class: 'btn sm ghost', onclick: () => { UI.collapsed[org] = !UI.collapsed[org]; localStorage.setItem('bd.collapsed', JSON.stringify(UI.collapsed)); render(); } }, collapsed ? gl('▸ expand') : gl('▾ collapse'))));
     if (!collapsed) {
       const groups = [...new Set(ps.map(p => p.group))].sort((a, b) => (a === null) - (b === null) || String(a).localeCompare(String(b)));
       if (groups.length === 1 && groups[0] === null) section.append(gridFor(ps));
@@ -1384,7 +1413,7 @@ function renderMain() {
         section.append(h('div', { class: 'product' + (glive ? ' live' : '') },
           h('div', { class: 'phead' }, h('span', { class: 'pname' }, g === null ? 'misc' : g), h('span', { class: 'pmeta' }, `${gps.length}${glive ? ` · ${glive} live` : ''}`), h('span', { class: 'pline' }),
             g !== null ? h('a', { class: 'btn sm ghost vsc', href: vscodeUrl(S.host.devRoot + '/' + org + '/' + g), title: 'open product folder in VS Code' }, vscIcon()) : null,
-            h('button', { class: 'btn sm ghost', onclick: () => { UI.collapsed[key] = !UI.collapsed[key]; localStorage.setItem('bd.collapsed', JSON.stringify(UI.collapsed)); render(); } }, gcol ? '▸' : '▾')),
+            h('button', { class: 'btn sm ghost', onclick: () => { UI.collapsed[key] = !UI.collapsed[key]; localStorage.setItem('bd.collapsed', JSON.stringify(UI.collapsed)); render(); } }, gico(gcol ? '▸' : '▾', 14))),
           gcol ? null : gridFor(gps)));
       }
     }
@@ -1510,7 +1539,7 @@ async function renderSessionDrawer(full = true) {
     body.append(h('div', { class: 'dim', style: 'margin-bottom:8px;font-size:12px' }, 'Newest first. Click a file to see its current diff in the project Files tab.'));
     for (const f of list) { const r = rel(f.path); const inside = pr && f.path.startsWith(pr.path + '/');
       body.append(h('div', { class: 'chfile', title: f.path, onclick: () => { if (!inside) { toast('outside the project folder: ' + f.path); return; } FILES.sel = r; FILES.mode = 'auto'; closeDrawer(); openDrawer(pr.id, 'files'); } },
-        h('span', { class: 'chst s' + (f.tool === 'Write' ? 'A' : 'M') }, f.tool === 'Write' ? 'W' : 'E'), fileIcon(f.path), h('span', { class: 'chpath' }, r), h('span', { class: 'dim mono', style: 'font-size:11px' }, ago(f.at) + ' ago'), h('span', { class: 'caret' }, '▸'))); }
+        h('span', { class: 'chst s' + (f.tool === 'Write' ? 'A' : 'M') }, f.tool === 'Write' ? 'W' : 'E'), fileIcon(f.path), h('span', { class: 'chpath' }, r), h('span', { class: 'dim mono', style: 'font-size:11px' }, ago(f.at) + ' ago'), h('span', { class: 'caret' }, ico('chevronRight', 12)))); }
     return;
   }
   SESS.key = [name, t.sig, t.total, cl.state, cl.lastTool, SESS.n, (PENDING[name] || []).length, queuedKey(name), (cl.status || '').split(' (')[0], t.pending || '', menuKey(cl.menu)].join(':');
@@ -1600,7 +1629,7 @@ function renderConversation(box, name, t, o) {
   const scroller = same ? box.querySelector('.cscroll') : h('div', { class: 'cscroll' });
   const conv = same ? scroller.querySelector('.conv') : h('div', { class: 'conv' });
   const bar = h('div', { class: 'logbar cbar' }, h('span', { class: 'dim' }, `${t.turns.length} of ${t.total}${t.more ? '+' : ''} turns`), h('span', { style: 'flex:1' }),
-    t.total > t.turns.length || (t.more && o.n < 200) ? h('button', { class: 'btn sm', onclick: o.more }, '↑ older') : null,
+    t.total > t.turns.length || (t.more && o.n < 200) ? h('button', { class: 'btn sm', onclick: o.more }, gl('↑ older')) : null,
     ...feat('chatBar', name), h('button', { class: 'btn sm', onclick: o.refresh }, gl('↻')));
   const old = new Map(); for (const el of conv.children) if (el.dataset.h) old.set(el.dataset.h, el);
   const items = [];
@@ -1760,7 +1789,7 @@ function toolRow(t, ctx) {
 // inline, never folded: what Claude asked you and what you answered; its to-do list
 function inlineTool(t) {
   if (t.name === 'AskUserQuestion') return h('div', { class: 'tqa' }, (t.qs || []).map((q, i) => h('div', null, h('div', { class: 'q' }, '？ ' + q), h('div', { class: 'a' }, t.answers ? (t.answers[i] || '—') : t.done ? '—' : 'waiting for your answer…'))));
-  if (t.name === 'TodoWrite' && t.todos) return h('div', { class: 'ttodo' }, t.todos.map(x => h('div', { class: 'td ' + x.s }, h('span', { class: 'ck' }, x.s === 'completed' ? '✓' : x.s === 'in_progress' ? '→' : '○'), x.c)));
+  if (t.name === 'TodoWrite' && t.todos) return h('div', { class: 'ttodo' }, t.todos.map(x => h('div', { class: 'td ' + x.s }, h('span', { class: 'ck' }, gico(x.s === 'completed' ? '✓' : x.s === 'in_progress' ? '→' : '○', 13)), x.c)));
   return null;
 }
 function assistantTurn(turn, ctx) {
@@ -1894,7 +1923,7 @@ function voiceButton(ta, chatKey) {
     const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status); return j;
   };
   let tapAt = 0, lag = 0, whisperNote = '';
-  const micStatus = (live, extra) => { if (!ovStatus) return; ovStatus.replaceChildren(...(live ? [h('span', { class: 'ok' }, '● Recording — talk')] : [h('span', { class: 'spin' }), ' Starting mic… wait'])); if (whisperNote) ovStatus.append(h('span', { class: 'dim' }, ' · ' + whisperNote)); };
+  const micStatus = (live, extra) => { if (!ovStatus) return; ovStatus.replaceChildren(...(live ? [h('span', { class: 'ok' }, ico('dot', 9), ' Recording — talk')] : [h('span', { class: 'spin' }), ' Starting mic… wait'])); if (whisperNote) ovStatus.append(h('span', { class: 'dim' }, ' · ' + whisperNote)); };
   async function startWhisper() {
     whisperOn = true; chunks = []; const my = ++gen; tapAt = Date.now(); whisperNote = ''; micStatus(false);
     wakeWhisper(my);   // starts the service if it's asleep; audio is buffered, so it doesn't matter when it's ready
@@ -2005,7 +2034,7 @@ function scheduleDialog(name, draft) {
   const box = h('div', { class: 'box settings sched' },
     h('div', { class: 'sh' }, h('h3', null, 'Schedule a message'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost icon', onclick: () => m.classList.add('hidden') }, ico('x', 15))),
     h('div', { class: 'sbody' },
-      h('div', { class: 'sto' }, avatar(sess?.project, 'sm'), h('b', null, cl.label || (sess?.project && byId()[sess.project]?.name) || name), h('span', { class: 'badge tag acc ' + (cl.account || '') }, acct(cl.account)), cl.state ? h('span', { class: 'cst mini ' + cl.state }, STATE_ICON[cl.state], ' ', STATE_LABEL[cl.state]) : null),
+      h('div', { class: 'sto' }, avatar(sess?.project, 'sm'), h('b', null, cl.label || (sess?.project && byId()[sess.project]?.name) || name), h('span', { class: 'badge tag acc ' + (cl.account || '') }, acct(cl.account)), cl.state ? h('span', { class: 'cst mini ' + cl.state }, gico(STATE_ICON[cl.state], 10), ' ', STATE_LABEL[cl.state]) : null),
       h('div', { class: 'sg' }, h('div', { class: 'sg-t' }, 'When'), chips, h('div', { class: 'swhen' }, wp ? wp.field : when, rel), wp ? wp.pop : null),
       h('div', { class: 'sg' }, h('div', { class: 'sg-t' }, 'Message'), msgs, h('button', { class: 'btn sm ghost', onclick: () => addMsg('').focus() }, ico('plus', 13), 'Add a follow-up message'), h('div', { class: 'hint' }, 'Follow-ups go out one by one, each after Claude finishes the previous one. If the session is busy at the time, the message waits for it to become idle.'))),
     h('div', { class: 'foot' }, h('button', { class: 'btn ghost', onclick: () => m.classList.add('hidden') }, 'Cancel'),
@@ -2040,7 +2069,7 @@ function recapStrip() {
   const d = RECAP.data[RECAP.day];
   if (!d || Date.now() - (RECAP.at[RECAP.day] || 0) > 120000) { RECAP.at[RECAP.day] = Date.now(); api('recap?day=' + RECAP.day).then(r => { RECAP.data[RECAP.day] = r; renderTermStrip(); }).catch(() => {}); }
   const tabs = h('div', { class: 'seg' }, [['Today', 0], ['Yesterday', 1], ['2 days ago', 2], ['3 days ago', 3]].map(([l, i]) => h('button', { class: 'segb' + (RECAP.day === i ? ' on' : ''), onclick: () => { RECAP.day = i; renderTermStrip(); } }, l)));
-  const head = h('div', { class: 'rc-head' }, h('button', { class: 'rc-toggle', onclick: () => { RECAP.open.show = !RECAP.open.show; recapSave(); renderTermStrip(); } }, h('span', { class: 'caret' }, RECAP.open.show ? '▾' : '▸'), 'Recap'), d && RECAP.open.show ? h('span', { class: 'rc-sum' }, d.day, ' · ', [d.totals.commits ? `${d.totals.commits} commits` : null, d.totals.sessions ? `${d.totals.sessions} sessions` : null, d.totals.cost ? usd(d.totals.cost) : null].filter(Boolean).join(' · ') || 'nothing recorded') : null, h('span', { class: 'sp' }), RECAP.open.show ? tabs : null);
+  const head = h('div', { class: 'rc-head' }, h('button', { class: 'rc-toggle', onclick: () => { RECAP.open.show = !RECAP.open.show; recapSave(); renderTermStrip(); } }, h('span', { class: 'caret' }, ico(RECAP.open.show ? 'chevronDown' : 'chevronRight', 12)), 'Recap'), d && RECAP.open.show ? h('span', { class: 'rc-sum' }, d.day, ' · ', [d.totals.commits ? `${d.totals.commits} commits` : null, d.totals.sessions ? `${d.totals.sessions} sessions` : null, d.totals.cost ? usd(d.totals.cost) : null].filter(Boolean).join(' · ') || 'nothing recorded') : null, h('span', { class: 'sp' }), RECAP.open.show ? tabs : null);
   const box = h('section', { class: 'recap' }, head);
   if (!RECAP.open.show) return box;
   if (!d) { box.append(h('div', { class: 'rc-empty' }, 'loading…')); return box; }
@@ -2051,7 +2080,7 @@ function recapStrip() {
     const meta = [p.commits.length ? `${p.commits.length} commit${p.commits.length > 1 ? 's' : ''}` : null, p.sessions.length ? `${p.sessions.length} session${p.sessions.length > 1 ? 's' : ''}` : null, p.cost ? usd(p.cost) : null].filter(Boolean).join(' · ');
     const sub = p.sessions.map(x => x.title).filter(Boolean).slice(0, 2).join(' · ') || (p.commits[0] ? p.commits[0].subject : '');
     const row = h('div', { class: 'rc-row', onclick: () => { RECAP.open[key] = !open; recapSave(); renderTermStrip(); } },
-      avatar(p.id.startsWith('dir:') ? null : p.id), h('div', { class: 'rc-t' }, h('div', { class: 'rc-n' }, p.name), sub ? h('div', { class: 'rc-s' }, sub) : null), h('span', { class: 'rc-m' }, meta), h('span', { class: 'caret' }, open ? '▾' : '▸'));
+      avatar(p.id.startsWith('dir:') ? null : p.id), h('div', { class: 'rc-t' }, h('div', { class: 'rc-n' }, p.name), sub ? h('div', { class: 'rc-s' }, sub) : null), h('span', { class: 'rc-m' }, meta), h('span', { class: 'caret' }, ico(open ? 'chevronDown' : 'chevronRight', 12)));
     if (!open) return h('div', { class: 'rc-p' }, row);
     const body = h('div', { class: 'rc-body' });
     if (p.commits.length) body.append(h('div', { class: 'rc-sec' }, h('div', { class: 'rc-k' }, 'Commits', h('span', { class: 'n' }, p.commits.length)), h('div', { class: 'rc-commits' }, p.commits.map(c => h('div', { class: 'rc-c' }, h('span', { class: 'mono t' }, fmtT(c.ts)), h('span', { class: 'mono hsh' }, c.hash), h('span', { class: 'sub' }, c.subject))))));
@@ -2059,7 +2088,7 @@ function recapStrip() {
       const skey = key + '/' + x.sessionId; const sopen = !!RECAP.open[skey];
       body.append(h('div', { class: 'rc-sec sess' },
         h('div', { class: 'rc-k' }, h('span', { class: 'ttl' }, x.title || 'Claude session'), h('span', { class: 'badge tag acc ' + x.account }, acct(x.account)), h('span', { class: 'sp' }), h('span', { class: 'mono dim' }, `${x.turns} prompts · ${usd(x.cost)}`), h('button', { class: 'btn sm ghost', title: 'open the conversation', onclick: ev => { ev.stopPropagation(); openTranscriptFile({ file: x.transcript, title: x.title, sessionId: x.sessionId, account: x.account, cwd: x.cwd, mtime: Date.now() }); } }, ico('ext', 13), 'Open')),
-        h('button', { class: 'rc-more', onclick: ev => { ev.stopPropagation(); RECAP.open[skey] = !sopen; recapSave(); renderTermStrip(); } }, h('span', { class: 'caret' }, sopen ? '▾' : '▸'), sopen ? 'Hide what I asked' : `What I asked (${Math.min(x.prompts.length, x.turns)})`),
+        h('button', { class: 'rc-more', onclick: ev => { ev.stopPropagation(); RECAP.open[skey] = !sopen; recapSave(); renderTermStrip(); } }, h('span', { class: 'caret' }, ico(sopen ? 'chevronDown' : 'chevronRight', 12)), sopen ? 'Hide what I asked' : `What I asked (${Math.min(x.prompts.length, x.turns)})`),
         sopen ? h('div', { class: 'rc-q' }, x.prompts.map(q => h('div', { class: 'q' }, h('span', { class: 'mono t' }, fmtT(q.ts)), h('span', { class: 'tx' }, q.text)))) : null,
         x.files.length ? h('div', { class: 'rc-f' }, h('span', { class: 'lbl' }, 'edited'), x.files.slice(0, 14).map(f => h('span', { class: 'ag-tag', title: f }, f.split('/').pop())), x.files.length > 14 ? h('span', { class: 'dim' }, `+${x.files.length - 14}`) : null) : null));
     }
@@ -2320,8 +2349,8 @@ async function saveCustom(p, commands) { await act('Commands saved', api('projec
 // logs
 function stopLog() { if (UI.logSrc) { UI.logSrc.close(); UI.logSrc = null; } }
 function tabLogs(el, p, r) {
-  const opts = [...r.sessions.map(s => ({ v: s.name, l: `▶ ${s.label} (live)` })), ...r.external.map(e => ({ v: 'ext:' + e.pid, l: `● ${e.label || e.comm}${e.unit ? ' · ' + e.unit : ''} (live, outside)` })), ...r.containers.map(c => ({ v: 'docker:' + c.id, l: `🐳 ${c.name} ${c.state === 'running' ? '(live)' : '(' + c.state + ')'}` })), ...S.runtime.recent.filter(x => x.project === p.id).slice(0, 15).map(x => ({ v: x.name, l: `○ ${x.name.split('__')[1]} — exited ${x.exitCode ?? '?'} ${ago(x.endedAt)} ago` }))];
-  if (!opts.length) { el.append(h('div', { class: 'dim' }, 'No sessions or containers for this project yet. Start something with ▶.')); return; }
+  const opts = [...r.sessions.map(s => ({ v: s.name, l: `${s.label} (live)` })), ...r.external.map(e => ({ v: 'ext:' + e.pid, l: `${e.label || e.comm}${e.unit ? ' · ' + e.unit : ''} (live, outside)` })), ...r.containers.map(c => ({ v: 'docker:' + c.id, l: `${c.name} ${c.state === 'running' ? '(live)' : '(' + c.state + ')'}` })), ...S.runtime.recent.filter(x => x.project === p.id).slice(0, 15).map(x => ({ v: x.name, l: `${x.name.split('__')[1]} — exited ${x.exitCode ?? '?'} ${ago(x.endedAt)} ago` }))];
+  if (!opts.length) { el.append(h('div', { class: 'dim' }, 'No sessions or containers for this project yet. Start something with ', ico('play', 12), '.')); return; }
   if (!UI.logTarget || !opts.find(o => o.v === UI.logTarget)) UI.logTarget = opts[0].v;
   const sel = h('select', { onchange: e => { UI.logTarget = e.target.value; renderDrawer(true); } }, opts.map(o => h('option', { value: o.v, selected: o.v === UI.logTarget }, o.l)));
   const follow = h('label', { style: 'font-size:12px;color:var(--muted);display:flex;gap:6px;align-items:center' }, h('input', { type: 'checkbox', checked: UI.follow, onchange: e => UI.follow = e.target.checked }), 'follow');
@@ -2390,9 +2419,9 @@ async function tabChanges(el, p) {
   const total = d.staged.length + d.unstaged.length + d.untracked.length;
   // status at a glance: what is NOT committed, what is NOT pushed
   const pills = [];
-  if (total) pills.push(h('span', { class: 'chpill warn' }, `● ${total} uncommitted`));
+  if (total) pills.push(h('span', { class: 'chpill warn' }, ico('dot', 9), ` ${total} uncommitted`));
   if (!d.upstream) pills.push(h('span', { class: 'chpill mute' }, 'local only — no remote'));
-  else if (d.ahead) pills.push(h('span', { class: 'chpill hot', title: `${d.ahead} commits exist only here — run git push` }, `⬆ ${d.ahead} NOT PUSHED`));
+  else if (d.ahead) pills.push(h('span', { class: 'chpill hot', title: `${d.ahead} commits exist only here — run git push` }, gl(`⬆ ${d.ahead} NOT PUSHED`)));
   else pills.push(h('span', { class: 'chpill ok' }, total ? gl('✓ commits pushed') : gl('✓ committed & pushed')));
   if (d.behind) pills.push(h('span', { class: 'chpill mute' }, gl(`⬇ ${d.behind} behind`)));
   box.replaceChildren(h('div', { class: 'chhead' },
@@ -2413,10 +2442,10 @@ async function tabChanges(el, p) {
       d.staged.length ? h('button', { class: 'btn sm ghost', title: 'git reset', onclick: () => gitDo('unstage-all', 'unstage all') }, '－ Unstage') : null,
       total ? h('button', { class: 'btn sm primary', title: 'commit staged (stages everything first if nothing is staged)', onclick: () => doCommit(false) }, gl('✓ Commit')) : null,
       total ? h('button', { class: 'btn sm primary', title: 'commit, then git push', onclick: () => doCommit(true) }, gl('✓ Commit & push')) : null,
-      d.ahead || !d.upstream ? h('button', { class: 'btn sm' + (d.ahead ? ' hotbtn' : ''), title: d.upstream ? 'git push' : 'git push -u origin HEAD', onclick: () => gitDo('push', 'push') }, `⬆ Push${d.ahead ? ' ' + d.ahead : ''}`) : null));
+      d.ahead || !d.upstream ? h('button', { class: 'btn sm' + (d.ahead ? ' hotbtn' : ''), title: d.upstream ? 'git push' : 'git push -u origin HEAD', onclick: () => gitDo('push', 'push') }, gl(`⬆ Push${d.ahead ? ' ' + d.ahead : ''}`)) : null));
   }
   const frow = (f, kind) => {
-    const caret = h('span', { class: 'caret' }, '▸');
+    const caret = h('span', { class: 'caret' }, ico('chevronRight', 12));
     const row = h('div', { class: 'chfile' },
       h('span', { class: 'chst s' + (f.s || 'Q') }, f.s || '?'), fileIcon(f.path),
       h('span', { class: 'chpath' }, f.from ? f.from + ' → ' + f.path : f.path),
@@ -2426,7 +2455,7 @@ async function tabChanges(el, p) {
     const dv = h('div', { class: 'chdiff hidden', 'data-root': target.path });
     let open = false, loaded = false;
     row.onclick = async ev => { if (ev.target.closest('button')) return;
-      open = !open; dv.classList.toggle('hidden', !open); caret.textContent = open ? '▾' : '▸';
+      open = !open; dv.classList.toggle('hidden', !open); caret.replaceChildren(ico(open ? 'chevronDown' : 'chevronRight', 12));
       if (open && !loaded) {
         loaded = true; dv.textContent = 'loading…';
         try { const r = await api(`git/${target.id}/diff?file=${encodeURIComponent(f.path)}&kind=${kind}`); dv.innerHTML = r.error ? esc(r.error) : renderDiff(r.text); }
@@ -2448,9 +2477,9 @@ async function tabChanges(el, p) {
     d.commits.forEach((c, i) => {
       if (d.upstream && d.ahead && i === d.ahead) rows.push(h('div', { class: 'cdiv' }, h('span', { class: 'l' }), `pushed to ${d.upstream}`, h('span', { class: 'l' })));
       const mine = me && (c.email || '').toLowerCase() === me;
-      const caret = h('span', { class: 'caret' }, '▸'); const det = h('div', { class: 'cdet hidden' }); let open = false, loaded = false;
+      const caret = h('span', { class: 'caret' }, ico('chevronRight', 12)); const det = h('div', { class: 'cdet hidden' }); let open = false, loaded = false;
       const row = h('div', { class: 'cmt' + (c.unpushed ? ' unp' : '') + (mine ? ' mine' : ''), title: `${c.subject}\n${c.author} <${c.email}> · ${c.rel}${c.unpushed ? '\nNOT PUSHED' : ''}\nclick to see the files`,
-        onclick: async ev => { if (ev.target.closest('.chash')) return; open = !open; det.classList.toggle('hidden', !open); caret.textContent = open ? '▾' : '▸'; if (open && !loaded) { loaded = true; det.textContent = 'loading…'; try { renderCommit(det, target, await api(`git/${target.id}/commit/${c.hash}`)); } catch (e) { det.textContent = e.message; } } } },
+        onclick: async ev => { if (ev.target.closest('.chash')) return; open = !open; det.classList.toggle('hidden', !open); caret.replaceChildren(ico(open ? 'chevronDown' : 'chevronRight', 12)); if (open && !loaded) { loaded = true; det.textContent = 'loading…'; try { renderCommit(det, target, await api(`git/${target.id}/commit/${c.hash}`)); } catch (e) { det.textContent = e.message; } } } },
         caret,
         h('span', { class: 'cdot', title: c.unpushed ? 'not pushed' : 'pushed' }),
         h('b', { class: 'chash mono', title: 'copy hash', onclick: () => navigator.clipboard?.writeText(c.hash).then(() => toast('copied ' + c.hash)) }, c.hash),
@@ -2472,11 +2501,11 @@ function renderCommit(el, target, c) {
     h('button', { class: 'btn sm ghost', title: 'copy full hash', onclick: ev => { ev.stopPropagation(); navigator.clipboard?.writeText(c.hash).then(() => toast('copied')); } }, gl('⎘ hash'))));
   if (c.body) el.append(h('pre', { class: 'cbody' }, c.body));
   for (const f of c.files) {
-    const caret = h('span', { class: 'caret' }, '▸');
+    const caret = h('span', { class: 'caret' }, ico('chevronRight', 12));
     const row = h('div', { class: 'chfile' }, h('span', { class: 'chst s' + (f.s || 'M') }, f.s || 'M'), fileIcon(f.path), h('span', { class: 'chpath' }, f.from ? f.from + ' → ' + f.path : f.path), f.add != null ? h('span', { class: 'chnum add' }, '+' + f.add) : null, f.del != null ? h('span', { class: 'chnum del' }, '−' + f.del) : null,
       byId()[UI.drawer]?.isGit ? h('button', { class: 'btn sm ghost', title: 'open in Files tab', onclick: ev => { ev.stopPropagation(); FILES.sel = f.path; FILES.mode = 'content'; openDrawer(UI.drawer, 'files'); } }, gl('▤')) : null, caret);
     const dv = h('div', { class: 'chdiff hidden', 'data-root': target.path }); let open = false, loaded = false;
-    row.onclick = async ev => { if (ev.target.closest('button')) return; open = !open; dv.classList.toggle('hidden', !open); caret.textContent = open ? '▾' : '▸';
+    row.onclick = async ev => { if (ev.target.closest('button')) return; open = !open; dv.classList.toggle('hidden', !open); caret.replaceChildren(ico(open ? 'chevronDown' : 'chevronRight', 12));
       if (open && !loaded) { loaded = true; dv.textContent = 'loading…'; try { const r = await api(`git/${target.id}/commit/${c.hash}?file=${encodeURIComponent(f.path)}`); dv.innerHTML = r.error ? esc(r.error) : renderDiffHl(r.text, langOf(f.path)); dv.classList.add('hljs'); } catch (e) { dv.textContent = e.message; } } };
     el.append(h('div', { class: 'chitem' }, row, dv));
   }
@@ -2486,13 +2515,25 @@ function renderCommit(el, target, c) {
 const LANG = { js: 'javascript', mjs: 'javascript', cjs: 'javascript', jsx: 'javascript', ts: 'typescript', tsx: 'typescript', json: 'json', md: 'markdown', mdx: 'markdown', css: 'css', scss: 'scss', less: 'less', html: 'xml', htm: 'xml', xml: 'xml', svg: 'xml', vue: 'xml', py: 'python', sh: 'bash', bash: 'bash', zsh: 'bash', yml: 'yaml', yaml: 'yaml', toml: 'ini', ini: 'ini', env: 'bash', sql: 'sql', go: 'go', rs: 'rust', java: 'java', kt: 'kotlin', swift: 'swift', rb: 'ruby', php: 'php', c: 'c', h: 'c', cpp: 'cpp', cc: 'cpp', cs: 'csharp', dart: 'dart', graphql: 'graphql', gql: 'graphql', dockerfile: 'dockerfile', makefile: 'makefile', diff: 'diff', txt: 'plaintext', lock: 'yaml', prisma: 'graphql', tf: 'ini' };
 function langOf(name) { const n = String(name || '').toLowerCase(); const base = n.split('/').pop(); if (base === 'dockerfile') return 'dockerfile'; if (base === 'makefile') return 'makefile'; if (base.startsWith('.env')) return 'bash'; const ext = base.includes('.') ? base.split('.').pop() : ''; return LANG[ext] || null; }
 // icon: [label, color class]; a compact VS Code-style badge instead of a font icon set
-const ICON = { js: ['JS', 'i-js'], mjs: ['JS', 'i-js'], cjs: ['JS', 'i-js'], jsx: ['⚛', 'i-react'], ts: ['TS', 'i-ts'], tsx: ['⚛', 'i-ts'], json: ['{}', 'i-json'], md: ['M↓', 'i-md'], mdx: ['M↓', 'i-md'], css: ['#', 'i-css'], scss: ['#', 'i-scss'], less: ['#', 'i-css'], html: ['<>', 'i-html'], htm: ['<>', 'i-html'], xml: ['<>', 'i-html'], svg: ['◇', 'i-svg'], vue: ['V', 'i-vue'], py: ['Py', 'i-py'], sh: ['$', 'i-sh'], bash: ['$', 'i-sh'], zsh: ['$', 'i-sh'], yml: ['Y', 'i-yml'], yaml: ['Y', 'i-yml'], toml: ['T', 'i-yml'], ini: ['≡', 'i-yml'], env: ['⚙', 'i-env'], sql: ['DB', 'i-sql'], go: ['Go', 'i-go'], rs: ['Rs', 'i-rs'], java: ['J', 'i-java'], kt: ['Kt', 'i-kt'], swift: ['Sw', 'i-swift'], rb: ['Rb', 'i-rb'], php: ['φ', 'i-php'], dart: ['Da', 'i-dart'], png: ['🖼', 'i-img'], jpg: ['🖼', 'i-img'], jpeg: ['🖼', 'i-img'], gif: ['🖼', 'i-img'], webp: ['🖼', 'i-img'], ico: ['🖼', 'i-img'], pdf: ['📄', 'i-doc'], lock: ['🔒', 'i-lock'], txt: ['≡', 'i-txt'], log: ['≡', 'i-txt'], csv: ['⊞', 'i-csv'], zip: ['⧉', 'i-lock'], gz: ['⧉', 'i-lock'], tgz: ['⧉', 'i-lock'], prisma: ['▲', 'i-ts'], graphql: ['◈', 'i-gql'], gql: ['◈', 'i-gql'], tf: ['∞', 'i-tf'], mp4: ['▶', 'i-img'], mp3: ['♪', 'i-img'], woff: ['A', 'i-txt'], woff2: ['A', 'i-txt'], ttf: ['A', 'i-txt'] };
+const ICON = Object.fromEntries(Object.entries({
+  'fileCode i-js': 'js mjs cjs jsx', 'fileCode i-ts': 'ts tsx', 'fileCode i-json': 'json', 'fileText i-md': 'md mdx', 'fileCode i-css': 'css scss less',
+  'fileCode i-html': 'html htm xml vue svg', 'fileCode i-py': 'py', 'fileCode i-go': 'go', 'fileCode i-rs': 'rs', 'fileCode i-java': 'java kt swift dart',
+  'fileCode i-rb': 'rb php', 'fileCode i-gql': 'graphql gql prisma', 'fileCode i-tf': 'tf', 'terminal i-sh': 'sh bash zsh', 'fileGear i-yml': 'yml yaml toml ini',
+  'fileGear i-env': 'env', 'table i-sql': 'sql', 'table i-csv': 'csv', 'image i-img': 'png jpg jpeg gif webp ico', 'fileText i-doc': 'pdf', 'lock i-lock': 'lock',
+  'fileText i-txt': 'txt log woff woff2 ttf', 'box i-lock': 'zip gz tgz', 'play i-img': 'mp4', 'music i-img': 'mp3',
+}).flatMap(([k, exts]) => exts.split(' ').map(e => [e, k.split(' ')])));
 function fileIcon(name) {
   const base = String(name || '').toLowerCase();
-  let ic = null;
-  if (base === 'dockerfile' || base.startsWith('dockerfile.')) ic = ['🐳', 'i-docker']; else if (base === 'makefile') ic = ['M', 'i-sh']; else if (base.startsWith('.env')) ic = ['⚙', 'i-env']; else if (base === 'package.json') ic = ['npm', 'i-npm']; else if (base === '.gitignore' || base === '.gitattributes') ic = ['git', 'i-git']; else if (base === 'claude.md' || base === 'agents.md') ic = ['✦', 'i-claude']; else if (base === 'license' || base === 'license.md') ic = ['©', 'i-txt'];
-  else { const ext = base.includes('.') ? base.split('.').pop() : ''; ic = ICON[ext] || ['·', 'i-txt']; }
-  return h('span', { class: 'fi ' + ic[1] }, ic[0]);
+  const ext = base.includes('.') ? base.split('.').pop() : '';
+  const ic = (base === 'dockerfile' || base.startsWith('dockerfile.')) ? ['box', 'i-docker']
+    : base === 'makefile' ? ['terminal', 'i-sh']
+    : base.startsWith('.env') ? ['fileGear', 'i-env']
+    : base === 'package.json' ? ['box', 'i-npm']
+    : (base === '.gitignore' || base === '.gitattributes') ? ['branch', 'i-git']
+    : (base === 'claude.md' || base === 'agents.md') ? ['sparkle', 'i-claude']
+    : (base === 'license' || base === 'license.md') ? ['fileText', 'i-txt']
+    : (ICON[ext] || ['file', 'i-txt']);
+  return h('span', { class: 'fi ' + ic[1] }, ico(ic[0], 16));
 }
 // Highlight a whole text and return one HTML string per line. hljs spans can cross lines (block comments, template
 // strings), so open spans are closed at each line end and reopened on the next line.
@@ -2547,7 +2588,7 @@ function tabFiles(el, p, o = {}) {
       h('button', { class: 'btn sm ghost', title: n ? 'clear selection' : 'select everything at the top level', onclick: () => { if (n) picked.clear(); else for (const r of tree.querySelectorAll(':scope > .frow')) picked.add(r.dataset.path); syncChecks(); } }, n ? gl('☐ Clear') : gl('☑ Select all')),
       h('span', { class: 'sp' }),
       h('button', { class: 'btn sm ghost', title: 'reload', onclick: () => loadDir('', tree, 0) }, gl('↻')),
-      n ? h('button', { class: 'btn sm ghost danger', title: 'delete the selected files / folders from the server', onclick: async () => { if (!confirm(`Delete ${n} item${n > 1 ? 's' : ''} from ${o.rootLabel || 'here'}?\n\n` + ps.slice(0, 12).join('\n') + (n > 12 ? '\n…' : ''))) return; try { const r = await api('rmpaths', { id: p.id, paths: ps }); toast(r.failed?.length ? 'some failed: ' + r.failed[0] : 'deleted ' + n, r.failed?.length ? 'err' : 'ok'); } catch (e) { toast(e.message, 'err'); } picked.clear(); renderSel(); if (ps.includes(st.sel)) { st.sel = null; prev.replaceChildren(h('div', { class: 'dim fempty', style: 'padding:20px' }, 'Pick a file.')); } loadDir('', tree, 0); } }, '🗑') : null,
+      n ? h('button', { class: 'btn sm ghost danger', title: 'delete the selected files / folders from the server', onclick: async () => { if (!confirm(`Delete ${n} item${n > 1 ? 's' : ''} from ${o.rootLabel || 'here'}?\n\n` + ps.slice(0, 12).join('\n') + (n > 12 ? '\n…' : ''))) return; try { const r = await api('rmpaths', { id: p.id, paths: ps }); toast(r.failed?.length ? 'some failed: ' + r.failed[0] : 'deleted ' + n, r.failed?.length ? 'err' : 'ok'); } catch (e) { toast(e.message, 'err'); } picked.clear(); renderSel(); if (ps.includes(st.sel)) { st.sel = null; prev.replaceChildren(h('div', { class: 'dim fempty', style: 'padding:20px' }, 'Pick a file.')); } loadDir('', tree, 0); } }, gl('🗑')) : null,
       n ? h('a', { class: 'btn sm primary', href, download: one ? ps[0].split('/').pop() : '', title: one ? 'download' : 'download as one .zip' }, one ? gl('⬇ Download') : gl(`⬇ Download ${n} (.zip)`)) : null].filter(Boolean));
   };
   const syncChecks = () => { for (const c of tree.querySelectorAll('.fchk')) c.classList.toggle('on', picked.has(c.parentElement.dataset.path)); renderSel(); };
@@ -2564,8 +2605,8 @@ function tabFiles(el, p, o = {}) {
       if (e.type === 'dir') {
         const kids = h('div', { class: 'fkids' }); const isOpen = st.open.has(e.path);
         const row = h('div', { class: 'frow dir' + (e.changed ? ' has' : '') + (e.skip ? ' skip' : ''), style: `padding-left:${8 + depth * 14}px`, title: e.skip ? 'build / dependency folder' : e.path, 'data-path': e.path },
-          chk(e.path), h('span', { class: 'fcaret' }, isOpen ? '▾' : '▸'), h('span', { class: 'fico' }, ico(isOpen ? 'folderOpen' : 'folder', 15)), h('span', { class: 'fname' }, e.name), e.changed ? h('span', { class: 'fchg', title: e.changed + ' changed files inside' }, e.changed) : null);
-        row.onclick = () => { const now = !st.open.has(e.path); if (now) st.open.add(e.path); else st.open.delete(e.path); localStorage.setItem(okey, JSON.stringify([...st.open].slice(-200))); row.querySelector('.fcaret').textContent = now ? '▾' : '▸'; row.querySelector('.fico').replaceChildren(ico(now ? 'folderOpen' : 'folder', 15)); kids.classList.toggle('hidden', !now); if (now && !kids.childElementCount) loadDir(e.path, kids, depth + 1); };
+          chk(e.path), h('span', { class: 'fcaret' }, ico(isOpen ? 'chevronDown' : 'chevronRight', 12)), h('span', { class: 'fico' }, ico(isOpen ? 'folderOpen' : 'folder', 15)), h('span', { class: 'fname' }, e.name), e.changed ? h('span', { class: 'fchg', title: e.changed + ' changed files inside' }, e.changed) : null);
+        row.onclick = () => { const now = !st.open.has(e.path); if (now) st.open.add(e.path); else st.open.delete(e.path); localStorage.setItem(okey, JSON.stringify([...st.open].slice(-200))); row.querySelector('.fcaret').replaceChildren(ico(now ? 'chevronDown' : 'chevronRight', 12)); row.querySelector('.fico').replaceChildren(ico(now ? 'folderOpen' : 'folder', 15)); kids.classList.toggle('hidden', !now); if (now && !kids.childElementCount) loadDir(e.path, kids, depth + 1); };
         if (!isOpen) kids.classList.add('hidden'); else loadDir(e.path, kids, depth + 1);
         box.append(row, kids);
       } else {
@@ -2594,14 +2635,14 @@ function tabFiles(el, p, o = {}) {
         status ? h('button', { class: 'btn sm' + (showDiff ? ' primary' : ''), onclick: () => { st.mode = 'diff'; showFile(e); } }, '± diff') : null,
         o.select ? null : h('button', { class: 'btn sm' + (!showDiff && !st.editing ? ' primary' : ''), onclick: () => { st.mode = 'content'; st.editing = false; showFile(e); } }, gl('▤ content')),
         !o.noEdit && !content.error && !content.binary && !content.truncated ? h('button', { class: 'btn sm' + (st.editing ? ' primary' : ''), title: 'edit in place (simple text editor)', onclick: () => { st.mode = 'content'; st.editing = true; render(); } }, gl('✎ edit')) : null,
-        h('a', { class: 'btn sm', href: `/api/download/${p.id}?path=${encodeURIComponent(e.path)}&inline=1`, target: '_blank', rel: 'noopener', title: 'open in a new tab' }, o.select ? '↗ Open' : '↗ open'),
+        h('a', { class: 'btn sm', href: `/api/download/${p.id}?path=${encodeURIComponent(e.path)}&inline=1`, target: '_blank', rel: 'noopener', title: 'open in a new tab' }, gl(o.select ? '↗ Open' : '↗ open')),
         h('a', { class: 'btn sm' + (o.select ? ' primary' : ''), href: `/api/download/${p.id}?path=${encodeURIComponent(e.path)}`, download: e.name, title: 'download this file' }, gl(o.select ? '⇩ Download' : '⇩ download')),
-        h('button', { class: 'btn sm ghost', title: st.wide ? 'show tree' : 'hide tree', onclick: () => { st.wide = !st.wide; !o.st && localStorage.setItem('bd.fwide', st.wide ? '1' : '0'); el.querySelector('.fwrap').classList.toggle('wide', st.wide); } }, st.wide ? '⇤' : '⇥'));
+        h('button', { class: 'btn sm ghost', title: st.wide ? 'show tree' : 'hide tree', onclick: () => { st.wide = !st.wide; !o.st && localStorage.setItem('bd.fwide', st.wide ? '1' : '0'); el.querySelector('.fwrap').classList.toggle('wide', st.wide); } }, gico(st.wide ? '⇤' : '⇥', 15)));
       prev.append(bar);
       if (st.editing && content && !content.error && !content.binary) {
         const ta = h('textarea', { class: 'fedit', spellcheck: false }); ta.value = content.text;
         ta.addEventListener('keydown', ev => { ev.stopPropagation(); if (ev.key === 'Tab') { ev.preventDefault(); const s0 = ta.selectionStart; ta.setRangeText('  ', s0, ta.selectionEnd, 'end'); } if ((ev.metaKey || ev.ctrlKey) && ev.key === 's') { ev.preventDefault(); saveBtn.click(); } });
-        const saveBtn = h('button', { class: 'btn sm primary', onclick: async () => { try { const r = await api('savefile', { id: p.id, path: e.path, text: ta.value, mtime: content.mtime }); content.mtime = r.mtime; content.size = r.size; content.text = ta.value; st.editing = false; toast('saved ' + e.name, 'ok'); showFile(e); } catch (err) { toast('save failed: ' + err.message, 'err'); } } }, '💾 Save (⌘S)');
+        const saveBtn = h('button', { class: 'btn sm primary', onclick: async () => { try { const r = await api('savefile', { id: p.id, path: e.path, text: ta.value, mtime: content.mtime }); content.mtime = r.mtime; content.size = r.size; content.text = ta.value; st.editing = false; toast('saved ' + e.name, 'ok'); showFile(e); } catch (err) { toast('save failed: ' + err.message, 'err'); } } }, gl('💾 Save (⌘S)'));
         prev.append(h('div', { class: 'fedbar' }, h('span', { class: 'dim' }, 'Editing in place. Save refuses if the file changed on disk meanwhile (a Claude session may be working here).'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost', onclick: () => { st.editing = false; render(); } }, 'Cancel'), saveBtn), ta);
         setTimeout(() => { ta.focus(); ta.setSelectionRange(0, 0); ta.scrollTop = 0; }, 0);
         return;
@@ -2623,24 +2664,24 @@ function tabFiles(el, p, o = {}) {
 
 async function tabBranches(el, p) {
   const target = p.isGit ? p : byId()[p.parent]; if (!target) { el.append(h('div', { class: 'dim' }, 'Not a git repo.')); return; }
-  el.append(h('div', { class: 'logbar' }, h('button', { class: 'btn sm', onclick: () => act('fetch', api('git', { id: target.id, action: 'fetch' })).then(() => renderDrawer(true)) }, gl('⇣ Fetch all')), h('button', { class: 'btn sm', onclick: () => act('pull', api('git', { id: target.id, action: 'pull' })) }, '↓ Pull'), h('button', { class: 'btn sm', onclick: () => act('stash', api('git', { id: target.id, action: 'stash' })) }, gl('⧉ Stash')), h('button', { class: 'btn sm', onclick: () => act('stash pop', api('git', { id: target.id, action: 'stash-pop' })) }, gl('⧉ Pop'))));
+  el.append(h('div', { class: 'logbar' }, h('button', { class: 'btn sm', onclick: () => act('fetch', api('git', { id: target.id, action: 'fetch' })).then(() => renderDrawer(true)) }, gl('⇣ Fetch all')), h('button', { class: 'btn sm', onclick: () => act('pull', api('git', { id: target.id, action: 'pull' })) }, gl('↓ Pull')), h('button', { class: 'btn sm', onclick: () => act('stash', api('git', { id: target.id, action: 'stash' })) }, gl('⧉ Stash')), h('button', { class: 'btn sm', onclick: () => act('stash pop', api('git', { id: target.id, action: 'stash-pop' })) }, gl('⧉ Pop'))));
   const box = h('div', null, 'loading…'); el.append(box);
   const br = await api(`git/${target.id}/branches`);
-  const row = (b, remote) => h('div', { class: 'br' + (b.name === br.current ? ' cur' : ''), onclick: () => checkout(target, b.name) }, h('span', { class: 'n' }, remote ? '☁ ' + b.short : (b.name === br.current ? '● ' : '○ ') + b.name), h('span', { class: 's' }, b.subject), h('span', { class: 't' }, b.rel));
+  const row = (b, remote) => h('div', { class: 'br' + (b.name === br.current ? ' cur' : ''), onclick: () => checkout(target, b.name) }, h('span', { class: 'n' }, ico(remote ? 'cloud' : b.name === br.current ? 'dot' : 'ring', 11), ' ' + (remote ? b.short : b.name)), h('span', { class: 's' }, b.subject), h('span', { class: 't' }, b.rel));
   box.replaceChildren(h('h4', null, `Local (${br.local.length})`), h('div', { class: 'brlist' }, br.local.map(b => row(b, false))), h('h4', null, `Remote only (${br.remote.length})`), h('div', { class: 'brlist' }, br.remote.map(b => row(b, true))));
 }
 function tabDocker(el, p, r) {
   const compose = p.commands.filter(c => c.kind === 'compose');
-  if (compose.length) el.append(h('div', { class: 'logbar' }, compose.map(c => h('button', { class: 'btn sm', title: c.cmd, onclick: () => act(c.name, api('run', { id: p.id, name: c.name })) }, '🐳 ' + c.name))));
+  if (compose.length) el.append(h('div', { class: 'logbar' }, compose.map(c => h('button', { class: 'btn sm', title: c.cmd, onclick: () => act(c.name, api('run', { id: p.id, name: c.name })) }, gl('🐳 ' + c.name)))));
   if (!r.containers.length) { el.append(h('div', { class: 'dim' }, 'No containers attributed to this project (attribution is by compose working dir).')); return; }
   for (const c of r.containers) el.append(h('div', { class: 'ctr ' + c.state }, h('span', { class: 'st' }), h('span', { class: 'nm' }, c.name), h('span', { class: 'im' }, `${c.image} · ${c.status}`), h('span', { class: 'p' }, c.ports.filter(x => x.host).map(x => `${x.hostIp === '0.0.0.0' ? '' : x.hostIp + ':'}${x.host}→${x.container}`).join(' ')),
     h('button', { class: 'btn sm', onclick: () => { UI.tab = 'logs'; UI.logTarget = 'docker:' + c.id; renderDrawer(true); } }, 'logs'),
-    c.state === 'running' ? [h('button', { class: 'btn sm', onclick: () => act('restart ' + c.name, api('docker', { id: c.id, action: 'restart' })) }, gl('↻')), h('button', { class: 'btn sm danger', onclick: () => act('stop ' + c.name, api('docker', { id: c.id, action: 'stop' })) }, gl('■'))] : [h('button', { class: 'btn sm primary', onclick: () => act('start ' + c.name, api('docker', { id: c.id, action: 'start' })) }, gl('▶')), h('button', { class: 'btn sm danger', onclick: () => confirm('Remove container ' + c.name + '?') && act('rm ' + c.name, api('docker', { id: c.id, action: 'rm' })) }, '🗑')]));
+    c.state === 'running' ? [h('button', { class: 'btn sm', onclick: () => act('restart ' + c.name, api('docker', { id: c.id, action: 'restart' })) }, gl('↻')), h('button', { class: 'btn sm danger', onclick: () => act('stop ' + c.name, api('docker', { id: c.id, action: 'stop' })) }, gl('■'))] : [h('button', { class: 'btn sm primary', onclick: () => act('start ' + c.name, api('docker', { id: c.id, action: 'start' })) }, gl('▶')), h('button', { class: 'btn sm danger', title: 'remove container', 'aria-label': 'remove container', onclick: () => confirm('Remove container ' + c.name + '?') && act('rm ' + c.name, api('docker', { id: c.id, action: 'rm' })) }, gl('🗑'))]));
 }
 function tabRecent(el, p) {
   const rec = S.runtime.recent.filter(x => x.project === p.id);
   if (!rec.length) { el.append(h('div', { class: 'dim' }, 'No finished runs yet.')); return; }
-  el.append(h('div', { class: 'recent' }, rec.map(x => h('div', { class: 'r' }, h('span', { class: x.exitCode === 0 ? 'ok' : 'bad' }, x.exitCode === 0 ? gl('✓') : '✗ ' + (x.exitCode ?? '?')), h('span', { style: 'min-width:120px;color:var(--text)' }, x.name), h('span', { style: 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, x.cmd), h('span', null, `${ago(x.startedAt)} ago · ran ${Math.round((x.endedAt - x.startedAt) / 1000)}s`), h('button', { class: 'btn sm', onclick: () => { UI.tab = 'logs'; UI.logTarget = x.name; renderDrawer(true); } }, 'log'), h('button', { class: 'btn sm', onclick: () => act('re-run ' + x.name, api('run', { id: p.id, name: x.name, cmd: x.cmd })) }, gl('▶'))))));
+  el.append(h('div', { class: 'recent' }, rec.map(x => h('div', { class: 'r' }, h('span', { class: x.exitCode === 0 ? 'ok' : 'bad' }, x.exitCode === 0 ? gl('✓') : gl('✗ ' + (x.exitCode ?? '?'))), h('span', { style: 'min-width:120px;color:var(--text)' }, x.name), h('span', { style: 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, x.cmd), h('span', null, `${ago(x.startedAt)} ago · ran ${Math.round((x.endedAt - x.startedAt) / 1000)}s`), h('button', { class: 'btn sm', onclick: () => { UI.tab = 'logs'; UI.logTarget = x.name; renderDrawer(true); } }, 'log'), h('button', { class: 'btn sm', onclick: () => act('re-run ' + x.name, api('run', { id: p.id, name: x.name, cmd: x.cmd })) }, gl('▶'))))));
 }
 
 // ---------- settings ----------
@@ -2715,11 +2756,11 @@ function taskCard(t) {
   return h('div', { class: 'tk st-' + t.status, 'data-id': t.id },
     h('div', { class: 'tk-head' }, avatar(p ? p.id : null), h('div', { class: 'tk-hd' }, h('div', { class: 'tk-title', onclick: () => taskModal(t) }, t.title), h('div', { class: 'tk-sub' }, p ? p.name : h('span', { class: 'dim' }, 'no project'), ' · ', ago(t.createdAt) + ' ago', lastRun ? [' · ', h('span', { class: 'tk-run' + (runSess ? ' on' : '') }, 'sent to ', runSess ? h('a', { href: '#', onclick: ev => { ev.preventDefault(); openTerm(lastRun.session); } }, lastRun.session.replace(/^claude-/, '')) : lastRun.session.replace(/^claude-/, ''), ' ', ago(lastRun.at) + ' ago')] : null)),
       h('div', { class: 'tk-acts' },
-        t.status !== 'done' ? h('button', { class: 'btn sm primary', title: 'hand this task to Claude on ' + (p ? p.name : 'its project'), onclick: ev => runTaskMenu(ev, t) }, gl('▶ Run'), h('span', { class: 'caret' }, '▾')) : null,
+        t.status !== 'done' ? h('button', { class: 'btn sm primary', title: 'hand this task to Claude on ' + (p ? p.name : 'its project'), onclick: ev => runTaskMenu(ev, t) }, gl('▶ Run'), h('span', { class: 'caret' }, ico('chevronDown', 12))) : null,
         t.status !== 'done' ? h('button', { class: 'btn sm', title: 'mark done', onclick: () => api('task-update', { id: t.id, status: 'done' }).then(() => toast('done ✓', 'ok')) }, gl('✓ Done')) : h('button', { class: 'btn sm', title: 'reopen', onclick: () => api('task-update', { id: t.id, status: 'todo' }) }, gl('↺ Reopen')),
         h('button', { class: 'btn sm icon ghost', title: 'edit', onclick: () => taskModal(t) }, gl('✎')),
         h('button', { class: 'btn sm icon ghost', title: 'delete', onclick: () => { if (confirm('Delete this task?')) api('task-remove', { id: t.id }); } }, ico('x', 13)))),
-    t.result ? h('div', { class: 'tk-result' + (t.result.ok ? '' : ' err') }, h('div', { class: 'tk-rh' }, t.result.ok ? gl('✓ Claude finished') : '✗ failed', h('span', { class: 'dim' }, ' · ' + ago(t.result.at) + ' ago'), h('span', { class: 'sp' }), t.status !== 'done' ? h('button', { class: 'btn sm primary', onclick: () => api('task-update', { id: t.id, status: 'done' }).then(() => toast('done ✓', 'ok')) }, gl('✓ Accept · Done')) : null, t.result.session ? h('button', { class: 'btn sm', onclick: () => openTerm(t.result.session) }, 'Open chat') : null), h('div', { class: 'tk-rs' }, oneLine(t.result.summary || t.result.error || '', 600))) : null,
+    t.result ? h('div', { class: 'tk-result' + (t.result.ok ? '' : ' err') }, h('div', { class: 'tk-rh' }, t.result.ok ? gl('✓ Claude finished') : gl('✗ failed'), h('span', { class: 'dim' }, ' · ' + ago(t.result.at) + ' ago'), h('span', { class: 'sp' }), t.status !== 'done' ? h('button', { class: 'btn sm primary', onclick: () => api('task-update', { id: t.id, status: 'done' }).then(() => toast('done ✓', 'ok')) }, gl('✓ Accept · Done')) : null, t.result.session ? h('button', { class: 'btn sm', onclick: () => openTerm(t.result.session) }, 'Open chat') : null), h('div', { class: 'tk-rs' }, oneLine(t.result.summary || t.result.error || '', 600))) : null,
     t.body ? h('div', { class: 'tk-body', onclick: () => taskModal(t) }, t.body) : null,
     imgs.length || others.length ? h('div', { class: 'tk-files' }, imgs.map(f => h('a', { href: '/api/file?p=' + encodeURIComponent(f), target: '_blank', title: f.split('/').pop() }, h('img', { src: '/api/file?p=' + encodeURIComponent(f), loading: 'lazy' }))), others.map(f => h('a', { class: 'tk-file', href: '/api/file?p=' + encodeURIComponent(f), target: '_blank', title: f }, ico('clip', 12), f.split('/').pop()))) : null);
 }
@@ -2821,7 +2862,7 @@ function renderRail() {
     const subline = sub(it); const age = cl?.since && st !== 'unknown' ? ago(cl.since).replace(/\.\d+/, '') : '';
     return h('button', { class: 'rrow k-' + kind + ' st-' + st + (tuck ? ' sub' : '') + (act === it.name ? ' on' : '') + (cl?.needsYou ? ' need' : '') + (cl?.settled ? ' settled' : ''), title: it.name + (cl ? ' · ' + (STATE_LABEL[st] || st) : '') + (cl?.settled ? ' · ' + (cl.settled.until ? 'snoozed' : 'settled') : ''), onclick: () => openTerm(it.name) },
       kind === 'claude' && !tuck ? h('span', { class: 'rav' }, avatar(it.pid, 'sm'), h('i', { class: 'rdot' })) : h('i', { class: 'rdot' }),
-      h('span', { class: 'rtx' }, h('span', { class: 'rnm' }, h('b', null, nm), i && i.n && !(tuck && !cl?.label && !i.wt) ? h('em', null, '#' + i.n) : null, i && i.wt ? h('em', { class: 'wt' }, '⎇ ' + i.wt.name) : null, kind === 'claude' && multiAcct() && it.account !== 'personal' ? h('em', { class: 'racc ' + it.account, title: 'Claude Code account: ' + acct(it.account) }, acct(it.account).slice(0, 1)) : null),
+      h('span', { class: 'rtx' }, h('span', { class: 'rnm' }, h('b', null, nm), i && i.n && !(tuck && !cl?.label && !i.wt) ? h('em', null, '#' + i.n) : null, i && i.wt ? h('em', { class: 'wt' }, ico('branch', 11), ' ' + i.wt.name) : null, kind === 'claude' && multiAcct() && it.account !== 'personal' ? h('em', { class: 'racc ' + it.account, title: 'Claude Code account: ' + acct(it.account) }, acct(it.account).slice(0, 1)) : null),
         subline ? h('span', { class: 'rln2' }, h('span', { class: 'rsub' + (st === 'working' ? ' mono' : '') }, subline)) : null),
       age ? h('span', { class: 'rage', title: 'since ' + new Date(cl.since).toLocaleTimeString() }, age) : null,
       ...feat('termItem', it.name),
@@ -2955,7 +2996,7 @@ function sleepModal() {
     h('h3', null, gl('☾ Put the server to sleep?')),
     h('p', { style: 'margin:0 0 10px' }, 'It wakes itself on ', h('b', null, when), ' (Mon–Fri, 07:00). If you switch it on yourself before that, nothing else happens.'),
     h('p', { class: 'dim', style: 'margin:0 0 10px;font-size:13px' }, 'Until then the dashboard, terminals and Tailscale are unreachable — nothing on the network can wake it, not even from home.'),
-    busy.length ? h('p', { style: 'margin:0 0 10px;color:var(--amber)' }, `⚠ ${busy.length} Claude agent${busy.length === 1 ? '' : 's'} ${busy.length === 1 ? 'is' : 'are'} still working (${busy.map(s => s.claude.label || s.name).slice(0, 3).join(', ')}) — sleep freezes ${busy.length === 1 ? 'it' : 'them'} until the morning.`) : null,
+    busy.length ? h('p', { style: 'margin:0 0 10px;color:var(--amber)' }, gl(`⚠ ${busy.length} Claude agent${busy.length === 1 ? '' : 's'} ${busy.length === 1 ? 'is' : 'are'} still working (${busy.map(s => s.claude.label || s.name).slice(0, 3).join(', ')}) — sleep freezes ${busy.length === 1 ? 'it' : 'them'} until the morning.`)) : null,
     dev ? h('p', { class: 'dim', style: 'margin:0 0 10px;font-size:13px' }, `${dev} dev server${dev === 1 ? '' : 's'} running here will pause too.`) : null,
     h('div', { class: 'foot' }, h('button', { class: 'btn ghost', onclick: close }, 'Cancel'), btn)));
   m.onclick = e => { if (e.target === m) close(); };
@@ -2983,10 +3024,10 @@ const PAL = { open: false, q: '', idx: 0 };
 function paletteItems() {
   const q = PAL.q.toLowerCase().trim(); const items = [];
   const S3 = termSessions();
-  for (const it of S3.claude) items.push({ kind: 'claude', label: isNewChat(it.name) ? chatTitle(it.claude) : it.project + (it.name.match(/-wt-([^-]+)/) ? ' ⎇ ' + it.name.match(/-wt-([^-]+)/)[1] : '') + (it.name.match(/^claude-.*-(\d+)(-company)?$/) ? ' #' + it.name.match(/-(\d+)(-company)?$/)[1] : ''), sub: (it.claude ? (STATE_LABEL[it.claude.state] || '') + (it.claude.title ? ' · ' + it.claude.title : '') : '') || it.name, tag: it.account, icon: STATE_ICON[it.claude?.state] || '✦', cls: 'st-' + (it.claude?.state || 'unknown'), hay: [it.project, it.name, it.claude?.label, it.claude?.title, it.claude?.firstPrompt, it.claude?.lastPrompt, it.account].join(' '), run: () => openTerm(it.name), rank: 1 });
+  for (const it of S3.claude) items.push({ kind: 'claude', label: isNewChat(it.name) ? chatTitle(it.claude) : it.project + (it.name.match(/-wt-([^-]+)/) ? ' · ' + it.name.match(/-wt-([^-]+)/)[1] : '') + (it.name.match(/^claude-.*-(\d+)(-company)?$/) ? ' #' + it.name.match(/-(\d+)(-company)?$/)[1] : ''), sub: (it.claude ? (STATE_LABEL[it.claude.state] || '') + (it.claude.title ? ' · ' + it.claude.title : '') : '') || it.name, tag: it.account, icon: STATE_ICON[it.claude?.state] || '✦', cls: 'st-' + (it.claude?.state || 'unknown'), hay: [it.project, it.name, it.claude?.label, it.claude?.title, it.claude?.firstPrompt, it.claude?.lastPrompt, it.account].join(' '), run: () => openTerm(it.name), rank: 1 });
   for (const it of S3.dev) items.push({ kind: 'dev', label: it.project + ' · ' + it.label, sub: it.ports.map(p => ':' + p.port).join(' ') || it.name, icon: '▶', hay: [it.project, it.label, it.name].join(' '), run: () => openTerm(it.name), rank: 10 });
   for (const it of S3.other) items.push({ kind: 'other', label: it.name, sub: it.cwd, icon: '⌨', hay: it.name + ' ' + it.cwd, run: () => openTerm(it.name), rank: 11 });
-  for (const p of S.projects.filter(p => !p.hidden)) items.push({ kind: 'project', label: p.name, sub: [p.org, p.group, p.framework].filter(Boolean).join(' · '), icon: '▤', hay: [p.name, p.rel, p.org, p.framework].join(' '), run: () => openDrawer(p.id, 'overview'), rank: 20, more: [{ l: '✦', t: `Claude (${acctL('personal')})`, f: () => startClaude(p, 'personal') }, { l: '✦c', t: `Claude (${acctL('company')})`, f: () => startClaude(p, 'company') }, { l: '±', t: 'changes', f: () => openDrawer(p.id, 'changes') }] });
+  for (const p of S.projects.filter(p => !p.hidden)) items.push({ kind: 'project', label: p.name, sub: [p.org, p.group, p.framework].filter(Boolean).join(' · '), icon: '▤', hay: [p.name, p.rel, p.org, p.framework].join(' '), run: () => openDrawer(p.id, 'overview'), rank: 20, more: [{ l: '✦', t: `Claude (${acctL('personal')})`, f: () => startClaude(p, 'personal') }, { l: '✦ c', t: `Claude (${acctL('company')})`, f: () => startClaude(p, 'company') }, { l: '±', t: 'changes', f: () => openDrawer(p.id, 'changes') }] });
   items.push({ kind: 'action', label: 'New chat', sub: 'type right away — the project is guessed', icon: '＋', hay: 'new chat session claude start', run: () => newSessionModal('new'), rank: 28 },
     { kind: 'action', label: 'Resume a conversation', sub: 'past conversations, with search', icon: '↺', hay: 'resume history past conversation old chat', run: () => newSessionModal('resume'), rank: 28 },
     { kind: 'action', label: 'New shell', sub: 'bash in the dev folder (tmux sh-N)', icon: '$', hay: 'shell bash terminal new', run: newShell, rank: 30 },
@@ -3020,7 +3061,7 @@ function searchItems() {
   if (searchRes.error) return [{ kind: 'hint', label: searchRes.error, sub: '', icon: '⚠', run: () => {} }];
   if (!searchRes.hits.length) return [{ kind: 'hint', label: 'no matches for "' + q + '"', sub: '', icon: '🔍', run: () => {} }];
   const liveBySid = {}; for (const x of S.runtime.sessions) if (x.claude?.sessionId) liveBySid[x.claude.sessionId] = x.name;
-  return searchRes.hits.map(hh => ({ kind: 'hit', label: (hh.title || (hh.cwd || '').split('/').pop() || hh.sessionId.slice(0, 8)), sub: (hh.role === 'user' ? '❯ ' : '✦ ') + hh.snippet, tag: hh.account, icon: liveBySid[hh.sessionId] ? '●' : '○', extra: (hh.cwd || '').replace(/^\/home\/[^/]+\//, '~/') + ' · ' + ago(hh.ts || hh.mtime) + ' ago', run: () => { const live = liveBySid[hh.sessionId]; if (live) openSession(live, 'transcript'); else openTranscriptFile(hh); } }));
+  return searchRes.hits.map(hh => ({ kind: 'hit', label: (hh.title || (hh.cwd || '').split('/').pop() || hh.sessionId.slice(0, 8)), sub: (hh.role === 'user' ? 'you: ' : 'claude: ') + hh.snippet, tag: hh.account, icon: liveBySid[hh.sessionId] ? '●' : '○', extra: (hh.cwd || '').replace(/^\/home\/[^/]+\//, '~/') + ' · ' + ago(hh.ts || hh.mtime) + ' ago', run: () => { const live = liveBySid[hh.sessionId]; if (live) openSession(live, 'transcript'); else openTranscriptFile(hh); } }));
 }
 function closePalette(pop = true) { if (!PAL.open) return; PAL.open = false; $('#palette').classList.add('hidden'); if (pop) popLayer(); }
 function renderPalette() {
@@ -3041,7 +3082,7 @@ function renderPalette() {
   if (!items.length) { list.append(h('div', { class: 'pi dim' }, 'nothing matches')); return; }
   items.forEach((it, i) => list.append(h('div', { class: 'pi ' + it.kind + (i === PAL.idx ? ' on' : '') + (it.cls ? ' ' + it.cls : ''), onmousemove: () => { if (PAL.idx !== i) { PAL.idx = i; renderPalette(); } }, onclick: () => { closePalette(); it.run(); } },
     h('span', { class: 'ico' }, gico(it.icon)), h('span', { class: 'k' }, it.label, it.tag ? h('span', { class: 'badge tag acc ' + it.tag }, acct(it.tag)) : null), h('span', { class: 'c' + (it.kind === 'hit' ? ' wrap' : '') }, it.sub || '', it.extra ? h('span', { class: 'dim', style: 'display:block;font-size:11px' }, it.extra) : null),
-    it.more ? h('span', { class: 'more' }, it.more.map(mm => h('button', { class: 'btn sm ghost', title: mm.t, onclick: ev => { ev.stopPropagation(); closePalette(); mm.f(); } }, mm.l))) : null)));
+    it.more ? h('span', { class: 'more' }, it.more.map(mm => h('button', { class: 'btn sm ghost', title: mm.t, onclick: ev => { ev.stopPropagation(); closePalette(); mm.f(); } }, gl(mm.l)))) : null)));
   const on = list.querySelector('.pi.on'); if (on) on.scrollIntoView({ block: 'nearest' });
 }
 

@@ -109,34 +109,34 @@ FEAT.wip = (() => {
     return h('div', { class: 'wr' + (r.live.length ? ' live' : ''), role: 'button', tabindex: '0', title: r.path, onclick: () => openRoot(r), onkeydown: ev => { if (ev.key === 'Enter') openRoot(r); } },
       h('div', { class: 'wr1' },
         h('b', { class: 'wn' }, shortName(r, set)),
-        r.worktree ? h('span', { class: 'wwt', title: 'git worktree · ' + r.path }, '⎇') : null,
+        r.worktree ? h('span', { class: 'wwt', title: 'git worktree · ' + r.path }, ico('branch', 12)) : null,
         h('span', { class: 'wbr', title: r.upstream ? 'tracks ' + r.upstream : 'no upstream' }, r.branch || '?'),
         h('span', { class: 'wsp' }),
         liveDots(r),
-        h('button', { class: 'wmore', title: 'more', 'aria-label': 'more', onclick: ev => rowMenu(ev, r) }, '⋯')),
+        h('button', { class: 'wmore', title: 'more', 'aria-label': 'more', onclick: ev => rowMenu(ev, r) }, ico('dots', 16))),
       h('div', { class: 'wr2' },
         r.staged ? h('span', { class: 'wc s', title: r.staged + ' staged' }, 'S ' + r.staged) : null,
         r.unstaged ? h('span', { class: 'wc m', title: r.unstaged + ' modified, not staged' }, 'M ' + r.unstaged) : null,
         r.untracked ? h('span', { class: 'wc u', title: r.untracked + ' untracked' }, 'U ' + r.untracked) : null,
         r.conflicts ? h('span', { class: 'wc x', title: r.conflicts + ' conflicted' }, '! ' + r.conflicts) : null,
         r.add || r.del ? h('span', { class: 'wl' }, h('i', { class: 'a' }, '+' + r.add), ' ', h('i', { class: 'd' }, '−' + r.del)) : null,
-        r.ahead ? h('span', { class: 'wa hot', title: r.ahead + ' commit(s) not pushed' }, '⬆' + r.ahead) : null,
-        r.behind ? h('span', { class: 'wa', title: r.behind + ' behind ' + (r.upstream || '') }, '⬇' + r.behind) : null,
+        r.ahead ? h('span', { class: 'wa hot', title: r.ahead + ' commit(s) not pushed' }, ico('arrowUp', 11), r.ahead) : null,
+        r.behind ? h('span', { class: 'wa', title: r.behind + ' behind ' + (r.upstream || '') }, ico('arrowDown', 11), r.behind) : null,
         r.op ? h('span', { class: 'wop', title: r.op + ' in progress' }, r.op) : null,
-        r.stashes ? h('span', { class: 'wstash', title: plural(r.stashes, 'stash') }, '⊟' + r.stashes) : null,
+        r.stashes ? h('span', { class: 'wstash', title: plural(r.stashes, 'stash') }, ico('archive', 11), r.stashes) : null,
         ...flags,
         !n && !r.ahead && !r.op ? h('span', { class: 'dim' }, 'clean') : null,
         h('span', { class: 'wsp' }),
         r.oldest && n ? h('span', { class: 'wage' + (stale ? ' stale' : ''), title: 'oldest pending change ' + new Date(r.oldest).toLocaleString() + (r.newest ? ' · newest ' + ago(r.newest) + ' ago' : '') }, ago(r.oldest)) : null),
       ed.length ? h('div', { class: 'wr3', title: ed.map(e => (e.label || e.sessionId) + ' · ' + plural(e.files, 'file') + ' · ' + ago(e.at)).join('\n') },
-        h('span', { class: 'wed' + (ed[0].live ? ' on' : '') }, '✦ ', ed[0].label || 'session ' + ed[0].sessionId.slice(0, 8)), h('span', { class: 'dim' }, ' · ' + ago(ed[0].at)),
+        h('span', { class: 'wed' + (ed[0].live ? ' on' : '') }, ico('sparkle', 11), ' ', ed[0].label || 'session ' + ed[0].sessionId.slice(0, 8)), h('span', { class: 'dim' }, ' · ' + ago(ed[0].at)),
         ed.length > 1 ? h('span', { class: 'dim' }, ' · +' + (ed.length - 1)) : null) : null);
   }
 
   function totals(rs) {
     return { repos: rs.length, files: rs.reduce((a, r) => a + pending(r), 0), add: rs.reduce((a, r) => a + r.add, 0), del: rs.reduce((a, r) => a + r.del, 0), ahead: rs.reduce((a, r) => a + r.ahead, 0) };
   }
-  const totText = t => [plural(t.repos, 'repo'), t.files ? plural(t.files, 'file') : null, t.ahead ? '⬆ ' + t.ahead : null].filter(Boolean).join(' · ');
+  const totText = t => [plural(t.repos, 'repo'), t.files ? plural(t.files, 'file') : null, t.ahead ? '↑' + t.ahead : null].filter(Boolean).join(' · ');
 
   function card(kind, key, title, icon, rs, set) {
     const t = totals(rs); const ids = rs.map(r => r.id);
@@ -147,7 +147,7 @@ FEAT.wip = (() => {
         h('span', { class: 'wcn' }, totText(t)),
         t.add || t.del ? h('span', { class: 'wl' }, h('i', { class: 'a' }, '+' + t.add), ' ', h('i', { class: 'd' }, '−' + t.del)) : null,
         h('span', { class: 'wsp' }),
-        kind === 'set' ? h('button', { class: 'wmore', title: 'more', 'aria-label': 'more', onclick: ev => setMenu(ev, key, ids, title) }, '⋯') : null),
+        kind === 'set' ? h('button', { class: 'wmore', title: 'more', 'aria-label': 'more', onclick: ev => setMenu(ev, key, ids, title) }, ico('dots', 16)) : null),
       h('div', { class: 'wrows' }, rs.map(r => row(r, kind === 'set' ? title : null))));
   }
 
@@ -179,7 +179,7 @@ FEAT.wip = (() => {
       for (const g of W.groups || []) {
         const rs = inOrg.filter(r => grouped.get(r.id) === g.branch);
         if (!rs.length) continue;
-        cards.push(card('group', g.branch, g.branch, h('span', { class: 'wgi', title: 'same branch checked out as a worktree in ' + plural(rs.length, 'repo') }, '⎇'), rs, null));
+        cards.push(card('group', g.branch, g.branch, h('span', { class: 'wgi', title: 'same branch checked out as a worktree in ' + plural(rs.length, 'repo') }, ico('branch', 12)), rs, null));
       }
       out.push(h('div', { class: 'worg', style: `--org:${orgColor(org)}` },
         org ? h('div', { class: 'worgh' }, h('i', null), org, h('span', { class: 'n' }, plural(inOrg.length, 'repo'))) : null,
