@@ -447,8 +447,18 @@ function switchTerm(dir) { const o = termOrder(); if (!o.length) return; const i
 // opens"). The iframe is cross-origin (:7681) and can't read our visualViewport, so the panel is sized HERE from it —
 // the iframe then gets a plain `resize` and ttyd + the touch layer re-fit. Only on touch devices; on the Mac VV == window.
 const VV = window.visualViewport, TOUCH = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+const KB_MIN_HEIGHT = 150, KB_WIDTH_SLACK = 2, KB = { base: 0, width: 0 };
+const keyboardUp = (base, seen, typing) => typing && base - seen > KB_MIN_HEIGHT;
+const nextKb = (kb, seen, width, textFocused) => ({ width, base: textFocused && Math.abs(width - kb.width) <= KB_WIDTH_SLACK ? Math.max(kb.base, seen) : seen });
+function syncKeyboard() {
+  const seen = VV.height * VV.scale, active = document.activeElement;
+  Object.assign(KB, nextKb(KB, seen, VV.width * VV.scale, !!active?.matches?.('input, textarea, [contenteditable], iframe')));
+  const typing = !!active?.closest?.('#term-chat:not(.hidden) :is(.cbox2, .qchips, .askother)');
+  document.body.classList.toggle('kb-open', keyboardUp(KB.base, seen, TERM.open && typing));
+}
 function fitTermPanel() {
   fitLayer($('#termpanel'), TERM.open); fitLayer($('#drawer'), !!UI.drawer);
+  if (VV && TOUCH) syncKeyboard();
 }
 function fitLayer(el, open) {
   if (!el) return;

@@ -1427,6 +1427,9 @@ body.recording .ckeys > :not(.mic) { pointer-events: none; opacity: .4; }
   .turn { font-size: var(--fs-lg); }
   .turn.user { max-width: 88%; }
   .cbox2 { padding: 2px 8px calc(8px + env(safe-area-inset-bottom)); }
+  body.kb-open .termbar { display: none; }
+  body.kb-open .cbox2 { padding-bottom: var(--sp-1); }
+  body.kb-open .cscroll { padding-bottom: var(--sp-2); }
   .cfield { border-radius: var(--r-lg); }
   .creply { font-size: var(--fs-lg) !important; }
   .cfield .creply { min-height: 48px; padding: 13px 16px 2px; border-radius: var(--r-lg) var(--r-lg) 0 0; }
