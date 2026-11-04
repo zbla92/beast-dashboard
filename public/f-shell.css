@@ -1,25 +1,25 @@
-.cshell { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 16px 0; font-size: 12px; color: var(--muted); }
+.cshell { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 16px 0; font-size: var(--fs-sm); color: var(--muted); }
 .cshell.hidden { display: none; }
-.cshbadge { flex: none; padding: 1px 8px; border-radius: 999px; font-family: var(--mono); font-size: 11px; font-weight: 600; color: var(--cyan); background: color-mix(in srgb, var(--cyan) 14%, transparent); }
+.cshbadge { flex: none; padding: 1px 8px; border-radius: 999px; font-family: var(--mono); font-size: var(--fs-xs); font-weight: 600; color: var(--cyan); background: color-mix(in srgb, var(--cyan) 14%, transparent); }
 .cshint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cbox2.shellmode .cfield { border-color: color-mix(in srgb, var(--cyan) 55%, var(--line2)); box-shadow: inset 3px 0 0 color-mix(in srgb, var(--cyan) 70%, transparent), 0 10px 34px rgb(0 0 0 / .28); }
-.cbox2.shellmode .creply { font-family: var(--mono); font-size: 14px; }
+.cbox2.shellmode .cfield { border-color: color-mix(in srgb, var(--cyan) 55%, var(--line2)); box-shadow: inset 3px 0 0 color-mix(in srgb, var(--cyan) 70%, transparent); }
+.cbox2.shellmode .creply { font-family: var(--mono); font-size: var(--fs-md); }
 .cbox2.shellmode .csched { opacity: .35; pointer-events: none; }
 .shcard { width: min(100%, 680px); }
 .shcard .who { justify-content: flex-start; flex-wrap: wrap; row-gap: 2px; }
 .shcard .who .sp { flex: 1; }
 .shcard .who .btn { gap: 5px; margin: -3px -6px -3px 0; }
 .shcard.running { box-shadow: inset 2px 0 0 color-mix(in srgb, var(--cyan) 70%, transparent); }
-.shchip { padding: 0 8px; border-radius: 999px; font-family: var(--mono); font-size: 11px; background: var(--fill); color: var(--muted); }
+.shchip { padding: 0 8px; border-radius: 999px; font-family: var(--mono); font-size: var(--fs-xs); background: var(--fill); color: var(--muted); }
 .shchip.run { color: var(--cyan); background: color-mix(in srgb, var(--cyan) 12%, transparent); }
 .shchip.bad { color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent); }
-.shcard .shcmd { margin: 2px 0 0; color: #c9d2de; }
+.shcard .shcmd { margin: 2px 0 0; color: var(--text); }
 .shcard .shout { margin: 4px 0 0; max-height: 19.5em; overflow: auto; font-family: var(--mono); }
 .shcard .shout.full { max-height: 340px; }
 .shcard .shout.hidden, .shcard .shmore.hidden { display: none; }
-.shmore { align-self: flex-start; border: 0; background: none; color: var(--muted); font: inherit; font-size: 12px; padding: 4px 0 0; cursor: pointer; }
+.shmore { align-self: flex-start; border: 0; background: none; color: var(--muted); font: inherit; font-size: var(--fs-sm); padding: 4px 0 0; cursor: pointer; }
 .shmore:hover { color: var(--text); }
-.shnote { margin-top: 4px; font-size: 11px; color: var(--dim); }
+.shnote { margin-top: 4px; font-size: var(--fs-xs); color: var(--dim); }
 @media (max-width: 900px) {
   .turn.user.shell.shcard { width: 100%; max-width: 100%; }
   .cshell { padding: 6px 12px 0; }

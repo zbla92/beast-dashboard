@@ -1,31 +1,31 @@
 .chdiff[data-root] .dl:not(.file):not(.hunk):not(.meta) { cursor: pointer; }
 .chdiff[data-root] .dl:not(.file):not(.hunk):not(.meta):hover { box-shadow: inset 2px 0 0 var(--accent); }
 .chdiff .dl.rv-has { box-shadow: inset 3px 0 0 var(--amber); }
-.rv-ed { margin: 4px 10px 8px; padding: 8px; border-radius: 10px; background: var(--panel2); border: 1px solid var(--line2); font-family: var(--sans, inherit); cursor: default; white-space: normal; }
-.rv-where { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--muted); margin-bottom: 6px; }
-.rv-old { font-family: var(--sans, inherit); font-size: 10.5px; font-weight: 600; padding: 1px 7px; border-radius: 999px; color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent); }
+.rv-ed { margin: 4px 10px 8px; padding: 8px; border-radius: var(--r); background: var(--panel2); border: 1px solid var(--line2); font-family: var(--sans, inherit); cursor: default; white-space: normal; }
+.rv-where { display: flex; align-items: center; gap: 8px; font-size: var(--fs-xs); color: var(--muted); margin-bottom: 6px; }
+.rv-old { font-family: var(--sans, inherit); font-size: var(--fs-2xs); font-weight: 600; padding: 1px 7px; border-radius: 999px; color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent); }
 .rv-ta { width: 100%; min-height: 54px; resize: vertical; font: 13px/1.45 var(--sans, inherit); }
 .rv-btns { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
 .rv-btns .sp, .rv-ih .sp, .rv-foot .sp { flex: 1; }
-.rv-hint { font-size: 11px; }
+.rv-hint { font-size: var(--fs-xs); }
 
 .rv-pill { position: fixed; z-index: 70; left: calc(var(--rail-w, 248px) + 20px); bottom: calc(100px + env(safe-area-inset-bottom)); display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 14px; border: 1px solid color-mix(in srgb, var(--amber) 40%, var(--line2)); border-radius: 999px; background: var(--panel2); color: var(--text); font: 600 13px var(--sans, inherit); box-shadow: var(--shadow); cursor: pointer; }
 .rv-pill svg { color: var(--amber); }
-.rv-pill b { min-width: 20px; height: 20px; padding: 0 6px; display: inline-grid; place-items: center; border-radius: 999px; background: var(--amber); color: #111; font-size: 11.5px; }
+.rv-pill b { min-width: 20px; height: 20px; padding: 0 6px; display: inline-grid; place-items: center; border-radius: 999px; background: var(--amber); color: var(--on-signal); font-size: var(--fs-xs); }
 .rv-pill:hover { background: var(--fill2); }
 body.focus.term-open .rv-pill { left: 20px; }
 
 .modal .box.rv-box { width: min(760px, 96vw); max-height: 88vh; }
 .rv-list { display: flex; flex-direction: column; gap: 8px; padding: 10px 0; }
-.rv-item { padding: 8px 10px; border-radius: 10px; background: var(--fill); min-width: 0; }
+.rv-item { padding: 8px 10px; border-radius: var(--r); background: var(--fill); min-width: 0; }
 .rv-ih { display: flex; align-items: center; gap: 7px; min-width: 0; }
-.rv-f { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.rv-r { font-size: 11px; white-space: nowrap; }
-.rv-code { margin-top: 5px; padding: 3px 8px; border-radius: 6px; background: #0d0f13; font-size: 11.5px; color: var(--muted); white-space: pre; overflow: hidden; text-overflow: ellipsis; }
-.rv-txt { margin-top: 6px; font-size: 13px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
+.rv-f { font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.rv-r { font-size: var(--fs-xs); white-space: nowrap; }
+.rv-code { margin-top: 5px; padding: 3px 8px; border-radius: var(--r-sm); background: var(--code-bg); font-size: var(--fs-xs); color: var(--muted); white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+.rv-txt { margin-top: 6px; font-size: var(--fs-md); line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
 .rv-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .rv-sel { max-width: 340px; min-width: 0; }
-.rv-to { font-size: 12.5px; }
+.rv-to { font-size: var(--fs-sm); }
 
 @media (max-width: 900px) {
   .rv-pill { left: 12px; bottom: calc(var(--tab-h, 58px) + 84px + env(safe-area-inset-bottom)); }

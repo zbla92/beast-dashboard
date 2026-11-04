@@ -1,48 +1,48 @@
-.wp-field { display: inline-flex; align-items: center; gap: 9px; height: 40px; padding: 0 12px 0 13px; border: 1px solid var(--line2); border-radius: 12px; background: var(--fill); color: var(--text); font: inherit; font-size: 14px; font-weight: 500; cursor: pointer; transition: background .15s, border-color .15s, box-shadow .15s; }
+.wp-field { display: inline-flex; align-items: center; gap: 9px; height: 40px; padding: 0 12px 0 13px; border: 1px solid var(--line2); border-radius: var(--r); background: var(--fill); color: var(--text); font: inherit; font-size: var(--fs-md); font-weight: 500; cursor: pointer; transition: background .15s, border-color .15s, box-shadow .15s; }
 .wp-field:hover { background: var(--fill2); }
-.wp-field.on { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
+.wp-field.on { border-color: var(--accent); }
 .wp-field > .ico { width: 15px; height: 15px; color: var(--accent); }
 .wp-sep { width: 1px; height: 16px; background: var(--line2); }
 .wp-t { font-variant-numeric: tabular-nums; }
 .wp-chev { display: inline-flex; color: var(--dim); transition: transform .15s; }
 .wp-field.on .wp-chev { transform: rotate(180deg); }
 
-.wp-pop { display: grid; justify-self: start; width: max-content; max-width: 100%; margin-top: 10px; grid-template-columns: auto 1fr; gap: 18px; padding: 14px 16px 16px; border: 1px solid var(--line2); border-radius: 16px; background: var(--panel2); box-shadow: 0 12px 32px -12px rgba(0,0,0,.55); animation: wp-in .14s var(--ease); }
+.wp-pop { display: grid; justify-self: start; width: max-content; max-width: 100%; margin-top: 10px; grid-template-columns: auto 1fr; gap: 18px; padding: 14px 16px 16px; border: 1px solid var(--line2); border-radius: var(--r-lg); background: var(--panel2); box-shadow: var(--shadow); animation: wp-in .14s var(--ease); }
 .wp-pop.hidden { display: none; }
 @keyframes wp-in { from { opacity: 0; transform: translateY(-4px); } }
 
 .wp-head { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
-.wp-m { flex: 1; text-align: center; font-size: 14px; font-weight: 600; letter-spacing: .01em; }
+.wp-m { flex: 1; text-align: center; font-size: var(--fs-md); font-weight: 600; }
 .wp-nav { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; }
 .wp-nav:hover:not(:disabled) { background: var(--fill2); color: var(--text); }
 .wp-nav:disabled { opacity: .3; cursor: default; }
 .wp-nav.prev .ico { transform: rotate(180deg); }
 
 .wp-grid { display: grid; grid-template-columns: repeat(7, 36px); grid-auto-rows: 36px; gap: 2px; }
-.wp-dow { display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: .04em; }
-.wp-day { position: relative; border: 0; border-radius: 50%; background: transparent; color: var(--text); font: inherit; font-size: 13.5px; font-variant-numeric: tabular-nums; cursor: pointer; transition: background .12s; }
+.wp-dow { display: flex; align-items: center; justify-content: center; font-size: var(--fs-xs); font-weight: 600; color: var(--dim); }
+.wp-day { position: relative; border: 0; border-radius: 50%; background: transparent; color: var(--text); font: inherit; font-size: var(--fs-md); font-variant-numeric: tabular-nums; cursor: pointer; transition: background .12s; }
 .wp-day:hover:not(:disabled):not(.on) { background: var(--fill2); }
 .wp-day:disabled { color: var(--dim); opacity: .45; cursor: default; }
 .wp-day.today { color: var(--accent); font-weight: 600; }
 .wp-day.today::after { content: ''; position: absolute; left: 50%; bottom: 5px; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: currentColor; }
-.wp-day.on { background: var(--accent); color: #0d1230; font-weight: 600; }
+.wp-day.on { background: var(--accent); color: var(--on-primary); font-weight: 600; }
 
 .wp-time { display: flex; flex-direction: column; min-width: 120px; }
-.wp-tl { height: 30px; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; }
+.wp-tl { height: 30px; margin-bottom: 8px; display: flex; align-items: center; justify-content: center; font-size: var(--fs-md); font-weight: 600; }
 .wp-cols { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; min-height: 0; }
-.wp-col { position: relative; height: 266px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding: 2px; border-radius: 12px; background: var(--fill); scrollbar-width: none; }
+.wp-col { position: relative; height: 266px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding: 2px; border-radius: var(--r); background: var(--fill); scrollbar-width: none; }
 .wp-col::-webkit-scrollbar { display: none; }
-.wp-tm { flex: none; height: 32px; border: 0; border-radius: 9px; background: transparent; color: var(--muted); font: inherit; font-size: 13.5px; font-variant-numeric: tabular-nums; cursor: pointer; }
+.wp-tm { flex: none; height: 32px; border: 0; border-radius: var(--r); background: transparent; color: var(--muted); font: inherit; font-size: var(--fs-md); font-variant-numeric: tabular-nums; cursor: pointer; }
 .wp-tm:hover:not(:disabled):not(.on) { background: var(--fill2); color: var(--text); }
 .wp-tm:disabled { opacity: .3; cursor: default; }
-.wp-tm.on { background: var(--accent); color: #0d1230; font-weight: 600; }
+.wp-tm.on { background: var(--accent); color: var(--on-primary); font-weight: 600; }
 
 @media (max-width: 640px) {
-  .wp-field { flex: 1; height: 44px; font-size: 15px; }
+  .wp-field { flex: 1; height: 44px; font-size: var(--fs-lg); }
   .wp-pop { width: auto; justify-self: stretch; grid-template-columns: 1fr; gap: 14px; padding: 12px; }
   .wp-grid { grid-template-columns: repeat(7, 1fr); grid-auto-rows: 38px; }
   .wp-day { justify-self: center; width: 38px; }
   .wp-tl { display: none; }
   .wp-col { height: 152px; }
-  .wp-tm { height: 36px; font-size: 15px; }
+  .wp-tm { height: 36px; font-size: var(--fs-lg); }
 }

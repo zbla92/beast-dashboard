@@ -42,7 +42,7 @@ function techGlyph(p) {
 }
 // Every project gets its own muted hue (stable hash of its name) so twenty repos of one client don't all look alike;
 // the org still shows as the initial in the corner.
-function projColor(p) { if (!p) return null; let x = 0; for (const c of p.name) x = (x * 31 + c.charCodeAt(0)) >>> 0; const hues = [210, 25, 150, 275, 45, 190, 330, 95, 240, 10, 170, 300]; return `hsl(${hues[x % hues.length]} 40% 66%)`; }
+function projColor(p) { if (!p) return null; let x = 0; for (const c of p.name) x = (x * 31 + c.charCodeAt(0)) >>> 0; const hues = [210, 25, 150, 275, 45, 190, 330, 95, 240, 10, 170, 300]; return `hsl(${hues[x % hues.length]} 22% 62%)`; }
 // pid: project id (or null for plain shells). size: css class 'sm' | '' | 'lg'
 function avatar(pid, size = '') {
   const p = pid && byId()[pid]; const g = techGlyph(p); const org = p ? p.org : null;
@@ -759,7 +759,7 @@ function sparkline(canvas, data, color, max = 100, fill = true) {
   const x = i => W - (data.length - 1 - i) * step; const y = v => H - 2 - Math.min(1, (v || 0) / max) * (H - 6);
   ctx.beginPath(); data.forEach((v, i) => i ? ctx.lineTo(x(i), y(v)) : ctx.moveTo(x(i), y(v)));
   ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.lineJoin = 'round'; ctx.stroke();
-  if (fill && data.length > 1) { ctx.lineTo(x(data.length - 1), H); ctx.lineTo(x(0), H); ctx.closePath(); const g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, color.replace(')', ',.35)').replace('rgb', 'rgba')); g.addColorStop(1, 'rgba(0,0,0,0)'); ctx.fillStyle = g; ctx.fill(); }
+  if (fill && data.length > 1) { ctx.lineTo(x(data.length - 1), H); ctx.lineTo(x(0), H); ctx.closePath(); ctx.fillStyle = color.replace(')', ',.12)').replace('rgb', 'rgba'); ctx.fill(); }
 }
 const usd = v => v == null ? '–' : v < 10 ? '$' + v.toFixed(2) : '$' + v.toFixed(0);
 // "claude-opus-5[1m]" -> "Opus 5 · 1M", "claude-fable-5-1" -> "Fable 5.1", "claude-haiku-4-5-20251001" -> "Haiku 4.5"
@@ -787,7 +787,7 @@ function limitCol(account, L) {
   const se = L.session; const all = [se, L.weekly, ...(L.scoped || [])].map(limCls); const cls = all.includes('hot') ? 'hot' : all.includes('warn') ? 'warn' : '';
   const seReset = se?.resetsAt ? 'resets ' + whenStr(se.resetsAt) : se?.reset ? `reset at ${whenStr(se.resetAt)} · ${RESET_NOTE}` : null;
   return h('div', { class: 'limcol ' + cls + (L.stale ? ' stale' : '') },
-    h('div', { class: 'k' }, badge, seReset ? h('span', { class: 'mono dim', style: 'text-transform:none;letter-spacing:0;font-weight:500' }, seReset) : null),
+    h('div', { class: 'k' }, badge, seReset ? h('span', { class: 'mono dim', style: 'font-weight:500' }, seReset) : null),
     se ? null : h('div', { class: 's' }, 'no 5h session window'),
     L.stale && L.fetchedAt ? h('div', { class: 'limstale' }, `as of ${whenStr(L.fetchedAt)}` + (L.error ? ' · ' + L.error : ' · not refreshed since')) : null,
     h('div', { class: 'lim' }, limitRow('5h', se, '5-hour session', true), limitRow('week', L.weekly, '7-day window, all models'), ...(L.scoped || []).map(w => limitRow(w.name, w, `7-day window, ${w.name} only`)),
@@ -795,22 +795,22 @@ function limitCol(account, L) {
 }
 function limitsTile(LM) {
   const cols = ['personal', 'company'].filter(a => LM[a]); if (!cols.length) return null;
-  return h('div', { class: 'tile w3', 'data-k': 'limits' }, h('div', { class: 'k' }, h('span', null, 'Claude usage limits'), h('span', { class: 'dim', style: 'font-size:10.5px;text-transform:none;letter-spacing:0', title: 'the same windows /usage shows inside Claude Code: 5-hour session, 7-day all models, 7-day per model, extra-usage credits' }, '/usage')),
+  return h('div', { class: 'tile w3', 'data-k': 'limits' }, h('div', { class: 'k' }, h('span', null, 'Claude usage limits'), h('span', { class: 'dim', style: 'font-size:10.5px', title: 'the same windows /usage shows inside Claude Code: 5-hour session, 7-day all models, 7-day per model, extra-usage credits' }, '/usage')),
     h('div', { class: 'limcols' }, cols.map(a => limitCol(a, LM[a]))));
 }
 // donut: used share of a whole, percent in the middle (disk)
 function ring(pct, size = 58, stroke = 7) {
-  const r = (size - stroke) / 2, c = 2 * Math.PI * r; const color = pct > 90 ? 'var(--red)' : pct > 75 ? 'var(--amber)' : 'var(--accent)';
+  const r = (size - stroke) / 2, c = 2 * Math.PI * r; const color = pct > 90 ? 'var(--red)' : pct > 75 ? 'var(--amber)' : 'var(--muted)';
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('class', 'ring'); svg.setAttribute('width', size); svg.setAttribute('height', size); svg.setAttribute('viewBox', `0 0 ${size} ${size}`);
   const circ = (cls, dash, col) => { const e = document.createElementNS('http://www.w3.org/2000/svg', 'circle'); e.setAttribute('cx', size / 2); e.setAttribute('cy', size / 2); e.setAttribute('r', r); e.setAttribute('fill', 'none'); e.setAttribute('stroke', col); e.setAttribute('stroke-width', stroke); if (dash != null) { e.setAttribute('stroke-dasharray', `${dash} ${c}`); e.setAttribute('stroke-linecap', 'round'); e.setAttribute('transform', `rotate(-90 ${size / 2} ${size / 2})`); } e.setAttribute('class', cls); return e; };
-  svg.append(circ('bg', null, 'rgba(255,255,255,.08)'), circ('fg', c * Math.min(100, Math.max(0, pct)) / 100, color));
+  svg.append(circ('bg', null, 'var(--fill2)'), circ('fg', c * Math.min(100, Math.max(0, pct)) / 100, color));
   const t = document.createElementNS('http://www.w3.org/2000/svg', 'text'); t.setAttribute('x', size / 2); t.setAttribute('y', size / 2); t.setAttribute('text-anchor', 'middle'); t.setAttribute('dominant-baseline', 'central'); t.setAttribute('class', 'rt'); t.textContent = pct.toFixed(0) + '%'; svg.append(t);
   return svg;
 }
 // temperature chip: hue slides cyan -> green -> yellow -> red as it climbs (35 °C and below is cool, 95 °C is red)
 function tempChip(t, what) {
   if (t == null || !(t > 0)) return null; const hue = Math.round(195 * (1 - Math.min(1, Math.max(0, (t - 35) / 60))));
-  return h('span', { class: 'temp', style: `color:hsl(${hue} 45% 68%);background:hsl(${hue} 45% 68% / .12);border-color:hsl(${hue} 45% 68% / .3)`, title: (what || 'temperature') + ` ${t.toFixed(1)} °C` }, t.toFixed(0) + '°');
+  return h('span', { class: 'temp', style: `color:hsl(${hue} 38% 66%);background:hsl(${hue} 38% 66% / .12);border-color:hsl(${hue} 38% 66% / .3)`, title: (what || 'temperature') + ` ${t.toFixed(1)} °C` }, t.toFixed(0) + '°');
 }
 // battery: where the power comes from (chip) and what that means in time (line under the number)
 // draining = unplugged, or plugged into a charger too weak to keep up: that's when low charge matters
@@ -829,11 +829,11 @@ async function sysModal(kind) {
   if (Date.now() - HIST24.at > 30000) { try { HIST24.data = await api('temps'); HIST24.at = Date.now(); } catch {} }
   const s = S.stats; const d = HIST24.data;
   const series = {   // [label, column, colour, unit, min, max, shaded-while column]
-    cpu: [['CPU usage', 4, 'rgb(76,201,222)', '%', 0, 100], ['CPU temp', 1, 'rgb(255,159,90)', '°C', 20, 95]],
-    gpu: [['GPU usage', 5, 'rgb(91,211,156)', '%', 0, 100], ['GPU temp', 2, 'rgb(255,159,90)', '°C', 20, 95]],
-    mem: [['Memory used', 6, 'rgb(157,140,255)', '%', 0, 100]],
-    disk: [['NVMe temp', 3, 'rgb(255,159,90)', '°C', 20, 90]],
-    bat: [['Battery charge', 7, 'rgb(91,211,156)', '%', 0, 100, 8]],
+    cpu: [['CPU usage', 4, 'rgb(106,169,201)', '%', 0, 100], ['CPU temp', 1, 'rgb(217,160,91)', '°C', 20, 95]],
+    gpu: [['GPU usage', 5, 'rgb(79,178,134)', '%', 0, 100], ['GPU temp', 2, 'rgb(217,160,91)', '°C', 20, 95]],
+    mem: [['Memory used', 6, 'rgb(165,151,199)', '%', 0, 100]],
+    disk: [['NVMe temp', 3, 'rgb(217,160,91)', '°C', 20, 90]],
+    bat: [['Battery charge', 7, 'rgb(79,178,134)', '%', 0, 100, 8]],
   }[kind];
   const titles = { cpu: 'CPU', gpu: 'GPU', mem: 'Memory', disk: 'Disk', bat: 'Battery' };
   const b = s.battery || {};
@@ -926,13 +926,13 @@ function hogsTile(s) {
       x.mine ? h('div', { class: 'hog-act' }, h('button', { class: 'btn sm ghost', title: 'ask it to stop (SIGTERM)', onclick: ev => { ev.stopPropagation(); killP(x, 'TERM'); } }, 'Stop'), h('button', { class: 'btn sm ghost danger', title: 'force-kill (SIGKILL)', onclick: ev => { ev.stopPropagation(); killP(x, 'KILL'); } }, 'Kill')) : null);
   });
   return h('div', { class: 'tile wfull hogs' + (hot ? ' is-hot' : ''), 'data-k': 'hogs' },
-    h('div', { class: 'k' }, h('span', null, hot ? [ico('flame', 13), ' '] : null, 'Heavy processes', h('span', { class: 'pill' }, list.length)), h('span', { class: 'dim', style: 'font-size:10.5px;text-transform:none;letter-spacing:0' }, 'keeping ≥1 core busy or holding ≥3 GB · 100% = one core')),
+    h('div', { class: 'k' }, h('span', null, hot ? [ico('flame', 13), ' '] : null, 'Heavy processes', h('span', { class: 'pill' }, list.length)), h('span', { class: 'dim', style: 'font-size:10.5px' }, 'keeping ≥1 core busy or holding ≥3 GB · 100% = one core')),
     h('div', { class: 'hog-list' }, rows));
 }
 function drawSparks() {
   const H = S.hist; const u = S.claude?.usage;
-  const map = { cpu: [H.cpu, 'rgb(76,201,222)', 100], mem: [H.mem, 'rgb(157,140,255)', 100], gpu: [H.gpu, 'rgb(91,211,156)', 100], net: [H.net.map(x => x[0] + x[1]), 'rgb(143,165,255)', Math.max(1e5, ...H.net.map(x => x[0] + x[1]))] };
-  if (u) { const series = u.days.map((_, i) => u.personal.series[i] + u.company.series[i]); map.claude = [series, 'rgb(255,107,149)', Math.max(1, ...series)]; }
+  const map = { cpu: [H.cpu, 'rgb(106,169,201)', 100], mem: [H.mem, 'rgb(165,151,199)', 100], gpu: [H.gpu, 'rgb(79,178,134)', 100], net: [H.net.map(x => x[0] + x[1]), 'rgb(142,162,216)', Math.max(1e5, ...H.net.map(x => x[0] + x[1]))] };
+  if (u) { const series = u.days.map((_, i) => u.personal.series[i] + u.company.series[i]); map.claude = [series, 'rgb(163,163,169)', Math.max(1, ...series)]; }
   for (const [k, [data, color, max]] of Object.entries(map)) { const c = $(`.tile[data-k="${k}"] canvas`); if (c) sparkline(c, data, color, max); }
 }
 
@@ -1564,13 +1564,13 @@ function renderConversation(box, name, t, o) {
   const compKey = [name, cl.state, menuKey(cl.menu), cl.model, cl.effort, canSwitchModel(cl), busy, justSent, jobs.map(j => j.id + j.state).join(','), followUp()].join('|');
   const keptComp = same && box.querySelector('.cbox2'); const C = keptComp && keptComp.dataset.k === compKey ? keptComp._c : composer(box, name, cl, conv, scroller, o, busy, justSent, jobs, prevDraft, compKey);
   const queued = (S.claude?.schedule || []).filter(j => j.session === name && j.whenFree && j.state === 'waiting');
-  for (const m of inbox.filter(starts)) if (!(lastUser && lastUser.text.trim() === m.text.trim() && (lastUser.ts || 0) >= m.at - 5000)) items.push(h('div', { class: 'turn user pending' }, h('div', { class: 'who' }, gl('❯ you'), hhmm(m.at), h('span', { class: 'dim mono' }, ' · sent')), h('div', { class: 'ttext' }, m.text)));
-  for (const pm of PENDING[name] || []) items.push(h('div', { class: 'turn user pending' }, h('div', { class: 'who' }, gl('❯ you'), h('span', { class: 'dim mono' }, ' sent')), h('div', { class: 'ttext' }, pm.text)));
+  for (const m of inbox.filter(starts)) if (!(lastUser && lastUser.text.trim() === m.text.trim() && (lastUser.ts || 0) >= m.at - 5000)) items.push(h('div', { class: 'turn user pending' }, h('div', { class: 'who' }, gl('❯ you'), hhmm(m.at), h('span', { class: 'dim' }, ' · sent')), h('div', { class: 'ttext' }, m.text)));
+  for (const pm of PENDING[name] || []) items.push(h('div', { class: 'turn user pending' }, h('div', { class: 'who' }, gl('❯ you'), h('span', { class: 'dim' }, ' sent')), h('div', { class: 'ttext' }, pm.text)));
   // Feedback right away: a "working" turn appears the moment you send (before the hooks confirm it), with a Stop that
   // interrupts Claude and puts your text back in the box. Esc in the box does the same.
   const since = (lv && ((lv.turn && lv.turn.startedAt) || (lv.state === 'working' && lv.since))) || t.since || (justSent ? PENDING[name][0].ts : null);
   let liveEl = null;
-  if (busy || justSent) items.push(liveEl = h('div', { class: 'turn assistant live' }, h('div', { class: 'who' }, gl('✦ claude'), h('span', { class: 'dim mono' }, cl.state === 'background' ? ' waiting on background agents' : busy ? ' working' : ' starting'), since ? h('span', { class: 'dim mono' }, ' · ', h('span', { class: 'wtimer', 'data-since': since }, elapsedTxt(since))) : h('span', { class: 'dim mono' }, '…'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost stopb', title: cl.mode === 'chat' ? 'interrupt (Esc) — messages already sent stay with Claude and run next' : 'interrupt (Esc) — your message goes back into the box', onclick: C.stop }, gl('■ Stop'))), h('div', { class: 'ag-now' }, h('span', { class: 'spin' }), h('span', { class: 'mono' }, cl.state === 'background' ? bgText(cl.bg) : busy ? (cl.state === 'working' ? cl.lastTool || t.pending || 'thinking…' : t.pending || cl.lastTool || 'working…') : 'sending to Claude…')),
+  if (busy || justSent) items.push(liveEl = h('div', { class: 'turn assistant live' }, h('div', { class: 'who' }, gl('✦ claude'), h('span', { class: 'dim' }, cl.state === 'background' ? ' waiting on background agents' : busy ? ' working' : ' starting'), since ? h('span', { class: 'dim mono' }, ' · ', h('span', { class: 'wtimer', 'data-since': since }, elapsedTxt(since))) : h('span', { class: 'dim mono' }, '…'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost stopb', title: cl.mode === 'chat' ? 'interrupt (Esc) — messages already sent stay with Claude and run next' : 'interrupt (Esc) — your message goes back into the box', onclick: C.stop }, gl('■ Stop'))), h('div', { class: 'ag-now' }, h('span', { class: 'spin' }), h('span', { class: 'mono' }, cl.state === 'background' ? bgText(cl.bg) : busy ? (cl.state === 'working' ? cl.lastTool || t.pending || 'thinking…' : t.pending || cl.lastTool || 'working…') : 'sending to Claude…')),
     cl.state === 'working' && cl.status ? h('div', { class: 'ag-status mono' }, cl.status) : null));   // Claude's own status line: "✻ Cooking… (2m 10s · ↓ 3.1k tokens)"
   if (liveEl && lv) { liveEl.insertBefore(h('div', { class: 'ltools' }), liveEl.children[1]); liveEl.insertBefore(h('div', { class: 'ttext ltext hidden' }), liveEl.children[2]); fillLive(liveEl, lv.turn); }
   if (lv && lv.error && !busy) items.push(h('div', { class: 'turn assistant' }, h('div', { class: 'who' }, gl('⚠ chat runner')), h('div', { class: 'mono dim' }, lv.error)));
@@ -1604,13 +1604,13 @@ function composer(box, name, cl, conv, scroller, o, busy, justSent, jobs, prevDr
   ta.value = prevDraft;
   let syncAct = () => {};
   const grow = () => { ta.style.height = '0px'; ta.style.height = Math.min(Math.max(IS_PHONE ? 48 : 56, ta.scrollHeight), 10 * 24 + 12) + 'px'; saveDraft(name, ta.value); syncAct(); };   // every change goes through grow() -> the draft is saved
-  const sendText = async (v) => { (PENDING[name] = PENDING[name] || []).push({ text: v, ts: Date.now() }); conv.append(h('div', { class: 'turn user pending' }, h('div', { class: 'who' }, gl('❯ you'), h('span', { class: 'dim mono' }, ' sending…')), h('div', { class: 'ttext' }, v))); scroller.scrollTop = scroller.scrollHeight; try { await api('send', { session: name, text: v }); } catch (e) { toast(e.message, 'err'); } setTimeout(o.refresh, 700); setTimeout(o.refresh, 2500); };
+  const sendText = async (v) => { (PENDING[name] = PENDING[name] || []).push({ text: v, ts: Date.now() }); conv.append(h('div', { class: 'turn user pending' }, h('div', { class: 'who' }, gl('❯ you'), h('span', { class: 'dim' }, ' sending…')), h('div', { class: 'ttext' }, v))); scroller.scrollTop = scroller.scrollHeight; try { await api('send', { session: name, text: v }); } catch (e) { toast(e.message, 'err'); } setTimeout(o.refresh, 700); setTimeout(o.refresh, 2500); };
   const shellMode = () => cl.mode === 'chat' && !!FEAT.shell && FEAT.shell.is(ta.value);
   let shelling = false;
   const runShell = async () => { if (shelling) return; const v = ta.value; shelling = true; ta.value = ''; grow(); try { if (!(await FEAT.shell.run(name, v))) { if (!ta.value) { ta.value = v; grow(); } ta.focus(); } } finally { shelling = false; } };
   const send = async () => { if (shellMode()) return runShell(); const v = ta.value.trim(); if (!v) return; if ((claudeOf(name) || {}).menu) { toast('Claude is asking something — pick an option above first', 'err'); return; } ta.value = ''; grow();
     const pm = { text: v, ts: Date.now() }; (PENDING[name] = PENDING[name] || []).push(pm);
-    conv.append(h('div', { class: 'turn user pending' }, h('div', { class: 'who' }, gl('❯ you'), h('span', { class: 'dim mono' }, ' sending…')), h('div', { class: 'ttext' }, v))); scroller.scrollTop = scroller.scrollHeight;
+    conv.append(h('div', { class: 'turn user pending' }, h('div', { class: 'who' }, gl('❯ you'), h('span', { class: 'dim' }, ' sending…')), h('div', { class: 'ttext' }, v))); scroller.scrollTop = scroller.scrollHeight;
     try { const r = await api('send', { session: name, text: v }); if (r && r.id) pm.id = r.id; } catch (e) { toast(e.message, 'err'); PENDING[name] = PENDING[name].filter(x => x !== pm); ta.value = v; grow(); }
     for (const ms of [400, 1200, 2500, 5000]) setTimeout(o.refresh, ms); };
   ta.addEventListener('input', grow);

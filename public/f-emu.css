@@ -1,13 +1,13 @@
 /* f-emu.css — Android emulator tile + modal (public/f-emu.js only; every selector starts with .emu-) */
 .emu-tile { margin: 0; display: flex; align-items: center; gap: 14px; width: 100%; padding: 12px 16px 12px 12px; background: var(--panel); border: 0; border-radius: var(--r, 14px); color: var(--text); font: inherit; text-align: left; cursor: pointer; min-height: 56px; transition: background .15s; }
 .emu-tile:hover { background: var(--panel2); }
-.emu-thumbwrap { flex: none; width: 52px; height: 100px; border-radius: 10px; overflow: hidden; background: #000; box-shadow: 0 0 0 3px var(--panel3, #2a2f39); }
+.emu-thumbwrap { flex: none; width: 52px; height: 100px; border-radius: var(--r); overflow: hidden; background: var(--code-bg); box-shadow: 0 0 0 3px var(--panel3); }
 .emu-thumb { width: 100%; height: 100%; object-fit: cover; display: block; }
 .emu-tinfo { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 .emu-tname, .emu-tsub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.emu-tname { font-size: 14.5px; font-weight: 600; }
-.emu-tsub { font-size: 12px; }
-.emu-tgo { flex: none; color: var(--accent); font-size: 13px; }
+.emu-tname { font-size: var(--fs-lg); font-weight: 600; }
+.emu-tsub { font-size: var(--fs-sm); }
+.emu-tgo { flex: none; color: var(--accent); font-size: var(--fs-md); }
 
 .modal .box.emu { width: auto; max-width: 96vw; max-height: 94vh; max-height: 94dvh; padding: 0; display: flex; flex-direction: column; overflow: hidden; }
 .emu-body { display: flex; flex-direction: column; min-height: 0; }
@@ -17,23 +17,23 @@
 .emu-pick { max-width: 200px; }
 .emu-dname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .emu-main { display: flex; gap: 16px; padding: 14px; min-height: 0; align-items: flex-start; }
-.emu-screenwrap { position: relative; flex: none; border-radius: 18px; background: #000; box-shadow: 0 0 0 5px var(--panel3, #2a2f39); overflow: hidden; line-height: 0; }
+.emu-screenwrap { position: relative; flex: none; border-radius: var(--r-lg); background: var(--code-bg); box-shadow: 0 0 0 5px var(--panel3); overflow: hidden; line-height: 0; }
 .emu-screen { display: block; max-height: calc(94dvh - 110px); max-height: calc(94vh - 110px); max-width: calc(96vw - 300px); width: auto; height: auto; min-width: 120px; min-height: 240px; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; cursor: pointer; }
 .emu-screen.emu-bad { opacity: .4; }
-.emu-ph { position: absolute; inset: 0; display: grid; place-items: center; font-size: 13px; line-height: 1.3; text-align: center; padding: 10px; pointer-events: none; }
+.emu-ph { position: absolute; inset: 0; display: grid; place-items: center; font-size: var(--fs-md); line-height: 1.3; text-align: center; padding: 10px; pointer-events: none; }
 .emu-side { display: flex; flex-direction: column; gap: 12px; width: 240px; min-width: 0; }
 .emu-navs, .emu-keys { display: flex; gap: 8px; flex-wrap: wrap; }
-.emu-navs .emu-nav { flex: 1; justify-content: center; min-height: 44px; font-size: 18px; }
+.emu-navs .emu-nav { flex: 1; justify-content: center; min-height: 44px; font-size: var(--fs-xl); }
 .emu-keys .emu-nav { flex: 1 1 auto; justify-content: center; min-height: 38px; }
 .emu-txtrow { display: flex; gap: 8px; }
 .emu-text { flex: 1; min-width: 0; min-height: 38px; }
 .emu-txtrow .btn { min-height: 38px; }
-.emu-info { font-size: 11.5px; overflow-wrap: anywhere; }
+.emu-info { font-size: var(--fs-xs); overflow-wrap: anywhere; }
 .emu-stop { color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, transparent); min-height: 38px; justify-content: center; }
 .emu-note { margin: 0; padding: 14px 16px 0; }
-.emu-small { padding-bottom: 14px; font-size: 12.5px; }
+.emu-small { padding-bottom: 14px; font-size: var(--fs-sm); }
 .emu-avds { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px 0; }
-.emu-avd { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--bg2); border-radius: 10px; }
+.emu-avd { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--bg2); border-radius: var(--r); }
 .emu-avdn { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .emu-avd .btn { min-height: 38px; }
 

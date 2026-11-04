@@ -7,44 +7,44 @@
 .ckp-ic { display: inline-grid; place-items: center; color: var(--accent); }
 .ckp-a { color: var(--green); font: 600 11.5px var(--mono); }
 .ckp-d { color: var(--red); font: 600 11.5px var(--mono); }
-.ckp-n { color: var(--dim); font-size: 11px; }
-.ckp-tag { font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 999px; color: var(--amber); background: color-mix(in srgb, var(--amber) 13%, transparent); white-space: nowrap; }
+.ckp-n { color: var(--dim); font-size: var(--fs-xs); }
+.ckp-tag { font-size: var(--fs-xs); font-weight: 600; padding: 1px 8px; border-radius: 999px; color: var(--amber); background: color-mix(in srgb, var(--amber) 13%, transparent); white-space: nowrap; }
 .ckp-row.undone .ckp-sum { opacity: .75; text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--muted) 60%, transparent); }
 .ckp-row.undone .ckp-tag { text-decoration: none; }
 
 .modal .box.ckp-box { width: min(980px, 96vw); max-height: 90vh; }
-.ckp-sub { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 6px; font-size: 12.5px; color: var(--muted); min-width: 0; }
+.ckp-sub { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 6px; font-size: var(--fs-sm); color: var(--muted); min-width: 0; }
 .ckp-prompt { flex: 1 1 260px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ckp-tot { font-size: 12px; white-space: nowrap; }
+.ckp-tot { font-size: var(--fs-sm); white-space: nowrap; }
 .ckp-body { display: grid; grid-template-columns: minmax(220px, 34%) 1fr; gap: 12px; padding-top: 12px; padding-bottom: 12px; min-height: 0; }
 .ckp-files { display: flex; flex-direction: column; gap: 12px; min-width: 0; overflow: auto; max-height: 64vh; }
 .ckp-repo { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.ckp-rh { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; min-width: 0; }
+.ckp-rh { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: var(--fs-sm); min-width: 0; }
 .ckp-rh .sp { flex: 1; }
 .ckp-top { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .ckp-file { padding: 6px 8px; gap: 8px; }
-.ckp-file .chpath { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
+.ckp-file .chpath { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); }
 .ckp-file.on { background: color-mix(in srgb, var(--accent) 16%, var(--panel)); }
-.ckp-more { font-size: 12px; padding: 2px 8px; }
+.ckp-more { font-size: var(--fs-sm); padding: 2px 8px; }
 .ckp-diff { margin: 0; max-height: 64vh; min-width: 0; }
 .ckp-pick { padding: 12px; font-family: var(--sans, inherit); }
-.ckp-warn { margin: 6px 0 0; padding: 7px 10px; border-radius: 9px; font-size: 12.5px; line-height: 1.45; color: var(--amber); background: color-mix(in srgb, var(--amber) 10%, transparent); }
+.ckp-warn { margin: 6px 0 0; padding: 7px 10px; border-radius: var(--r); font-size: var(--fs-sm); line-height: 1.45; color: var(--amber); background: color-mix(in srgb, var(--amber) 10%, transparent); }
 .box.confirm p.ckp-warn { color: var(--amber); }
 
-.ckp-plan { margin-top: 10px; max-height: 34vh; overflow: auto; display: flex; flex-direction: column; gap: 2px; padding: 6px; border-radius: 10px; background: var(--fill); }
-.ckp-pl { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12.5px; padding: 2px 4px; }
-.ckp-act { flex: none; width: 54px; font: 600 10.5px var(--mono); text-transform: uppercase; letter-spacing: .3px; color: var(--accent); }
+.ckp-plan { margin-top: 10px; max-height: 34vh; overflow: auto; display: flex; flex-direction: column; gap: 2px; padding: 6px; border-radius: var(--r); background: var(--fill); }
+.ckp-pl { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: var(--fs-sm); padding: 2px 4px; }
+.ckp-act { flex: none; width: 54px; font: 600 10.5px var(--mono); color: var(--accent); }
 .ckp-pl.delete .ckp-act { color: var(--red); }
 .ckp-pl.keep { color: var(--muted); }
 .ckp-pl.keep .ckp-act { color: var(--dim); }
 .ckp-pf { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ckp-later { flex: none; font-size: 10.5px; font-weight: 600; padding: 1px 7px; border-radius: 999px; color: var(--amber); background: color-mix(in srgb, var(--amber) 13%, transparent); }
+.ckp-later { flex: none; font-size: var(--fs-2xs); font-weight: 600; padding: 1px 7px; border-radius: 999px; color: var(--amber); background: color-mix(in srgb, var(--amber) 13%, transparent); }
 
 .ckp-list { display: flex; flex-direction: column; gap: 4px; padding: 10px 0; }
 .ckp-li { gap: 10px; }
-.ckp-li .ckp-num { flex: none; width: 34px; color: var(--accent); font-weight: 600; font-size: 12px; }
-.ckp-li .ckp-when { flex: none; color: var(--dim); font-size: 12px; }
-.ckp-li .ckp-pr { font-family: var(--sans, inherit); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.ckp-li .ckp-num { flex: none; width: 34px; color: var(--accent); font-weight: 600; font-size: var(--fs-sm); }
+.ckp-li .ckp-when { flex: none; color: var(--dim); font-size: var(--fs-sm); }
+.ckp-li .ckp-pr { font-family: var(--sans, inherit); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-md); }
 .ckp-li.isundo .ckp-num { color: var(--amber); }
 .ckp-li.isundo .ckp-pr { color: var(--muted); }
 .ckp-li.undone .ckp-pr { text-decoration: line-through; color: var(--muted); }

@@ -1,21 +1,21 @@
 /* f-inbox.css — styles for public/f-inbox.js only (prefix every selector with the feature's own class). */
 /* Home hero: the one loud thing on the page — who is waiting for you. */
 .ibx-banner { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "t go" "rows rows"; align-items: center; row-gap: 10px; padding: 18px 20px 8px; border-radius: var(--r-lg, 20px); background: color-mix(in srgb, var(--signal) 8%, var(--panel)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--signal) 16%, transparent); }
-.ibx-bt { grid-area: t; margin: 0; font-size: 30px; font-weight: 600; letter-spacing: -.025em; line-height: 1.15; color: var(--signal); }
+.ibx-bt { grid-area: t; margin: 0; font-size: var(--fs-2xl); font-weight: 600; letter-spacing: -.025em; line-height: 1.15; color: var(--signal); }
 .ibx-hrows { grid-area: rows; }
-.btn.ibx-go { grid-area: go; height: 38px; padding: 0 16px; border: 0; border-radius: 11px; background: var(--signal); color: var(--on-signal); font-weight: 600; }
+.btn.ibx-go { grid-area: go; height: 38px; padding: 0 16px; border: 0; border-radius: var(--r); background: var(--signal); color: var(--on-signal); font-weight: 600; }
 .btn.ibx-go:hover { background: color-mix(in srgb, var(--signal) 85%, #fff); }
 .btn.ibx-go .ico { color: var(--on-signal); }
 .ibx-hrows { display: flex; flex-direction: column; }
 .ibx-hrow { display: grid; grid-template-columns: 24px minmax(110px, 210px) minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%; padding: 11px 6px; border: 0; border-top: 1px solid color-mix(in srgb, var(--signal) 14%, transparent); background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; border-radius: 0; }
 .ibx-hrow:hover { background: color-mix(in srgb, var(--signal) 6%, transparent); }
-.ibx-hn { font-weight: 600; font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ibx-hm { color: var(--muted); font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ibx-hs { font-size: 12px; font-weight: 600; color: var(--signal); white-space: nowrap; }
+.ibx-hn { font-weight: 600; font-size: var(--fs-lg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ibx-hm { color: var(--muted); font-size: var(--fs-md); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ibx-hs { font-size: var(--fs-sm); font-weight: 600; color: var(--signal); white-space: nowrap; }
 .ibx-hrow.st-permission .ibx-hs { color: var(--perm); }
 .ibx-hrow.st-error .ibx-hs { color: var(--red); }
 .ibx-hrow.st-limit .ibx-hs { color: var(--pink); }
-.ibx-hmore { align-self: flex-start; margin: 4px 0 6px; padding: 6px 6px; border: 0; background: none; color: var(--signal); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.ibx-hmore { align-self: flex-start; margin: 4px 0 6px; padding: 6px 6px; border: 0; background: none; color: var(--signal); font: inherit; font-size: var(--fs-md); font-weight: 600; cursor: pointer; }
 
 /* the Inbox sheet */
 .modal .box.ibx { width: min(760px, 96vw); max-height: 90vh; display: flex; flex-direction: column; padding: 0; overflow: hidden; }
@@ -26,7 +26,7 @@
 .ibx-list { display: flex; flex-direction: column; gap: 10px; }
 .ibx-empty { padding: 40px 8px; text-align: center; color: var(--muted); }
 .ibx-empty.hidden, .ibx-more.hidden, .ibx-sent.hidden { display: none; }
-.ibx-row { position: relative; display: flex; flex-direction: column; gap: 9px; padding: 12px 14px 12px 16px; border-radius: 14px; background: var(--bg2); border: 1px solid color-mix(in srgb, var(--signal) 35%, transparent); }
+.ibx-row { position: relative; display: flex; flex-direction: column; gap: 9px; padding: 12px 14px 12px 16px; border-radius: var(--r-lg); background: var(--bg2); border: 1px solid color-mix(in srgb, var(--signal) 35%, transparent); }
 .ibx-row.st-permission { border-color: color-mix(in srgb, var(--perm) 45%, transparent); background: color-mix(in srgb, var(--perm) 6%, var(--bg2)); }
 .ibx-row.st-error { border-color: color-mix(in srgb, var(--red) 45%, transparent); }
 .ibx-row.st-limit { border-color: color-mix(in srgb, var(--purple) 45%, transparent); }
@@ -35,19 +35,19 @@
 .ibx-head .sp { flex: 1; }
 .ibx-av { flex: none; display: inline-flex; }
 .ibx-id { display: flex; align-items: center; gap: 7px; min-width: 0; flex-wrap: wrap; }
-.ibx-proj { font-weight: 600; font-size: 14.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.ibx-proj { font-weight: 600; font-size: var(--fs-lg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .ibx-badge { flex: none; }
-.ibx-msg { font-size: 13.5px; line-height: 1.55; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.ibx-msg { font-size: var(--fs-md); line-height: 1.55; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .ibx-msg.open { display: block; max-height: 40vh; overflow-y: auto; }
-.ibx-more { align-self: flex-start; background: none; border: 0; color: var(--accent); font: inherit; font-size: 12.5px; cursor: pointer; padding: 6px 4px; min-height: 36px; margin: -8px 0; }
+.ibx-more { align-self: flex-start; background: none; border: 0; color: var(--accent); font: inherit; font-size: var(--fs-sm); cursor: pointer; padding: 6px 4px; min-height: 36px; margin: -8px 0; }
 .ibx-reply { display: flex; }
-.ibx-ta { flex: 1; min-width: 0; height: 42px; min-height: 42px; max-height: 140px; resize: none; padding: 10px 12px; border: 1px solid var(--line2); border-radius: 12px; background: var(--panel); color: var(--text); font: inherit; font-family: var(--sans); font-size: 14px; line-height: 1.4; outline: 0; }
+.ibx-ta { flex: 1; min-width: 0; height: 42px; min-height: 42px; max-height: 140px; resize: none; padding: 10px 12px; border: 1px solid var(--line2); border-radius: var(--r); background: var(--panel); color: var(--text); font: inherit; font-family: var(--sans); font-size: var(--fs-md); line-height: 1.4; outline: 0; }
 .ibx-ta:focus { border-color: color-mix(in srgb, var(--accent) 60%, transparent); }
 .ibx-acts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .ibx-acts .sp { flex: 1; }
 .ibx-btn, .ibx-acts .mic { min-height: 36px; }
 .ibx-acts .mic { min-width: 36px; justify-content: center; }
-.ibx-sent { color: var(--green); font-size: 12.5px; font-weight: 600; }
+.ibx-sent { color: var(--green); font-size: var(--fs-sm); font-weight: 600; }
 .ibx-perms { display: none; gap: 6px; flex-wrap: wrap; }
 .ibx-row.st-permission .ibx-perms { display: flex; }
 .ibx-perms .ibx-btn { flex: 1 1 auto; justify-content: center; }
@@ -57,8 +57,8 @@
 .ibx-row.st-permission:not(.ibx-tell) .ibx-reply, .ibx-row.st-permission:not(.ibx-tell) .ibx-acts .mic, .ibx-row.st-permission:not(.ibx-tell) .ibx-send { display: none; }
 
 @media (max-width: 900px) {
-  .ibx-banner { grid-template-columns: 1fr; grid-template-areas: "t" "rows" "go"; row-gap: 4px; padding: 14px 14px 14px; border-radius: 18px; }
-  .ibx-bt { font-size: 24px; }
+  .ibx-banner { grid-template-columns: 1fr; grid-template-areas: "t" "rows" "go"; row-gap: 4px; padding: 14px 14px 14px; border-radius: var(--r-lg); }
+  .ibx-bt { font-size: var(--fs-2xl); }
   .btn.ibx-go { justify-content: center; height: 44px; margin-top: 6px; }
   .ibx-hrow { grid-template-columns: 24px minmax(0, 1fr) auto; row-gap: 2px; padding: 10px 2px; }
   .ibx-hs { grid-row: 1; grid-column: 3; }
@@ -69,5 +69,5 @@
   .ibx-body { padding: 10px 10px calc(10px + env(safe-area-inset-bottom)); }
   .ibx-acts .sp:first-of-type { flex-basis: 0; }
   .ibx-btn { flex: 1; justify-content: center; }
-  .ibx-ta { font-size: 16px; min-height: 44px; }   /* no iOS zoom on focus */
+  .ibx-ta { font-size: var(--fs-lg); min-height: 44px; }   /* no iOS zoom on focus */
 }

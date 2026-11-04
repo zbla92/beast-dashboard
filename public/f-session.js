@@ -4,7 +4,7 @@
   const HUES = [210, 25, 150, 275, 45, 190, 330, 95, 240, 10, 170, 300];
   const hash = s => { let x = 0; for (const c of String(s)) x = (x * 31 + c.charCodeAt(0)) >>> 0; return x; };
   const mono = s => { const w = String(s).split(/[^A-Za-z0-9]+/).filter(Boolean); return (w.length > 1 ? w[0][0] + w[1][0] : (w[0] || '?').slice(0, 2)).replace(/^./, c => c.toUpperCase()); };
-  const orgTile = (name, size = 'sm') => h('span', { class: 'av ns-org ' + size, style: `--org:hsl(${HUES[hash(name) % HUES.length]} 45% 64%)`, title: name }, h('span', { class: 'g' }, mono(name)));
+  const orgTile = (name, size = 'sm') => h('span', { class: 'av ns-org ' + size, style: `--org:hsl(${HUES[hash(name) % HUES.length]} 22% 62%)`, title: name }, h('span', { class: 'g' }, mono(name)));
   const rootTile = (size = 'sm') => h('span', { class: 'av ns-root ' + size, title: 'no project' }, ico('folder', size === 'sm' ? 13 : 18));
   const devRoot = () => S.host.devRoot || '';
   const tilde = p => String(p || '').replace(/^\/home\/[^/]+\//, '~/');

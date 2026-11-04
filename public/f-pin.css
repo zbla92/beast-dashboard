@@ -1,9 +1,9 @@
 .db.sess { position: relative; }
-.qpin { z-index: 1; display: flex; align-items: flex-start; gap: 8px; padding: 7px max(24px, 3vw, calc((100% - 1320px) / 2)); border: 0; border-bottom: 1px solid var(--line); background: #1f232a; box-shadow: 0 6px 16px rgb(0 0 0 / .28); color: var(--text); font: inherit; font-size: 13px; line-height: 1.4; text-align: left; cursor: pointer; touch-action: manipulation; }
-.qpin:hover { background: #262b33; }
+.qpin { z-index: 1; display: flex; align-items: flex-start; gap: 8px; padding: 7px max(24px, 3vw, calc((100% - 1320px) / 2)); border: 0; border-bottom: 1px solid var(--line); background: var(--panel2); box-shadow: var(--shadow); color: var(--text); font: inherit; font-size: var(--fs-md); line-height: 1.4; text-align: left; cursor: pointer; touch-action: manipulation; }
+.qpin:hover { background: var(--panel3); }
 .qpin:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 65%, transparent); outline-offset: -2px; }
 .qpin .ico { flex: none; margin-top: 2px; color: var(--dim); }
 .qpin-t { flex: 1; min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
 @media (max-width: 900px) {
-  .qpin { padding: 6px 12px; font-size: 13.5px; }
+  .qpin { padding: 6px 12px; font-size: var(--fs-md); }
 }

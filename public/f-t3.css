@@ -2,7 +2,7 @@
 .rrow.settled .rdot { background: var(--dim) !important; box-shadow: none !important; animation: none !important; }
 .rrow.settled:hover, .rrow.settled.on { opacity: .85; }
 .modal .box.t3-link { width: min(620px, 96vw); }
-.t3-note { margin: 0 0 10px; font-size: 12.5px; }
+.t3-note { margin: 0 0 10px; font-size: var(--fs-sm); }
 .t3-ta { width: 100%; min-height: 110px; resize: vertical; box-sizing: border-box; }
-.t3-out { width: 100%; box-sizing: border-box; font-size: 12px; }
+.t3-out { width: 100%; box-sizing: border-box; font-size: var(--fs-sm); }
 .t3-link select.txt { width: 100%; }

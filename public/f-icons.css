@@ -1,11 +1,11 @@
 .fic-ban { margin: 0 0 16px; }
 .fic-ban b .ico { color: var(--accent); margin-right: 2px; vertical-align: -2px; }
 
-.fic-ot { flex: none; display: inline-grid; place-items: center; overflow: hidden; color: var(--org); background: color-mix(in srgb, var(--org) 15%, var(--panel)); font-weight: 700; text-transform: uppercase; }
+.fic-ot { flex: none; display: inline-grid; place-items: center; overflow: hidden; color: var(--org); background: color-mix(in srgb, var(--org) 15%, var(--panel)); font-weight: 700; }
 .fic-ot img { width: 100%; height: 100%; object-fit: contain; display: block; }
-.fic-ot.badge { width: 22px; height: 22px; border-radius: 7px; font-size: 11px; }
+.fic-ot.badge { width: 22px; height: 22px; border-radius: var(--r-sm); font-size: var(--fs-xs); }
 .fic-ot.badge img { padding: 1px; }
-.fic-ot.big { width: 72px; height: 72px; border-radius: 18px; font-size: 26px; }
+.fic-ot.big { width: 72px; height: 72px; border-radius: var(--r-lg); font-size: var(--fs-2xl); }
 .fic-ot.big img { padding: 4px; }
 .ghead h2 .sw:has(+ .fic-ot) { display: none; }
 
@@ -13,15 +13,15 @@
 .fic .sbody { padding-top: 18px; padding-bottom: 14px; }
 .fic-head { display: flex; align-items: center; gap: 16px; }
 .fic-prev { flex: none; display: grid; place-items: center; }
-.fic-prev .av.lg { width: 72px; height: 72px; border-radius: 18px; font-size: 22px; }
+.fic-prev .av.lg { width: 72px; height: 72px; border-radius: var(--r-lg); font-size: var(--fs-2xl); }
 .fic-prev .av.lg .g svg { width: 36px; height: 36px; }
-.fic-prev .av.lg .oi { width: 20px; height: 20px; font-size: 10px; }
+.fic-prev .av.lg .oi { width: 20px; height: 20px; font-size: var(--fs-2xs); }
 .fic-prev .av.pic .gi { padding: 4px; }
 .fic-who { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.fic-who b { font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fic-state { font-size: 12.5px; color: var(--muted); }
+.fic-who b { font-size: var(--fs-lg); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fic-state { font-size: var(--fs-sm); color: var(--muted); }
 .fic-state.custom { color: var(--accent); }
 .fic .hint { margin: 14px 0 0; line-height: 1.5; }
-.fic-status { margin-top: 10px; padding: 8px 10px; border-radius: 10px; font-size: 12.5px; background: var(--fill); color: var(--muted); }
+.fic-status { margin-top: 10px; padding: 8px 10px; border-radius: var(--r); font-size: var(--fs-sm); background: var(--fill); color: var(--muted); }
 .fic-status.err { color: var(--red); background: color-mix(in srgb, var(--red) 10%, transparent); }
 .fic .foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

@@ -3,7 +3,7 @@ FEAT.newproj = (() => {
   const RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
   const saved = () => localStorage.getItem('bd.nt.acct') === 'company' ? 'company' : 'personal';
   const hue = n => n.split('').reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7) % 360;
-  const tileOf = n => h('span', { class: 'av ns-org sm', style: `--org:hsl(${hue(n)} 45% 64%)` }, h('span', { class: 'g' }, n.slice(0, 2).toUpperCase()));
+  const tileOf = n => h('span', { class: 'av ns-org sm', style: `--org:hsl(${hue(n)} 22% 62%)` }, h('span', { class: 'g' }, n.slice(0, 2).toUpperCase()));
 
   function folders() {
     const ps = S.projects.filter(p => !p.hidden);
