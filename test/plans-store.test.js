@@ -167,6 +167,22 @@ test('sessions map to the claimed plan, else the repo single active plan', async
   assert.deepStrictEqual(store.summaries({ sessions }).find(p => p.id === 'demo-app/other').sessions, []);
 });
 
+test('a session outside any repo maps to its claim only when the plan repo is below its folder', async t => {
+  const root = storeCopy(t);
+  const repo = gitRepo(t);
+  const parent = path.dirname(repo);
+  fs.writeFileSync(path.join(root, 'demo-app', '.repo'), repo + '\n');
+  const plan = pf.newPlan({ topic: 'below', title: 'Below', repo, created: pf.iso(new Date()) });
+  pf.writePlan(path.join(root, 'demo-app', 'below'), plan);
+  const sessions = [{ name: 'claude-up', cwd: parent }, { name: 'claude-far', cwd: tmp(t) }];
+  pf.writeClaim(root, 'claude-up', 'demo-app', 'below');
+  pf.writeClaim(root, 'claude-far', 'demo-app', 'below');
+  const store = createPlanStore({ root });
+  const mapped = () => store.summaries({ sessions }).find(p => p.id === 'demo-app/below').sessions;
+  await waitFor(() => mapped().length === 1);
+  assert.deepStrictEqual(mapped(), ['claude-up']);
+});
+
 test('watch pushes one debounced event per plan change and reports removal', async t => {
   const root = storeCopy(t);
   const seen = [];
