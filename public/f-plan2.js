@@ -9,7 +9,9 @@
     } catch { return {}; }
   };
   const OPEN = readOpen();
-  const EXP = { tasks: {}, phases: {}, menu: false, act: false };
+  const EXP = { phases: {}, menu: false, act: false };
+  const APV = { name: null, plan: null, restored: null };
+  const TICKING = new Set();
   const PV = { phone: false, ctx: null, rerender: null, seen: null };
   const VIEW = {};
   const PH = { name: null };
@@ -79,7 +81,7 @@
     if (!enabled()) return;
     if (ev.removed) { delete DET[ev.id]; STALE.delete(ev.id); } else STALE.add(ev.id);
     clearTimeout(ST.timer);
-    ST.timer = setTimeout(() => { load(); if (EXP.menu || ARCH.render) loadArchived(); }, 150);
+    ST.timer = setTimeout(() => { load(); if (EXP.menu || ARCH.render || APV.plan) loadArchived(); }, 150);
   }
 
   async function loadArchived() {
@@ -90,6 +92,7 @@
       if (seq !== ARCH.seq) return;
       ARCH.list = d.plans || [];
       ARCH.err = '';
+      if (APV.plan && !APV.restored && !ARCH.list.some(p => p.id === APV.plan.id)) { clearPreview(); panelChanged(); }
     } catch (e) {
       if (seq !== ARCH.seq) return;
       ARCH.err = e.message;
@@ -326,11 +329,11 @@
     ensureDetail(p);
   }
 
-  function noteSheet({ key, title, topic, p, build, placeholder, intro }) {
+  function noteSheet({ key, title, topic, p, build, placeholder, intro, goLabel }) {
     const ta = h('textarea', { class: 'fp2-sh-ta fp2-note', rows: 3, placeholder, autocomplete: 'off', autocapitalize: 'sentences', spellcheck: true });
     ta.value = DRAFT[key] || '';
     const pv = h('div', { class: 'fp2-sh-pv' });
-    const btn = h('button', { class: 'btn primary fp2-sh-go' }, ico('send', 14), 'Send');
+    const btn = h('button', { class: 'btn primary fp2-sh-go' }, goLabel ? null : ico('send', 14), goLabel || 'Send');
     const update = () => {
       DRAFT[key] = ta.value;
       const msg = build(ta.value);
@@ -354,11 +357,11 @@
     update();
     requestAnimationFrame(() => { if (ta.isConnected && !isPhone()) ta.focus(); });
     const hint = h('span', { class: 'fp2-sh-hint' }, 'Goes to ', h('b', null, sessLabel(targetOf(p))), ' as a message.');
-    const close = sheet({ title, sub: topic ? [h('span', { class: 'fp2-sh-tp' }, topic)] : null, body: h('div', { class: 'fp2-sh-ans fp2-note-b' }, h('div', { class: 'fp2-sh-intro dim' }, intro), ta, pv, h('div', { class: 'fp2-sh-foot' }, hint, btn)) });
+    const close = sheet({ title, sub: topic ? [h('span', { class: 'fp2-sh-tp' }, topic)] : null, body: h('div', { class: 'fp2-sh-ans fp2-note-b' }, h('div', { class: 'fp2-sh-intro dim' }, intro), ta, pv, ...(goLabel ? [hint, h('div', { class: 'fp2-sh-foot fp2-sh-btns' }, h('button', { class: 'btn', onclick: () => close() }, 'Cancel'), btn)] : [h('div', { class: 'fp2-sh-foot' }, hint, btn)])) });
     return close;
   }
 
-  const openUpdate = p => noteSheet({ key: 'upd|' + p.id, title: 'Update plan', topic: p.topic, p, build: note => updateMsg(p.topic, note), placeholder: 'What should change? (optional)', intro: 'Claude edits the plan with the plan CLI. Add a note if you want a specific change.' });
+  const openUpdate = p => noteSheet({ key: 'upd|' + p.id, title: 'Edit ' + p.topic, topic: '', p, build: note => updateMsg(p.topic, note), placeholder: 'What should change? (optional)', intro: 'Claude changes the plan in this chat and shows you what changed.', goLabel: 'Send to Claude' });
 
   const openMake = name => noteSheet({ key: 'make|' + name, title: 'Make a plan', topic: '', p: { sessions: [name] }, build: makeMsg, placeholder: 'What is this plan for? (optional)', intro: 'Claude drafts a plan for this session and waits for your go before starting.' });
 
@@ -369,63 +372,60 @@
     try { return (await api(op, { id: p.id })).id; } catch (e) { toast(e.message, 'err'); return null; } finally { SENDING.delete(key); }
   }
 
-  const LIFECYCLE = {
-    async finish(p) {
-      if (!await planOp('plan-finish', p)) return;
-      toast(p.topic + ' marked finished', 'ok');
-      load();
-    },
-    async archive(p) {
-      if (!await planOp('plan-archive', p)) return;
-      for (const name of Object.keys(VIEW)) if (VIEW[name] === p.id) delete VIEW[name];
-      ARCH.list = null;
-      toast(p.topic + ' archived', 'ok');
-      load();
-    },
-    async restore(p) {
-      const id = await planOp('plan-restore', p);
-      if (!id) return;
-      VIEW[TERM.active] = id;
-      EXP.menu = false;
-      ARCH.list = null;
-      if (ARCH.render) SH.close();
-      toast(p.topic + ' restored', 'ok');
-      sync(true);
-      load();
-    },
-  };
+  const persistOpen = () => { try { localStorage.setItem(OPEN_KEY, JSON.stringify(OPEN)); } catch {} };
 
-  const openTasks = p => {
+  async function completePlan(p) {
+    const name = TERM.active;
+    if (!await planOp('plan-complete', p)) return;
+    const own = planFor(ST.sums, name);
+    delete VIEW[name];
+    for (const k of Object.keys(VIEW)) if (VIEW[k] === p.id) delete VIEW[k];
+    EXP.menu = false;
+    ARCH.list = null;
+    if (!own || own.id === p.id) {
+      if (isPhone()) PH.name = null;
+      else { delete OPEN[name]; persistOpen(); }
+    }
+    toast(p.topic + ' completed', 'ok');
+    load();
+  }
+
+  async function restorePlan(p) {
+    const id = await planOp('plan-restore', p);
+    if (!id) return;
+    APV.restored = id;
+    ARCH.list = null;
+    toast(p.topic + ' restored', 'ok');
+    sync(true);
+    load();
+  }
+
+  const allDone = p => p.complete || p.finished;
+
+  const stepsOpen = p => {
     const n = p.total - p.done;
-    return n > 0 ? `${n} task${n > 1 ? 's' : ''} still open` : '';
+    return n > 0 ? `${n} step${n > 1 ? 's' : ''} still open` : '';
   };
 
-  function confirmSheet({ title, text, action, run }) {
-    const close = sheet({ title, body: h('div', { class: 'fp2-sh-confirm' },
-      text ? h('div', { class: 'fp2-sh-intro' }, text) : null,
+  function confirmComplete(p) {
+    const close = sheet({ title: `Complete ${p.topic}?`, body: h('div', { class: 'fp2-sh-confirm' },
+      h('div', { class: 'fp2-sh-intro' }, 'It moves to Archived. You can open it there and restore it any time.'),
       h('div', { class: 'fp2-sh-foot fp2-sh-btns' },
         h('button', { class: 'btn', onclick: () => close() }, 'Cancel'),
-        h('button', { class: 'btn primary', onclick: () => { close(); run(); } }, action))) });
+        h('button', { class: 'btn grn', onclick: () => { close(); completePlan(p); } }, 'Complete'))) });
     return close;
   }
 
-  const confirmFinish = p => confirmSheet({ title: `Mark ${p.topic} as finished?`, text: openTasks(p) && openTasks(p) + '.', action: 'Mark finished', run: () => LIFECYCLE.finish(p) });
-
-  const confirmArchive = p => confirmSheet({ title: `Archive ${p.topic}?`, text: 'It disappears from the panel. You can restore it from the plan list.', action: 'Archive', run: () => LIFECYCLE.archive(p) });
-
   function actionsMenu(p, rerender) {
-    const target = targetOf(p);
-    const live = isLive(target);
     const canMake = isLive(TERM.active);
-    const item = (icon, label, small, on, dis) => h('div', { class: 'mi' + (dis ? ' dis' : ''), role: 'menuitem', onclick: () => { EXP.act = false; rerender(); on(); } }, ico(icon, 16), h('span', { class: 'fp2-mi-t' }, label, small ? h('small', null, small) : null));
-    const btn = h('button', { class: 'fp2-x fp2-act-b' + (EXP.act ? ' on' : ''), 'aria-label': 'plan actions', 'aria-expanded': EXP.act ? 'true' : 'false', onclick: () => { EXP.act = !EXP.act; rerender(); } }, ico('dots', 16));
+    const open = stepsOpen(p);
+    const item = (label, small, on, dis) => h('div', { class: 'mi' + (dis ? ' dis' : ''), role: 'menuitem', onclick: () => { EXP.act = false; rerender(); on(); } }, h('span', { class: 'fp2-mi-t' }, label, small ? h('small', null, small) : null));
+    const btn = h('button', { class: 'fp2-x fp2-act-b' + (EXP.act ? ' on' : ''), 'aria-label': 'plan actions', 'aria-expanded': EXP.act ? 'true' : 'false', onclick: () => { EXP.act = !EXP.act; EXP.menu = false; rerender(); } }, ico('dots', 16));
     const menu = EXP.act ? h('div', { class: 'menu fp2-actm', role: 'menu' },
-      item('pencil', 'Update plan…', live ? 'Tell Claude what to change' : NOT_LIVE, () => openUpdate(p), !live),
-      item('plus', 'New plan…', canMake ? 'Ask Claude to make a plan' : NOT_LIVE, () => openMake(TERM.active), !canMake),
-      p.finished ? null : item('check', 'Mark finished', openTasks(p), () => confirmFinish(p)),
-      p.sessions.includes(TERM.active) ? item('x', 'Leave this plan', canMake ? 'This chat stops working on it; the plan stays' : NOT_LIVE, () => sendOnce(TERM.active, leaveMsg(p.topic)), !canMake) : null,
-      h('div', { class: 'sep' }),
-      item('archive', 'Archive', 'Hide it; restore any time from the plan list', () => confirmArchive(p))) : null;
+      item('New plan…', canMake ? 'Ask Claude to make a plan' : NOT_LIVE, () => openMake(TERM.active), !canMake),
+      p.sessions.includes(TERM.active) ? item('Leave this plan', canMake ? 'This chat stops working on it; the plan stays' : NOT_LIVE, () => sendOnce(TERM.active, leaveMsg(p.topic)), !canMake) : null,
+      open ? h('div', { class: 'sep' }) : null,
+      open ? item('Complete anyway', open, () => confirmComplete(p)) : null) : null;
     return h('span', { class: 'fp2-act' }, btn, menu);
   }
 
@@ -439,7 +439,7 @@
       if (e.type === 'archive') continue;
       if (e.type === 'phase') { put(phase, e.phase, e); continue; }
       if (e.type === 'start') st.open.push(e.task);
-      if (e.type === 'done' || e.type === 'fail') st.open = st.open.filter(id => id !== e.task);
+      if (e.type === 'done' || e.type === 'fail' || e.type === 'undo') st.open = st.open.filter(id => id !== e.task);
       const direct = e.task || (e.q && qTask[e.q]) || null;
       const id = direct || (e.type === 'note' || e.q ? st.open[st.open.length - 1] || null : null);
       if (e.q && !(e.q in qTask)) qTask[e.q] = id;
@@ -448,7 +448,7 @@
     return { task, phase, created: st.created };
   }
 
-  const EV_LABEL = { start: 'started', done: 'done', fail: 'failed', note: 'note', ask: 'asked', answer: 'answered', finish: 'finished', reopen: 'reopened', restore: 'restored' };
+  const EV_LABEL = { start: 'started', done: 'done', fail: 'failed', note: 'note', ask: 'asked', answer: 'answered', finish: 'finished', reopen: 'reopened', restore: 'restored', undo: 'unticked' };
 
   const eventText = e => e.type === 'done' || e.type === 'fail' ? (e.gate && e.gate.text) || e.text : e.text;
 
@@ -538,94 +538,98 @@
 
   const taskIcon = s => h('span', { class: 'fp2-si ' + s }, s === 'done' ? ico('check', 12) : s === 'failed' ? '!' : s === 'blocked' ? '?' : s === 'doing' ? spin() : null);
 
-  function taskRow(p, t, evs, rerender, nav) {
-    const key = p.id + '|' + t.id;
-    const open = !!EXP.tasks[key];
-    const isNext = !p.finished && !!(p.next && p.next.id === t.id);
-    const steps = p.now && p.now.id === t.id ? p.now.steps || [] : [];
-    const shown = t.status === 'done' ? open ? evs.filter(e => e.type !== 'start') : [] : evs;
-    const cur = currentId(p) === t.id;
-    return h('div', { class: 'fp2-task ' + t.status + (open ? ' open' : '') + (cur ? ' cur' : '') },
-      h('div', { class: 'fp2-task-h' },
-        h('button', { class: 'fp2-task-tg', 'aria-expanded': String(open), 'aria-label': `${open ? 'hide' : 'show'} ${t.id} card`, onclick: () => { EXP.tasks[key] = !open; rerender(); } }, taskIcon(t.status), h('span', { class: 'fp2-id' }, t.id)),
-        h('button', { class: 'fp2-task-t', onclick: () => nav.task(t.id) }, t.title), isNext ? h('span', { class: 'fp2-nx' }, 'next') : null, modelChip(t.model)),
-      isNext && p.nextNote ? h('div', { class: 'fp2-qd' }, p.nextNote) : null,
-      steps.length ? h('div', { class: 'fp2-steps' }, steps.map(s => h('div', { class: 'fp2-step ' + s.s }, s.s === 'completed' ? ico('check', 13) : s.s === 'in_progress' ? spin() : h('i', { class: 'fp2-pt' }), h('span', null, s.c)))) : null,
-      shown.length ? h('div', { class: 'fp2-evs' }, shown.map(e => eventLine(e, () => nav.task(t.id)))) : null,
-      open ? h('div', { class: 'fp2-task-b' }, t.body ? h('div', { class: 'fp2-body-t' }, t.body) : h('div', { class: 'dim' }, 'No task card.')) : null);
+  function tickBox(p, t, cur) {
+    const pending = TICKING.has(p.id + '|' + t.id);
+    const ticked = pending ? t.status !== 'done' : t.status === 'done';
+    const mark = ticked ? '✓' : t.status === 'failed' ? '!' : t.status === 'blocked' ? '?' : '';
+    return h('button', { class: 'fp2-tick' + (pending ? ' busy' : ''), role: 'checkbox', 'aria-checked': String(ticked), 'aria-label': `${ticked ? 'untick' : 'tick'} ${t.id}`, disabled: pending, onclick: () => pressTick(p, t) },
+      h('span', { class: 'fp2-ck' + (ticked ? ' y' : ' ' + t.status) + (cur ? ' n' : '') }, mark));
   }
 
-  const currentId = p => (p.now && p.now.id) || (p.next && p.next.id) || null;
+  async function pressTick(p, t) {
+    const key = p.id + '|' + t.id;
+    if (TICKING.has(key)) return;
+    TICKING.add(key);
+    sync(true);
+    try {
+      await api('plan-step', { id: p.id, task: t.id, done: t.status !== 'done' });
+      STALE.add(p.id);
+      await Promise.all([load(), ensureDetail(p)]);
+    } catch (e) { toast(e.message, 'err'); }
+    TICKING.delete(key);
+    sync(true);
+  }
 
-  function steps(p, d, rerender, nav) {
+  function taskRow(p, t, evs, nav, readOnly) {
+    const cur = !readOnly && currentId(p) === t.id;
+    const isNow = !readOnly && !!p.now && p.now.id === t.id;
+    const isNext = !readOnly && !p.finished && !isNow && !!p.next && p.next.id === t.id;
+    const steps = isNow ? p.now.steps || [] : [];
+    const shown = readOnly || t.status === 'done' ? [] : evs;
+    return h('div', { class: 'fp2-task ' + t.status + (cur ? ' cur' : '') },
+      h('div', { class: 'fp2-task-h' },
+        readOnly ? h('span', { class: 'fp2-ck ro' + (t.status === 'done' ? ' y' : '') }, t.status === 'done' ? '✓' : '') : tickBox(p, t, cur),
+        h('button', { class: 'fp2-task-t', onclick: () => nav.task(t.id) }, h('span', { class: 'fp2-id' }, t.id), h('span', { class: 'fp2-task-x' }, t.title, isNow ? h('span', { class: 'fp2-nx' }, ' · now') : isNext ? h('span', { class: 'fp2-nx' }, ' · next') : null))),
+      isNext && p.nextNote ? h('div', { class: 'fp2-qd' }, p.nextNote) : null,
+      steps.length ? h('div', { class: 'fp2-steps' }, steps.map(s => h('div', { class: 'fp2-step ' + s.s }, s.s === 'completed' ? ico('check', 13) : s.s === 'in_progress' ? spin() : h('i', { class: 'fp2-pt' }), h('span', null, s.c)))) : null,
+      shown.length ? h('div', { class: 'fp2-evs' }, shown.map(e => eventLine(e, () => nav.task(t.id)))) : null);
+  }
+
+  const currentId = p => (p.now && p.now.id) || (!p.finished && p.next && p.next.id) || null;
+
+  function steps(p, d, rerender, nav, readOnly) {
     const b = bucketEvents(d.timeline, d.phases);
+    const current = currentId(p);
     const wrap = h('div', { class: 'fp2-sec' });
-    wrap.append(h('div', { class: 'fp2-sec-h' }, 'Steps', h('span', { class: 'fp2-sp' }), b.created ? h('span', { class: 'dim' }, 'started ' + finishedWhen(b.created.ts)) : null));
-    for (const ph of d.phases) {
+    d.phases.forEach((ph, i) => {
       const complete = !!ph.total && ph.done >= ph.total;
-      const done = complete ? (b.phase[ph.n] || []).filter(e => e.type === 'phase').pop() : null;
       const key = p.id + '|' + ph.n;
-      const folded = complete && !ph.tasks.some(t => t.id === currentId(p)) && !EXP.phases[key];
-      const count = h('span', { class: 'dim' }, `${ph.done}/${ph.total}${done ? ' · done ' + clock(done.ts) : ''}`);
-      const title = h('button', { class: 'fp2-pn', title: `P${ph.n} ${ph.name}`, onclick: () => nav.phase(ph.n) }, h('span', null, 'P' + ph.n), ' ', h('b', null, ph.name));
-      const fold = () => { EXP.phases[key] = folded; rerender(); };
-      const foldLabel = `${folded ? 'show' : 'hide'} phase ${ph.n} tasks`;
-      const head = complete
-        ? h('div', { class: 'fp2-ph-h fold' },
-          h('button', { class: 'fp2-ph-tg', 'aria-label': foldLabel, onclick: fold }, taskIcon('done')), title,
-          h('button', { class: 'fp2-ph-tg', 'aria-label': foldLabel, onclick: fold }, count, h('span', { class: 'fp2-chev' + (folded ? '' : ' on') }, ico('chevronDown', 14))))
+      const openByDefault = current ? ph.tasks.some(t => t.id === current) : i === d.phases.length - 1;
+      const folded = !readOnly && complete && !(key in EXP.phases ? EXP.phases[key] : openByDefault);
+      const count = h('span', { class: 'fp2-ph-n' }, `${ph.done}/${ph.total}`);
+      const title = h('button', { class: 'fp2-pn', title: `Phase ${ph.n} · ${ph.name}`, onclick: () => nav.phase(ph.n) }, `Phase ${ph.n} · ${ph.name}`);
+      const head = complete && !readOnly
+        ? h('div', { class: 'fp2-ph-h fold' }, title,
+          h('button', { class: 'fp2-ph-tg', 'aria-label': `${folded ? 'show' : 'hide'} phase ${ph.n} tasks`, onclick: () => { EXP.phases[key] = folded; rerender(); } }, count, h('span', { class: 'fp2-chev' + (folded ? '' : ' on') }, ico('chevronDown', 14))))
         : h('div', { class: 'fp2-ph-h' }, title, count);
-      const evs = (b.phase[ph.n] || []).filter(e => e.type !== 'phase');
+      const evs = readOnly ? [] : (b.phase[ph.n] || []).filter(e => e.type !== 'phase');
       wrap.append(h('div', { class: 'fp2-ph' + (folded ? ' folded' : '') }, head,
-        folded ? null : evs.length ? h('div', { class: 'fp2-evs ph' }, evs.map(e => eventLine(e, () => nav.phase(ph.n)))) : null,
-        folded ? null : ph.tasks.map(t => taskRow(p, t, b.task[t.id] || [], rerender, nav))));
-    }
+        !folded && evs.length ? h('div', { class: 'fp2-evs ph' }, evs.map(e => eventLine(e, () => nav.phase(ph.n)))) : null,
+        folded ? null : ph.tasks.map(t => taskRow(p, t, b.task[t.id] || [], nav, readOnly))));
+    });
+    if (b.created) wrap.append(h('div', { class: 'dim fp2-started' }, 'started ' + finishedWhen(b.created.ts)));
     return wrap;
   }
 
-  const finishedBadge = small => h('span', { class: 'fp2-badge' + (small ? ' sm' : '') }, small ? null : ico('check', 12), 'Finished');
-
-  function finishedRow(p) {
-    return h('div', { class: 'fp2-fin' },
-      h('span', { class: 'fp2-fin-t' }, h('b', null, 'Finished'), p.finishedAt ? ` ${finishedWhen(p.finishedAt)}.` : null),
-      h('button', { class: 'btn sm', onclick: () => confirmArchive(p) }, ico('archive', 15), 'Archive'));
-  }
-
-  function panelBody(p, rerender) {
+  function panelBody(p, rerender, readOnly) {
     const d = DET[p.id] || p;
     const nav = detailNav(p);
     const out = [];
-    out.push(h('div', { class: 'fp2-head' },
-      h('span', { class: 'fp2-big' }, h('b', null, p.done), '/' + p.total),
-      h('span', { class: 'dim fp2-pct' }, p.pct + '%'),
-      p.phase ? h('button', { class: 'fp2-phase', title: `P${p.phase.n} ${p.phase.name}`, onclick: () => nav.phase(p.phase.n) }, 'P', h('b', null, `${p.phase.n}/${p.phase.of}`), ' ', p.phase.name) : null,
-      gateChip(p.lastGate, () => { if (p.lastGate.task) nav.task(p.lastGate.task); else sheet(gateSheet(p)); })));
-    out.push(h('div', { class: 'fp2-bar' + (p.complete ? ' full' : '') }, h('i', { style: `width:${p.pct}%` })));
-    if (p.finished) out.push(finishedRow(p));
-    if (p.waiting.length) out.push(questionsRow(p));
-    if (d.phases) out.push(steps(p, d, rerender, nav));
+    if (!readOnly && p.waiting.length) out.push(questionsRow(p));
+    if (d.phases) out.push(steps(p, d, rerender, nav, readOnly));
     else out.push(h('div', { class: 'dim fp2-load' }, 'loading…'));
     if (d.errors && d.errors.length && d.phases) out.push(h('div', { class: 'fp2-err' }, `${d.errors.length} line${d.errors.length > 1 ? 's' : ''} in plan.md could not be read`));
     return out;
   }
 
-  const archivedRow = p => h('div', { class: 'fp2-arow' },
-    h('span', { class: 'fp2-arow-t', title: planLabel(p) }, h('span', { class: 'fp2-cn' }, p.topic), ' ', h('span', { class: 'fp2-cc' }, `${p.done}/${p.total}`), h('small', null, 'archived ' + dayMonth(p.archived))),
-    h('button', { class: 'btn sm', onclick: () => LIFECYCLE.restore(p) }, ico('undo', 14), 'Restore'));
+  const archivedRow = (name, p) => h('button', { class: 'fp2-arow', title: planLabel(p), onclick: () => openPreview(name, p) },
+    h('span', { class: 'fp2-arow-t' }, h('span', { class: 'fp2-cn' }, p.topic), ' ', h('span', { class: 'fp2-cc' }, `${p.done}/${p.total}`), h('small', null, 'archived ' + dayMonth(p.archived))),
+    ico('chevronRight', 14));
 
   const archivedNote = empty => ARCH.err || (ARCH.list ? empty : 'loading…');
 
-  function archivedGroup(rows) {
-    const note = rows.length ? '' : archivedNote('No archived plans');
-    return [h('div', { class: 'mh' }, rows.length ? `Archived · ${rows.length}` : 'Archived'), note ? h('div', { class: 'dim fp2-anone' }, note) : null, rows.map(archivedRow)];
+  function archiveKey(name) {
+    const projects = S.projects || [];
+    const own = planFor(ST.sums, name);
+    const first = own || orgPlans(ST.sums, projects, null, sessionProject(name))[0];
+    return first ? planGroup(first, projects) : groupKey(projectOf(projects, sessionProject(name)));
   }
 
   function openArchived(name) {
     const body = h('div', { class: 'fp2-sh-arch' });
     const render = () => {
-      const projects = S.projects || [];
-      const rows = archivedOf(ARCH.list || [], projects, groupKey(projectOf(projects, sessionProject(name))));
-      body.replaceChildren(...(rows.length ? rows.map(archivedRow) : [h('div', { class: 'dim fp2-anone' }, archivedNote('No archived plans.'))]));
+      const rows = archivedOf(ARCH.list || [], S.projects || [], archiveKey(name));
+      body.replaceChildren(...(rows.length ? rows.map(p => archivedRow(name, p)) : [h('div', { class: 'dim fp2-anone' }, archivedNote('No archived plans.'))]));
     };
     render();
     sheet({ title: 'Archived', body, onClose: () => { ARCH.render = null; } });
@@ -633,52 +637,128 @@
     loadArchived();
   }
 
-  function switcher(list, names, shownId, ownId, rerender) {
-    if (!list.length) return null;
-    const phone = isPhone();
-    const pick = id => { VIEW[TERM.active] = id; EXP.menu = false; sync(true); };
-    const inner = (p, i) => [p.id === ownId ? h('i', { class: 'fp2-own' }) : null, h('span', { class: 'fp2-cn' }, names[i]), h('span', { class: 'fp2-cc' }, `${p.done}/${p.total}`), p.waiting.length ? h('i', { class: 'fp2-wdot' }) : null];
-    const item = (p, i, badge) => h('button', { class: 'fp2-chip' + (p.id === shownId ? ' on' : ''), title: planLabel(p) + (p.id === ownId ? ' — this session' : ''), onclick: () => pick(p.id) }, ...inner(p, i), badge && p.finished ? finishedBadge(true) : null);
-    const toggleMenu = () => { EXP.menu = !EXP.menu; if (EXP.menu) loadArchived(); rerender(); };
-    const rows = archivedOf(ARCH.list || [], S.projects || [], planGroup(list[0], S.projects || []));
-    const cur = list.findIndex(p => p.id === shownId);
-    const back = ownId && shownId !== ownId ? h('button', { class: 'fp2-link back', onclick: () => pick(ownId) }, '← this session’s plan') : null;
-    const archChip = phone ? null : h('span', { class: 'fp2-archw' },
-      h('button', { class: 'fp2-chip fp2-archc' + (EXP.menu ? ' on' : ''), 'aria-expanded': EXP.menu ? 'true' : 'false', onclick: toggleMenu }, ico('archive', 14), h('span', { class: 'fp2-cn' }, 'Archived'), rows.length ? h('span', { class: 'fp2-cc' }, rows.length) : null, ico('chevronDown', 14)),
-      EXP.menu ? h('div', { class: 'fp2-menu-l fp2-aml' }, archivedGroup(rows)) : null);
-    const menu = h('div', { class: 'fp2-menu' + (EXP.menu ? ' open' : '') },
-      h('button', { class: 'fp2-menu-b', onclick: toggleMenu }, ...inner(list[cur], cur), h('span', { class: 'fp2-menu-n' }, `${list.length} plan${list.length > 1 ? 's' : ''}`), ico('chevronDown', 14)),
-      EXP.menu && phone ? h('div', { class: 'fp2-menu-l fp2-aml' }, h('div', { class: 'mh' }, 'This org'), list.map((p, i) => item(p, i, true)), h('div', { class: 'sep' }), archivedGroup(rows)) : null);
-    return h('div', { class: 'fp2-swi' }, h('div', { class: 'fp2-chips' }, list.map((p, i) => item(p, i)), archChip), menu, back);
+  function clearPreview() {
+    APV.name = null;
+    APV.plan = null;
+    APV.restored = null;
+  }
+
+  function panelChanged() {
+    sync(true);
+    window.dispatchEvent(new Event('resize'));
+  }
+
+  function openPreview(name, p) {
+    if (SH.close) SH.close();
+    EXP.menu = false;
+    EXP.act = false;
+    APV.name = name;
+    APV.plan = p;
+    APV.restored = null;
+    panelChanged();
+  }
+
+  function backToArchived() {
+    const name = TERM.active;
+    clearPreview();
+    panelChanged();
+    openArchived(name);
+  }
+
+  const pickPlan = id => { VIEW[TERM.active] = id; EXP.menu = false; sync(true); };
+
+  const closeButton = () => h('button', { class: 'fp2-x', 'aria-label': 'close plan', onclick: toggle }, ico('x', 16));
+
+  const planSummary = (p, ...right) => [
+    h('div', { class: 'fp2-ptitle' }, planLabel(p)),
+    h('div', { class: 'fp2-bar' + (allDone(p) ? ' full' : '') }, h('i', { style: `width:${p.pct}%` })),
+    h('div', { class: 'fp2-pmeta' }, h('b', null, `${p.done}/${p.total} steps`), ...right),
+  ];
+
+  function planHead(c, rerender) {
+    const p = c.shown;
+    const nav = detailNav(p);
+    const others = c.list.length - 1;
+    const live = isLive(targetOf(p));
+    const toggleList = () => { EXP.menu = !EXP.menu; EXP.act = false; if (EXP.menu) loadArchived(); rerender(); };
+    return [
+      h('div', { class: 'fp2-row' },
+        h('button', { class: 'fp2-pname' + (EXP.menu ? ' on' : ''), 'aria-expanded': String(EXP.menu), title: planLabel(p), onclick: toggleList }, h('span', { class: 'fp2-ptopic' }, p.topic), h('small', null, `${EXP.menu ? '▴' : '▾'}${others > 0 ? ` +${others}` : ''}`)),
+        h('span', { class: 'fp2-sp' }),
+        h('button', { class: 'btn fp2-edit' + (live ? '' : ' off'), 'aria-disabled': live ? null : 'true', title: live ? 'Tell Claude what to change' : NOT_LIVE, onclick: () => { if (live) openUpdate(p); else toast(NOT_LIVE, 'err'); } }, ico('pencil', 14), 'Edit plan'),
+        actionsMenu(p, rerender),
+        closeButton()),
+      ...planSummary(p,
+        gateChip(p.lastGate, () => { if (p.lastGate.task) nav.task(p.lastGate.task); else sheet(gateSheet(p)); }),
+        allDone(p) ? h('span', { class: 'fp2-pstate' }, 'All done')
+          : p.phase ? h('button', { class: 'fp2-phase', title: `Phase ${p.phase.n} · ${p.phase.name}`, onclick: () => nav.phase(p.phase.n) }, `Phase ${p.phase.n} of ${p.phase.of}`) : null),
+      c.own && c.own.id !== p.id ? h('button', { class: 'fp2-link back', onclick: () => pickPlan(c.own.id) }, '← this session’s plan') : null,
+    ];
+  }
+
+  const previewHead = p => [
+    h('div', { class: 'fp2-row' }, h('button', { class: 'fp2-pname', onclick: backToArchived }, '‹ Archived'), h('span', { class: 'fp2-sp' }), closeButton()),
+    h('div', { class: 'fp2-row fp2-pvname' }, h('span', { class: 'fp2-ptopic' }, p.topic), h('span', { class: 'fp2-tag' }, 'read only')),
+    ...planSummary(p, h('span', { class: 'fp2-pstate' }, 'Archived ' + dayMonth(p.archived))),
+  ];
+
+  const rowStatus = p => {
+    const state = p.waiting.length ? 'waiting on you' : p.sessions.length && !p.sessions.includes(TERM.active) ? 'other chat' : p.now ? 'now ' + p.now.id : '';
+    return `${p.done}/${p.total}${state ? ' · ' + state : ''}`;
+  };
+
+  function planDrop(c) {
+    const row = p => {
+      const done = allDone(p);
+      return h('div', { class: 'fp2-it' + (p.id === c.shown.id ? ' sel' : '') },
+        h('button', { class: 'fp2-it-b', title: planLabel(p), onclick: () => pickPlan(p.id) },
+          h('span', { class: 'fp2-it-l' + (done ? ' mini' : '') }, h('span', { class: 'fp2-cn' }, c.names[c.list.indexOf(p)]), p.waiting.length ? h('i', { class: 'fp2-wd' }) : null, done ? h('span', { class: 'fp2-tag g' }, 'all done') : h('small', null, rowStatus(p))),
+          h('span', { class: 'fp2-bar thin' + (done ? ' full' : '') }, h('i', { style: `width:${p.pct}%` }))),
+        done ? h('button', { class: 'fp2-mini', onclick: () => confirmComplete(p) }, 'Complete') : null);
+    };
+    const others = c.list.filter(p => !(c.own && p.id === c.own.id));
+    const archived = ARCH.list ? archivedOf(ARCH.list, S.projects || [], archiveKey(TERM.active)).length : '';
+    return h('div', { class: 'fp2-drop' },
+      c.own ? [h('div', { class: 'fp2-gh' }, 'This chat'), row(c.own)] : null,
+      others.length ? [h('div', { class: 'fp2-gh' }, 'Other plans'), others.map(row)] : null,
+      h('div', { class: 'fp2-sepl' }),
+      h('button', { class: 'fp2-lk', onclick: () => { EXP.menu = false; sync(true); openArchived(TERM.active); } }, 'Archived', h('span', null, `${archived} ›`)));
+  }
+
+  function planFoot(p) {
+    const open = stepsOpen(p);
+    return open && !allDone(p)
+      ? [h('button', { class: 'btn fp2-wide off', disabled: true }, 'Complete plan'), h('div', { class: 'fp2-fnote' }, open)]
+      : [h('button', { class: 'btn fp2-wide grn', onclick: () => confirmComplete(p) }, '✓ Complete plan')];
   }
 
   function panel(phone) {
+    const top = h('div', { class: 'fp2-top' });
+    const drop = h('div', { class: 'fp2-drop-s' });
     const body = h('div', { class: 'fp2-pbody' });
-    const sw = h('div', { class: 'fp2-sw' });
-    const topic = h('span', { class: 'fp2-ptopic' });
-    const act = h('span', { class: 'fp2-act-h' });
-    const badge = h('span', { class: 'fp2-badge-h' });
+    const foot = h('div', { class: 'fp2-foot' });
     const rerender = () => {
-      const top = body.scrollTop;
+      const scroll = body.scrollTop;
       const c = PV.ctx;
-      const same = PV.shownId === c.shown.id;
-      PV.shownId = c.shown.id;
-      topic.textContent = c.shown.topic;
-      badge.replaceChildren(...(c.shown.finished ? [finishedBadge()] : []));
-      act.replaceChildren(actionsMenu(c.shown, rerender));
-      sw.replaceChildren(...[switcher(c.list, c.names, c.shown.id, c.own && c.own.id, rerender)].filter(Boolean));
-      body.replaceChildren(...panelBody(c.shown, rerender));
-      body.scrollTop = same ? top : 0;
+      const p = c.preview || c.shown;
+      const same = PV.shownId === p.id;
+      const covered = !c.preview && (EXP.menu || EXP.act);
+      PV.shownId = p.id;
+      top.replaceChildren(...(c.preview ? previewHead(p) : planHead(c, rerender)).filter(Boolean));
+      drop.replaceChildren(...(!c.preview && EXP.menu ? [planDrop(c)] : []));
+      body.replaceChildren(...panelBody(p, rerender, !!c.preview));
+      foot.replaceChildren(...(c.preview ? [h('button', { class: 'btn fp2-wide', disabled: !!APV.restored, onclick: () => restorePlan(p) }, '↶ Restore this plan')] : planFoot(p)));
+      body.classList.toggle('covered', covered);
+      foot.classList.toggle('covered', covered);
+      body.scrollTop = same ? scroll : 0;
       const cur = body.querySelector('.fp2-task.cur');
-      const seen = c.shown.id + '|' + currentId(c.shown);
-      if (cur && PV.seen !== seen) { PV.seen = seen; requestAnimationFrame(() => { body.scrollTop += cur.getBoundingClientRect().top - body.getBoundingClientRect().top - 48; }); }
+      const seen = p.id + '|' + currentId(p);
+      if (cur && PV.seen !== seen && !p.waiting.length) { PV.seen = seen; requestAnimationFrame(() => { body.scrollTop += cur.getBoundingClientRect().top - body.getBoundingClientRect().top - 48; }); }
     };
     PV.seen = null;
     PV.rerender = rerender;
     return h('div', { id: 'fp2-panel', class: 'fp2-panel' + (phone ? ' sheet' : '') },
-      phone ? h('div', { class: 'fp2-grab' }) : null,
-      h('div', { class: 'fp2-ph-top' }, h('b', null, 'Plan'), topic, badge, h('span', { class: 'fp2-sp' }), act, h('button', { class: 'fp2-x', 'aria-label': 'close plan', onclick: toggle }, ico('x', 16))),
-      sw, body);
+      phone ? h('div', { class: 'fp2-grab' }) : null, top, drop, body, foot);
   }
 
   function remove(...ids) { for (const id of ids) { const el = document.getElementById(id); if (el) el.remove(); } }
@@ -706,19 +786,29 @@
     renderQuestions();
     const main = $('.termmain');
     const stripEl = () => document.getElementById('fp2-strip') || document.getElementById('fp2-panel');
-    if (!enabled() || !main || !TERM.open || !TERM.active) { PH.name = null; if (stripEl() || SH.close) teardown(); return; }
+    if (!enabled() || !main || !TERM.open || !TERM.active) { PH.name = null; clearPreview(); if (stripEl() || SH.close) teardown(); return; }
     const name = TERM.active;
     if (PH.name && PH.name !== name) PH.name = null;
+    if (APV.name !== name) clearPreview();
     const own = planFor(ST.sums, name);
     const projects = S.projects || [];
     const projectId = sessionProject(name);
     const list = orgPlans(ST.sums, projects, own, projectId);
-    if (!own && !claudeOf(name)) { PH.name = null; if (stripEl() || SH.close) teardown(); return; }
+    if (!own && !claudeOf(name)) { PH.name = null; clearPreview(); if (stripEl() || SH.close) teardown(); return; }
+    if (APV.restored && ST.sums.some(x => x.id === APV.restored)) {
+      VIEW[name] = APV.restored;
+      if (list.some(x => x.id === APV.restored)) {
+        if (isPhone()) PH.name = name;
+        else { OPEN[name] = true; persistOpen(); }
+      }
+      clearPreview();
+    }
     const shown = list.find(x => x.id === VIEW[name]) || own || list[0] || null;
     const names = planNames(list, projects);
     const phone = isPhone();
     if (phone && !list.length) PH.name = null;
-    const open = list.length ? isOpen(name, !!own) : false;
+    const preview = APV.plan;
+    const open = !!preview || (list.length ? isOpen(name, !!own) : false);
     const org = own ? '' : orgLabel(projects, projectId);
     const offer = own ? null : offerFor(ST.sums, name);
     const found = document.getElementById('fp2-strip');
@@ -726,15 +816,16 @@
     const st = phone ? null : found || h('div', { id: 'fp2-strip', class: 'fp2-strip' });
     if (st && !found) { const bar = $('#term-bar'); if (bar) bar.after(st); else main.prepend(st); force = true; }
     if (st) main.style.setProperty('--fp2-top', (st.offsetTop + st.offsetHeight) + 'px');
-    const dm = shown && DET[shown.id] ? DET[shown.id].mtime : 0;
-    const sig = JSON.stringify([name, own, org, offer && [offer.topic, offer.done, offer.total], list, names, shown && shown.id, dm, shown && STALE.has(shown.id), open, phone, EXP, !own && isLive(name)]);
+    const current = preview || shown;
+    const dm = current && DET[current.id] ? DET[current.id].mtime : 0;
+    const sig = JSON.stringify([name, own, org, offer && [offer.topic, offer.done, offer.total], list, names, shown && shown.id, preview && preview.id, APV.restored, dm, current && STALE.has(current.id), open, phone, EXP, !own && isLive(name), current && isLive(targetOf(current))]);
     if (sig === ST.sig && !force) return;
     ST.sig = sig;
     if (st) st.replaceChildren(own ? strip(own, open) : quietStrip(name, list, org, open, offer));
     main.classList.toggle('fp2-open', open && !phone);
     const old = document.getElementById('fp2-panel');
     if (!open) { remove('fp2-panel', 'fp2-scrim'); return; }
-    PV.ctx = { own, list, names, shown };
+    PV.ctx = { own, list, names, shown, preview };
     if (old && PV.phone === phone) PV.rerender();
     else {
       remove('fp2-panel', 'fp2-scrim');
@@ -743,20 +834,23 @@
       if (phone) document.body.append(h('div', { id: 'fp2-scrim', class: 'fp2-scrim', onclick: toggle }), el); else main.append(el);
       PV.phone = phone;
     }
-    ensureDetail(shown);
+    ensureDetail(current);
   }
 
   function toggle() {
     const name = TERM.active; if (!name) return;
     EXP.menu = false;
     EXP.act = false;
+    const own = planFor(ST.sums, name);
+    const wasPreview = !!APV.plan;
+    clearPreview();
+    if (wasPreview && !(orgPlans(ST.sums, S.projects || [], own, sessionProject(name)).length && isOpen(name, !!own))) { panelChanged(); return; }
     if (isPhone()) PH.name = PH.name === name ? null : name;
     else {
-      OPEN[name] = !isOpen(name, !!planFor(ST.sums, name));
-      try { localStorage.setItem(OPEN_KEY, JSON.stringify(OPEN)); } catch {}
+      OPEN[name] = !isOpen(name, !!own);
+      persistOpen();
     }
-    sync(true);
-    window.dispatchEvent(new Event('resize'));
+    panelChanged();
   }
 
   function onState() {
@@ -821,7 +915,7 @@
   document.addEventListener('click', ev => {
     const outside = sel => !(ev.target.closest && ev.target.closest(sel));
     const act = EXP.act && outside('.fp2-act');
-    const menu = EXP.menu && outside('.fp2-swi');
+    const menu = EXP.menu && outside('.fp2-drop') && outside('.fp2-pname');
     if (!act && !menu) return;
     if (act) EXP.act = false;
     if (menu) EXP.menu = false;
