@@ -1356,8 +1356,8 @@ function openMenu(ev, items) {
   m.style.top = Math.max(pad, below + mh > innerHeight - pad && above >= pad ? above : Math.min(below, innerHeight - mh - pad)) + 'px';
   setTimeout(() => document.addEventListener('mousedown', onDocDown, { once: true }), 0);
 }
-function onDocDown(e) { if (!$('#menu').contains(e.target)) { if (UI.menuAnchor && UI.menuAnchor.contains(e.target)) { UI.menuShut = UI.menuAnchor; UI.menuShutAt = Date.now(); } closeMenu(); } else setTimeout(() => document.addEventListener('mousedown', onDocDown, { once: true }), 0); }
-function closeMenu() { $('#menu').classList.add('hidden'); UI.menuOpen = false; render(); }
+function onDocDown(e) { if (!$('#menu').contains(e.target)) { if (UI.menuAnchor && UI.menuAnchor.contains(e.target)) { UI.menuShut = UI.menuAnchor; UI.menuShutAt = Date.now(); } closeMenu(); } else setTimeout(() => { if (UI.menuOpen) document.addEventListener('mousedown', onDocDown, { once: true }); }, 0); }
+function closeMenu() { document.removeEventListener('mousedown', onDocDown); $('#menu').classList.add('hidden'); UI.menuOpen = false; render(); }
 const KIND_ICON = { serve: '▶', build: '⚒', check: '✓', install: '⇩', compose: '🐳', task: '·', custom: '★' };
 function cmdMenu(ev, p) {
   const running = new Set(runtimeFor(p.id).sessions.map(s => s.label));

@@ -1,0 +1,4 @@
+{"ts":"2026-10-10T09:00:00.000Z","type":"create","text":"Style guide cleanup"}
+{"ts":"2026-10-10T09:05:00.000Z","type":"start","task":"T1"}
+{"ts":"2026-10-10T10:00:00.000Z","type":"done","task":"T1","gate":{"ok":true,"text":""}}
+{"ts":"2026-10-12T08:00:00.000Z","type":"finish","text":"marked finished"}

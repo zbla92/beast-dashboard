@@ -46,6 +46,7 @@ test('summaries list live and archived plans with server fields', t => {
   assert.strictEqual(live.repoDir, 'demo-app');
   assert.strictEqual(live.projectId, null);
   assert.deepStrictEqual(live.sessions, []);
+  assert.deepStrictEqual(live.offered, []);
   assert.ok(live.mtime > 0);
   assert.strictEqual(live.topic, 'search-v2');
   assert.ok(live.total > 0);
@@ -64,6 +65,17 @@ test('archived plans older than 14 days are hidden unless archived=1', t => {
   fs.utimesSync(file, longAgo, longAgo);
   assert.strictEqual(store.summaries({}).filter(p => p.id.includes('_archive')).length, archived.length - 1);
   assert.ok(store.summaries({ archived: true }).some(p => p.id === archived[0].id));
+});
+
+test('a live plan reports its folder name as topic, whatever the frontmatter says; an archived one keeps its frontmatter topic', t => {
+  const root = storeCopy(t);
+  const file = path.join(root, 'demo-app', 'search-v2', 'plan.md');
+  fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('topic: search-v2', 'topic: evil topic\\nrm -rf'));
+  const store = createPlanStore({ root });
+  assert.strictEqual(store.summaries({}).find(p => p.id === 'demo-app/search-v2').topic, 'search-v2');
+  assert.strictEqual(store.detail('demo-app/search-v2', {}).topic, 'search-v2');
+  const arch = pf.listPlans(root).find(p => p.archived);
+  assert.strictEqual(store.detail(arch.id, {}).topic, 'onboarding');
 });
 
 test('detail returns phases and timeline, an error shape for unknown ids', t => {
@@ -139,7 +151,7 @@ test('projectId follows the plan repo', t => {
   assert.strictEqual(p.projectId, 'proj-1');
 });
 
-test('sessions map to the claimed plan, else the repo single active plan', async t => {
+test('sessions map only through a claim; the repo only unfinished plan is offered to the others', async t => {
   const root = storeCopy(t);
   const repo = gitRepo(t);
   fs.writeFileSync(path.join(root, 'demo-app', '.repo'), repo + '\n');
@@ -147,20 +159,31 @@ test('sessions map to the claimed plan, else the repo single active plan', async
   execFileSync('git', ['worktree', 'add', '-q', worktree, '-b', 'wt'], { cwd: repo, stdio: 'ignore' });
   const sessions = [{ name: 'claude-a', cwd: repo }, { name: 'claude-b', cwd: worktree }, { name: 'claude-c', cwd: os.tmpdir() }];
   const store = createPlanStore({ root });
-  const mapped = () => store.summaries({ sessions }).find(p => p.id === 'demo-app/search-v2').sessions;
-  assert.deepStrictEqual(mapped(), []);
-  await waitFor(() => mapped().length === 2);
-  assert.deepStrictEqual(mapped(), ['claude-a', 'claude-b']);
+  const search = () => store.summaries({ sessions }).find(p => p.id === 'demo-app/search-v2');
+  assert.deepStrictEqual(search().offered, []);
+  await waitFor(() => search().offered.length === 2);
+  assert.deepStrictEqual(search().sessions, []);
+  assert.deepStrictEqual(search().offered, ['claude-a', 'claude-b']);
+  assert.deepStrictEqual(store.detail('demo-app/search-v2', { sessions }).offered, ['claude-a', 'claude-b']);
+
+  pf.writeClaim(root, 'claude-a', 'demo-app', 'search-v2');
+  assert.deepStrictEqual(search().sessions, ['claude-a']);
+  assert.deepStrictEqual(search().offered, ['claude-b']);
+  assert.deepStrictEqual(store.detail('demo-app/search-v2', { sessions }).sessions, ['claude-a']);
+  pf.clearClaim(root, 'claude-a');
 
   const second = pf.newPlan({ topic: 'other', title: 'Other', repo, created: pf.iso(new Date()) });
   pf.writePlan(path.join(root, 'demo-app', 'other'), second);
   const none = store.summaries({ sessions });
-  assert.deepStrictEqual(none.find(p => p.id === 'demo-app/search-v2').sessions, []);
-  assert.deepStrictEqual(none.find(p => p.id === 'demo-app/other').sessions, []);
+  for (const id of ['demo-app/search-v2', 'demo-app/other']) {
+    assert.deepStrictEqual(none.find(p => p.id === id).sessions, []);
+    assert.deepStrictEqual(none.find(p => p.id === id).offered, []);
+  }
 
   pf.writeClaim(root, 'claude-b', 'demo-app', 'other');
   const claimed = store.summaries({ sessions });
   assert.deepStrictEqual(claimed.find(p => p.id === 'demo-app/other').sessions, ['claude-b']);
+  assert.deepStrictEqual(claimed.find(p => p.id === 'demo-app/other').offered, []);
   assert.deepStrictEqual(store.detail('demo-app/other', { sessions }).sessions, ['claude-b']);
 
   pf.writeClaim(root, 'claude-b', 'demo-app', 'gone-topic');
@@ -181,6 +204,32 @@ test('a session outside any repo maps to its claim only when the plan repo is be
   const mapped = () => store.summaries({ sessions }).find(p => p.id === 'demo-app/below').sessions;
   await waitFor(() => mapped().length === 1);
   assert.deepStrictEqual(mapped(), ['claude-up']);
+});
+
+test('a finished plan is not offered and does not stop the only unfinished one from being offered; its claimers stay', async t => {
+  const root = storeCopy(t);
+  const repo = gitRepo(t);
+  fs.writeFileSync(path.join(root, 'demo-app', '.repo'), repo + '\n');
+  const sessions = [{ name: 'claude-a', cwd: repo }, { name: 'claude-b', cwd: repo }];
+  const store = createPlanStore({ root });
+  const other = () => store.summaries({ sessions }).find(p => p.id === 'demo-app/other');
+  const search = () => store.summaries({ sessions }).find(p => p.id === 'demo-app/search-v2');
+  await waitFor(() => search().offered.length === 2);
+  const doc = pf.newPlan({ topic: 'other', title: 'Other', repo, created: pf.iso(new Date()) });
+  pf.markFinished(doc);
+  pf.writePlan(path.join(root, 'demo-app', 'other'), doc);
+  assert.strictEqual(other().finished, true);
+  assert.deepStrictEqual(other().offered, []);
+  assert.deepStrictEqual(search().offered, ['claude-a', 'claude-b']);
+  pf.writeClaim(root, 'claude-a', 'demo-app', 'other');
+  assert.deepStrictEqual(other().sessions, ['claude-a']);
+  assert.deepStrictEqual(search().offered, ['claude-b']);
+  const searchFile = path.join(root, 'demo-app', 'search-v2');
+  const finishedSearch = pf.readPlan(searchFile).doc;
+  pf.markFinished(finishedSearch);
+  pf.writePlan(searchFile, finishedSearch);
+  assert.deepStrictEqual(search().offered, []);
+  assert.deepStrictEqual(other().offered, []);
 });
 
 test('watch pushes one debounced event per plan change and reports removal', async t => {
@@ -257,6 +306,7 @@ test('a new session cwd resolves in the background and a plan event follows', as
   const w = store.watch(ev => seen.push(ev));
   t.after(() => w.close());
   const sessions = [{ name: 'claude-a', cwd: repo }];
+  pf.writeClaim(root, 'claude-a', 'demo-app', 'search-v2');
   const t0 = Date.now();
   assert.deepStrictEqual(store.detail('demo-app/search-v2', { sessions }).sessions, []);
   assert.ok(Date.now() - t0 < 1000);
@@ -283,4 +333,62 @@ test('a claim change sends a plan event for the old and the new plan, clearing i
   pf.clearClaim(root, 'claude-b');
   await waitFor(() => seen.includes('demo-app/other'));
   assert.deepStrictEqual([...new Set(seen)], ['demo-app/other']);
+});
+
+test('find resolves a live and an archived plan with its repo, and nothing else', t => {
+  const root = storeCopy(t);
+  const store = createPlanStore({ root });
+  const live = store.find('demo-app/search-v2');
+  assert.deepStrictEqual({ ...live, doc: undefined }, {
+    id: 'demo-app/search-v2', repoDir: 'demo-app', topic: 'search-v2', folder: 'search-v2',
+    archived: false, repo: '/srv/demo-app', doc: undefined,
+  });
+  assert.ok(pf.questions(live.doc).some(q => q.id === 'q1'));
+  const arch = store.find('demo-app/_archive/2026-10-28-onboarding');
+  assert.strictEqual(arch.archived, true);
+  assert.strictEqual(arch.folder, '2026-10-28-onboarding');
+  assert.strictEqual(arch.topic, 'onboarding');
+  for (const bad of ['demo-app/nope', '../../etc', 'demo-app', 'demo-app/_archive', 'x/y/z/w', 5, null, undefined]) {
+    assert.strictEqual(store.find(bad), null, String(bad));
+  }
+  fs.rmSync(path.join(root, 'demo-app', '.repo'));
+  assert.strictEqual(createPlanStore({ root }).find('demo-app/search-v2').repo, null);
+});
+
+test('a finished plan is still mapped to its sessions', async t => {
+  const root = storeCopy(t);
+  const repo = gitRepo(t, 'demo-docs');
+  fs.writeFileSync(path.join(root, 'demo-docs', '.repo'), repo + '\n');
+  pf.writeClaim(root, 'claude-c', 'demo-docs', 'release-notes');
+  const store = createPlanStore({ root });
+  const sessions = [{ name: 'claude-c', cwd: repo }];
+  const mapped = () => store.detail('demo-docs/release-notes', { sessions }).sessions;
+  await waitFor(() => mapped().length === 1);
+  assert.deepStrictEqual(mapped(), ['claude-c']);
+});
+
+test('nothing about auto-archive is left: no fields, and a complete active plan stays active but reports finished', t => {
+  const root = storeCopy(t);
+  const store = createPlanStore({ root });
+  const old = store.detail('demo-docs/old-cleanup', {});
+  assert.strictEqual(old.status, 'active');
+  assert.strictEqual(old.finished, true);
+  for (const p of [...store.summaries({ archived: true }), old]) {
+    assert.ok(!('changed' in p), p.id);
+    assert.ok(!('autoArchiveAt' in p), p.id);
+  }
+  assert.strictEqual(store.finishedPlans, undefined);
+  assert.strictEqual(pf.readPlan(path.join(root, 'demo-docs/old-cleanup')).doc.meta.status, 'active');
+});
+
+test('a restore sends removed for the archived id and an event for the live id', async t => {
+  const root = storeCopy(t);
+  const seen = [];
+  const w = createPlanStore({ root }).watch(ev => seen.push(ev));
+  t.after(() => w.close());
+  await sleep(100);
+  fs.renameSync(path.join(root, 'demo-app/_archive/2026-10-28-onboarding'), path.join(root, 'demo-app/onboarding'));
+  await waitFor(() => seen.some(e => e.id === 'demo-app/onboarding') && seen.some(e => e.id.includes('_archive')));
+  assert.ok(seen.some(e => e.id === 'demo-app/_archive/2026-10-28-onboarding' && e.removed));
+  assert.ok(seen.some(e => e.id === 'demo-app/onboarding' && !e.removed));
 });

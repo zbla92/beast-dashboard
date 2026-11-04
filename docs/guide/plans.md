@@ -56,9 +56,15 @@ line). Unknown keys are kept as they are.
 | `topic` | yes | `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`; equals the plan's folder name in the store |
 | `title` | yes | one line, not empty |
 | `repo` | yes | absolute path of the repo's **main** worktree |
-| `status` | yes | `active` or `done` (`done` = archived; anything else is a validation error) |
+| `status` | yes | `active`, `finished` or `done`, table below; anything else is a validation error |
 | `created` | yes | ISO time, UTC, `2026-11-03T07:58:00Z` |
 | `archived` | no | ISO time, set by `plan archive` |
+
+| Status | Meaning | Set by |
+|---|---|---|
+| `active` | work is going on | `plan new`, a reopen, `plan restore` of an incomplete plan |
+| `finished` | every task is done, or someone called it finished. Still a live plan: resolved, claimable, changeable, in `plan context` of a session that claimed it, mapped to the sessions that claimed it. Nothing archives it by itself | the `plan done` of the last task, `plan finish`, `plan restore` of a complete plan |
+| `done` | archived: lives in `_archive/`, refuses changes until restored | `plan archive` |
 
 ### Sections
 
@@ -139,11 +145,12 @@ this order and are omitted when empty:
 | `q` | question id | ask, answer |
 | `phase` | phase number | phase |
 | `session` | tmux session name of the writer, if any | optional |
-| `text` | string | create: title · ask: question · answer: the answer · note: the note · phase: phase name |
+| `text` | string | create: title · ask: question · answer: the answer · note: the note · phase: phase name · finish: `all tasks done` or `marked finished` |
 | `gate` | `{ ok: boolean, text: string }` | done (optional), fail (required, `ok: false`) |
 
 Types: `create` (plan made or imported), `start`, `done`, `fail`, `ask`, `answer`, `note`, `phase`
-(every task of phase N is done; written by `plan done` when it completes a phase), `archive`.
+(every task of phase N is done; written by `plan done` when it completes a phase), `finish`
+(the plan became finished), `reopen` (a finished plan went back to active), `archive`, `restore`.
 `plan next` and hand edits write no event. Readers skip lines that are not valid JSON or fail
 validation and report how many they skipped.
 
@@ -176,6 +183,10 @@ $BEAST_PLANS_DIR                      default ~/.beast/plans
   Moving a repo does not move its plans: rename the folder or edit `.repo` by hand.
 - **Archive**: `plan archive` sets `status: done` and `archived:`, logs `archive`, and moves the
   folder to `<repoDir>/_archive/<date>-<topic>` (`-2`… if taken). The topic is then free again.
+  A failed move puts `plan.md` and `events.jsonl` back, so the plan stays live as it was.
+- **Restore**: `plan restore <folder>` moves `<repoDir>/_archive/<folder>` back to
+  `<repoDir>/<topic>` (topic from the frontmatter), drops `archived:`, sets `status: finished` if
+  the plan has tasks and all are done, else `active`, and logs `restore`.
 - Plan **ids** (API and SSE): `<repoDir>/<topic>`, archived: `<repoDir>/_archive/<folder>`.
 - Folders and files are only read when they are real directories/files (symlinks are skipped).
 
@@ -183,13 +194,20 @@ $BEAST_PLANS_DIR                      default ~/.beast/plans
 
 `plan <command> [args] [flags]`. Global flags: `--plan <topic>` (pick the plan), `--repo <path>`
 (resolve the repo from this path instead of the cwd), `--session <name>` (default: the tmux
-session of `$TMUX_PANE`, found the way `bin/claude-hook.sh` does; none outside tmux).
+session of `$TMUX_PANE`, found the way `bin/claude-hook.sh` does; none outside tmux). A bare `--`
+ends the flags: every argument after it is text, even one that starts with `--`
+(`plan answer --plan search-v2 -- q1 "--plan=x copy them"`).
 
-**Which plan** a command acts on (the same rule the server uses for a session):
+**Which plan** a command acts on:
 1. `--plan <topic>` in the current repo;
 2. else the session's claim (`plan use`), if it points to an active plan of this repo;
-3. else the repo's only active plan (`status` is not `done`);
+3. else the repo's only live plan (`status` is not `done`, so `finished` counts);
 4. else exit 3 with the candidates listed.
+
+A session that has no live claim also claims the plan it acted on with a command that changes it
+(`start`, `done`, `fail`, `ask`, `answer`, `next`, `note`, `finish`), so a chat that works on a plan
+keeps it. A live claim is never taken away this way, not even with `--plan` on another plan.
+Read-only commands claim nothing.
 
 | Command | Does | Event |
 |---|---|---|
@@ -201,25 +219,35 @@ session of `$TMUX_PANE`, found the way `bin/claude-hook.sh` does; none outside t
 | `context` | SessionStart hook mode, below | |
 | `use <topic>` / `use --clear` | the session claims a plan of this repo / drops its claim | |
 | `start <T>` | → doing. Refused if done or blocked by an open question | start |
-| `done <T> [--gate "<text>"]` | → done, gate `✓ <text>` (no `--gate` clears the gate). Refused if blocked | done (+ phase) |
+| `done <T> [--gate "<text>"]` | → done, gate `✓ <text>` (no `--gate` clears the gate). Refused if blocked. The last open task adds ` · plan finished. Ask the user whether to archive it; do not archive without asking.` to the output | done (+ phase, finish) |
 | `fail <T> --gate "<text>"` | → failed, gate `✗ <text>` | fail |
 | `ask "<question>" [--blocks T5,T6] [--detail "<text>"]` | adds the next `qN` to Waiting on you; named tasks → blocked (done tasks refused) | ask |
 | `answer <qN> "<answer>"` | removes the question; tasks it blocked go back to todo unless another question still blocks them | answer |
 | `next "<text>"` | replaces the `## Next` text (`""` empties it) | |
 | `note "<text>" [--task T]` | logs a note only | note |
-| `archive` | archives the plan (see §3) | archive |
+| `finish` | active → finished, also with open tasks, and prints `<topic> · plan finished. Ask the user whether to archive it; do not archive without asking.` Already finished: exit 0, `already finished`, nothing written | finish |
+| `archive` | archives the plan, active or finished (see §3) | archive |
+| `restore <folder>` | brings an archived plan of this repo back (see §3). Topic taken: exit 1, `plan <topic> already exists for <repo>` | restore |
 | `import <dir> [--topic <name>]` | copies a legacy `docs/<topic>/` (PLAN.md + PROGRESS.md) into the store, below | create |
 | `help` | usage | |
 
 - Every mutation takes `<dir>/.lock` (exclusive create, waits up to 3 s, a lock older than 15 s is
   stale), re-reads and validates `plan.md`, applies the change, writes `plan.md` atomically (temp
   file + fsync + rename), then appends the events.
+- **Finish and reopen** happen inside the lock of the command that causes them:
+  - `done` leaving every task done on an `active` plan → `finished`, event `finish` with text
+    `all tasks done`. `plan finish` writes the text `marked finished`.
+  - `start`, `fail`, `ask --blocks`, or a `done` that leaves a task open, on a `finished` plan →
+    `active`, event `reopen`. A task added by hand does not reopen the plan; its `start` does.
+    `ask` without `--blocks`, `answer`, `next` and `note` leave the status alone.
+- **Archiving is never automatic.** When a plan becomes finished, Claude asks the user whether to
+  archive it: the output of `plan done` and `plan finish` says so, and so does `plan context`.
 - Output: one short line on success (`T6 doing · Query endpoint`), errors on stderr as
   `plan: <message>`. `--json` output is the API shape.
 - **Exit codes**: `0` ok · `1` refused (bad state change, unknown task or question, plan has
   validation errors, plan exists, lock busy) · `2` usage (unknown command or flag, missing
-  argument, bad id or topic) · `3` no plan (not in a repo, no active plan, several and none
-  picked, `--plan` not found).
+  argument, bad id, topic or folder) · `3` no plan (not in a repo, no active plan, several and none
+  picked, `--plan` not found, no such archived folder).
 - **import**: title = first `# ` heading of PLAN.md (else the topic); each `##`-section of
   PROGRESS.md with checkboxes becomes a phase (a `Phase N — ` prefix is stripped); top-level
   checkboxes become tasks, `[x]` → done, others → todo; a leading `T3` keeps its id when unique,
@@ -232,20 +260,25 @@ session of `$TMUX_PANE`, found the way `bin/claude-hook.sh` does; none outside t
 Installed (only when `plans` is on) as a SessionStart command hook. It reads the hook input JSON on
 stdin — `session_id`, `transcript_path`, `cwd`, `hook_event_name: "SessionStart"`, `source`
 (`startup`, `resume`, `clear`, `compact`, `fork`) — and resolves the plan from `cwd` and the tmux
-session like any command. Claude Code adds a SessionStart hook's plain stdout (exit 0) to the
+session. Only a claim or `--plan` picks a plan here; the repo's only live plan is not enough. Claude Code adds a SessionStart hook's plain stdout (exit 0) to the
 agent's context; it caps it at 10,000 characters, our budget is ≈ 400 tokens (≤ 1,600 chars).
 
-- No active plan for the repo, `plans` off, or any error: **prints nothing**, exit 0.
-  It never fails the session start.
-- `cwd` not inside a git repo (e.g. a folder of projects): the active plans whose `repo` is that
-  folder or below it, most recently changed first, max 5; nothing when there are none:
+- No claim and no unfinished live plan for the repo, `plans` off, or any error: **prints nothing**,
+  exit 0. It never fails the session start. With no claim, finished plans are never offered.
+- `cwd` not inside a git repo (e.g. a folder of projects): the unfinished live plans whose `repo` is
+  that folder or below it, most recently changed first, max 5; nothing when there are none:
 
 ```
 Not a git repository. Active plans in repos under /home/u/dev:
 demo-app/search-v2 "Search v2" 4/10, now T6 (/home/u/dev/demo-app)
 Continue one by working in its repo, or pass --repo <path> to the plan CLI.
 ```
-- One plan (claimed or the only one), facts, no instructions in imperative system style:
+- No claim and one unfinished live plan:
+
+```
+Open plan in this repo, not picked by this session: search-v2 "Search v2" 4/10. If the user wants to continue it: plan use search-v2. Do not work on it otherwise.
+```
+- The claimed plan (or `--plan`), facts, no instructions in imperative system style:
 
 ```
 Plan search-v2 "Search v2" (demo-app): 4/10 tasks done, phase 2/3 API. File: /home/u/.beast/plans/demo-app/search-v2/plan.md
@@ -253,13 +286,18 @@ Status changes go through the plan CLI: plan start|done|fail|ask|answer|next|not
 Now: T6 Query endpoint (Sonnet), doing since 10:34 UTC.
 Failed: T5 Contract tests, gate ✗ lint · 2 errors.
 Waiting on the user: q1 Re-index the legacy synonym lists, or only copy them? (blocks T9)
+Answered: q2 "Keep the old /search route during the rollout?" → Yes, until the app ships v4.
 Next: T6 Query endpoint: finish cursor pagination (`after` param), then run the gate. …
 Then: T7 Rate limits (Sonnet), T8 Feature flag (Haiku).
 ```
 
+  A finished plan gains the line `This plan is finished. Ask the user whether to archive it; do not
+  archive without asking.` after the second line.
   Lines without content are left out; `Next:` is clipped to 600 chars, `Then:` lists up to 3 todo
-  tasks after `now`.
-- Several active plans and no claim: one line per plan (`search-v2 4/10, now T6`, max 5) plus
+  tasks after `now`. `Answered:` lists up to 3 `answer` events newer than the plan's last `start`
+  event, oldest first, as `qN "<question, clipped to 80>" → <answer, clipped to 160>`, joined
+  with `; `.
+- Several unfinished live plans and no claim: one line per plan (`search-v2 4/10, now T6`, max 5) plus
   `Pick one with: plan use <topic>`.
 
 ## 5. Server API
@@ -278,9 +316,13 @@ Plans are read from the store (`BEAST_PLANS_DIR`, default `~/.beast/plans`); leg
 
 ```js
 { id: 'demo-app/search-v2', repoDir: 'demo-app', projectId: 'demo-app' /* project whose path is repo, or null */,
-  sessions: ['claude-search'] /* tmux sessions mapped to this plan */, mtime: 1762166460000 /* plan.md, ms */,
+  sessions: ['claude-search'] /* tmux sessions that claimed this plan */,
+  offered: ['claude-other'] /* sessions in this repo with no claim, when this is its only unfinished live plan */,
+  mtime: 1762166460000 /* plan.md, ms */,
   topic, title, repo, status: 'active', created, archived: null, updated,
   done: 4, total: 10, pct: 40, complete: false,
+  finished: false /* status finished, or active with every task done */,
+  finishedAt: null /* status finished: last finish event; else, when finished: latest task finish; else null */,
   phase: { n: 2, of: 3, name: 'API', done: 1, total: 4 },
   now: { id: 'T6', title, status: 'doing', model: 'Sonnet', gate: null, since: '<ISO>' },   // first doing, else first failed
   next: { id: 'T7', title, status: 'todo', model: 'Sonnet', gate: null },                  // first todo
@@ -305,9 +347,48 @@ Plans are read from the store (`BEAST_PLANS_DIR`, default `~/.beast/plans`); leg
 The task in `now` may carry `steps: [{ c, s }]` — the mapped session's latest TodoWrite list
 (`c` = text, `s` = `pending` | `in_progress` | `completed`), added by the server (phase 3).
 
+- `POST /api/plan-answer` `{ id, q, text }` — answers an open question of a live plan, the same
+  as `plan answer` (the dashboard's Save to plan, used when no live session runs the plan). It runs
+  this checkout's `bin/plan` (`answer --repo <repo> --plan <topic> -- <q> <text>`) with no shell,
+  cwd = the store root, `TMUX`/`TMUX_PANE` removed, 10 s timeout, one at a time. Checks first:
+  unknown `id` → `404 no such plan`; archived → `400`; no `.repo` marker → `409`; `q` not like
+  `q1` → `409`; `text` not a string, empty or over 2,000 chars after trimming, or with control
+  characters → `400`; `q` not an open question → `409 no open question qN`. Then the exit code
+  decides: `0` → `200 { ok: true, id }`, `1` → `409`, `2` → `400`, `3` → `404`, no start or timeout
+  → `500`; the error is the first line of stderr without `plan: `, max 300 chars. It is an `/api`
+  POST, so the Host, same-origin and `Sec-Fetch-Site` guards apply.
+- `POST /api/plan-finish` `{ id }` — `plan finish` on a live plan: `200 { ok: true, id }` with the
+  same id, also when it was already finished.
+- `POST /api/plan-archive` `{ id }` — `plan archive` on a live plan: `200 { ok: true, id }` with the
+  new id `<repoDir>/_archive/<folder>`.
+- `POST /api/plan-restore` `{ id }` — `plan restore` on an archived plan:
+  `200 { ok: true, id }` with the new id `<repoDir>/<topic>`; topic taken → `409`.
+
+  The last three run `bin/plan` the way `plan-answer` does, in the same queue, with the same exit code
+  mapping and guards. Unknown or malformed `id` → `404 no such plan`; an archived id for finish or
+  archive, or a live id for restore → `400`; no `.repo` marker → `409`. Errors are
+  `{ ok: false, error }`.
+
+**No auto-archive**: no timer and no sweep. A plan is archived only when the user presses Archive or
+says so. A plan with `status: active` and every task done stays as it is; `summarize` reports it as
+`finished`.
+
+With `BD_TEST=1` all four endpoints answer `403 test copy has no plan store` unless `BEAST_PLANS_DIR`
+is set and is not the user's real store (`~/.beast/plans` or below it), so a test copy can never
+change real plans.
+
 **Session ↔ plan**: for a tmux session, its cwd is resolved to a repo as in §3; the plan is its
-claim (`.claims/<name>.json`) if that names an active plan of the same repo, else the repo's only
-active plan, else none. `/clear` keeps the tmux session and so the claim.
+claim (`.claims/<name>.json`) if that names a live plan of the same repo, else none. The repo's only
+plan is not mapped to a session that did not pick it; it is only offered (`offered` above). `/clear`
+keeps the tmux session and so the claim.
+
+In the dashboard a session with no plan shows `No plan · Make a plan…`, then
+`{topic} {done}/{total} · Continue?` when it is offered one, which asks Claude to run `plan use`. The
+⋯ menu of the session's own plan has `Leave this plan`, which asks Claude to run `plan use --clear`;
+it is how a chat kept by `/clear` gets rid of an old plan. Both need a live session. On a phone there
+is no strip at the top of a session: the same things are in the session Options menu, as
+`Plan · {topic} {done}/{total}` with a plan, else `Make a plan…`, `Continue {topic}…` when offered and
+`Archived plans…`.
 
 **Live updates**: the server watches the store (`fs.watch`, recursive) and broadcasts on the
 existing `/api/events` stream, debounced ~300 ms per plan:
@@ -318,4 +399,4 @@ data: {"id":"demo-app/search-v2","mtime":1762166460000,"removed":false}
 ```
 
 Clients refetch `GET /api/plan/<id>` (and the summary). An archive sends `removed: true` for the
-old id and an event for the new one.
+old id and an event for the new one; a restore does the same in the other direction.

@@ -63,6 +63,44 @@ r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' --path-as-is "$B/api/plan/../..
 curl -s -N -m 4 "$B/api/events" > /tmp/gate-$$.sse 2>/dev/null & SSEPID=$!
 sleep 1; printf '\n' >> "$PLANS/demo-app/search-v2/events.jsonl"; wait $SSEPID 2>/dev/null
 grep -q 'event: plan' /tmp/gate-$$.sse && grep -q '"id":"demo-app/search-v2"' /tmp/gate-$$.sse && ok "SSE event: plan after a plan change" || fail "no plan event on /api/events"
+pa() { local d="$1"; shift; curl -s -m 15 -o /tmp/gate-$$.body -w '%{http_code}' -X POST -H 'content-type: application/json' "$@" -d "$d" "$B/api/plan-answer"; }
+for c in '404 {"id":"demo-app/nope","q":"q1","text":"x"}' '404 {"id":"../../etc","q":"q1","text":"x"}' '404 {"id":5,"q":"q1","text":"x"}' \
+         "400 {\"id\":\"demo-app/_archive/$ARCH\",\"q\":\"q1\",\"text\":\"x\"}" '409 {"id":"demo-app/search-v2","q":"1;rm","text":"x"}' \
+         '400 {"id":"demo-app/search-v2","q":"q1","text":"a\nb"}' '400 {"id":"demo-app/search-v2","q":"q1","text":"  "}' '409 {"id":"demo-app/search-v2","q":"q99","text":"x"}'; do
+  want="${c%% *}"; r="$(pa "${c#* }")"; [ "$r" = "$want" ] && ok "POST plan-answer ${c#* } -> $r" || fail "POST plan-answer ${c#* } -> $r (want $want) $(head -c 200 /tmp/gate-$$.body)"
+done
+for h in "Origin: https://evil.example" "Sec-Fetch-Site: cross-site"; do
+  r="$(pa '{"id":"demo-app/search-v2","q":"q1","text":"x"}' -H "$h")"; [ "$r" = 403 ] && ok "POST plan-answer with $h -> 403" || fail "POST plan-answer with $h -> $r"
+done
+r="$(pa '{"id":"demo-app/search-v2","q":"q1","text":"--plan=x copy them"}' -H "Origin: $B")"
+if [ "$r" = 200 ] && [ "$(jq_ 'd.ok===true&&d.id==="demo-app/search-v2"')" = true ] && tail -1 "$PLANS/demo-app/search-v2/events.jsonl" | grep -q '"type":"answer","q":"q1","text":"--plan=x copy them"'; then ok "POST plan-answer records the answer through bin/plan"; else fail "POST plan-answer -> $r $(head -c 200 /tmp/gate-$$.body)"; fi
+r="$(pa '{"id":"demo-app/search-v2","q":"q1","text":"again"}')"; [ "$r" = 409 ] && [ "$(jq_ 'd.error')" = "no open question q1" ] && ok "POST plan-answer twice -> 409 no open question" || fail "POST plan-answer twice -> $r $(head -c 200 /tmp/gate-$$.body)"
+pl() { local ep="$1" d="$2"; shift 2; curl -s -m 15 -o /tmp/gate-$$.body -w '%{http_code}' -X POST -H 'content-type: application/json' "$@" -d "$d" "$B/api/plan-$ep"; }
+for ep in finish archive restore; do
+  for d in '{"id":"demo-docs/nope"}' '{"id":"../../etc"}' '{"id":5}' '{}'; do
+    r="$(pl "$ep" "$d")"; [ "$r" = 404 ] && ok "POST plan-$ep $d -> 404" || fail "POST plan-$ep $d -> $r $(head -c 200 /tmp/gate-$$.body)"
+  done
+  wrong='{"id":"demo-docs/release-notes"}'; right="{\"id\":\"demo-app/_archive/$ARCH\"}"
+  [ "$ep" = restore ] || { wrong="$right"; right='{"id":"demo-docs/release-notes"}'; }
+  r="$(pl "$ep" "$wrong")"; [ "$r" = 400 ] && ok "POST plan-$ep $wrong -> 400" || fail "POST plan-$ep $wrong -> $r $(head -c 200 /tmp/gate-$$.body)"
+  for h in "Origin: https://evil.example" "Sec-Fetch-Site: cross-site"; do
+    r="$(pl "$ep" "$right" -H "$h")"; [ "$r" = 403 ] && ok "POST plan-$ep with $h -> 403" || fail "POST plan-$ep with $h -> $r"
+  done
+done
+json /api/plan/demo-docs/release-notes
+[ "$(jq_ 'd.finished===true&&d.status==="finished"&&!("changed" in d)&&!("autoArchiveAt" in d)')" = true ] && ok "finished plan has no auto-archive fields" || fail "finished plan fields"
+for i in 1 2; do
+  r="$(pl finish '{"id":"demo-docs/old-cleanup"}' -H "Origin: $B")"
+  [ "$r" = 200 ] && [ "$(jq_ 'd.ok===true&&d.id==="demo-docs/old-cleanup"')" = true ] && grep -q '^status: finished$' "$PLANS/demo-docs/old-cleanup/plan.md" && ok "POST plan-finish run $i -> finished" || fail "POST plan-finish run $i -> $r $(head -c 200 /tmp/gate-$$.body)"
+done
+r="$(pl archive '{"id":"demo-docs/release-notes"}' -H "Origin: $B")"
+FOLDER="$(jq_ 'd.id.split("/").pop()')"
+[ "$r" = 200 ] && [ "$(jq_ 'd.id.startsWith("demo-docs/_archive/")')" = true ] && [ -f "$PLANS/demo-docs/_archive/$FOLDER/plan.md" ] && [ ! -e "$PLANS/demo-docs/release-notes" ] && ok "POST plan-archive -> $FOLDER" || fail "POST plan-archive -> $r $(head -c 200 /tmp/gate-$$.body)"
+cp -r "$PLANS/demo-docs/_archive/$FOLDER" "$PLANS/demo-docs/release-notes"
+r="$(pl restore "{\"id\":\"demo-docs/_archive/$FOLDER\"}" -H "Origin: $B")"; [ "$r" = 409 ] && ok "POST plan-restore on a taken topic -> 409" || fail "POST plan-restore on a taken topic -> $r $(head -c 200 /tmp/gate-$$.body)"
+rm -rf "$PLANS/demo-docs/release-notes"
+r="$(pl restore "{\"id\":\"demo-docs/_archive/$FOLDER\"}" -H "Origin: $B")"
+[ "$r" = 200 ] && [ "$(jq_ 'd.ok===true&&d.id==="demo-docs/release-notes"')" = true ] && grep -q '^status: finished$' "$PLANS/demo-docs/release-notes/plan.md" && [ ! -e "$PLANS/demo-docs/_archive/$FOLDER" ] && ok "POST plan-restore -> finished again" || fail "POST plan-restore -> $r $(head -c 200 /tmp/gate-$$.body)"
 json /api/worktrees
 [ -n "$GITP" ] && json "/api/worktrees/$GITP"
 json "/api/usage/models?days=7"
