@@ -183,6 +183,8 @@ const fakeDom = () => {
     const n = { tag, attrs: attrs || {}, kids: kids.flat(Infinity).filter(k => k != null && k !== false), classList: { toggle() {} } };
     n.remove = () => { const i = body.indexOf(n); if (i >= 0) body.splice(i, 1); };
     n.append = (...k) => n.kids.push(...k);
+    n.listeners = {};
+    n.addEventListener = (type, fn) => { n.listeners[type] = fn; };
     n.replaceChildren = (...k) => { n.kids = k.flat(Infinity).filter(x => x != null && x !== false); };
     return n;
   };
@@ -343,4 +345,102 @@ test('the plan head lets the phase name shrink and the panel lines are real butt
   const rule = /\.fp2-phase \{([^}]*)\}/.exec(css)[1];
   for (const part of ['min-width: 0', 'overflow: hidden', 'text-overflow: ellipsis', 'white-space: nowrap']) assert.ok(rule.includes(part), part);
   for (const sel of ['fp2-ev', 'fp2-pn', 'fp2-task-t', 'fp2-gate']) assert.ok(src.includes(`h('button', { class: '${sel}`) || src.includes(`h('button', { class: 'fp2-gate`), sel);
+});
+
+const UPDATE_BASE = t => `Update the plan ${t} with the plan CLI: plan show --plan ${t}, edit plan.md at the path from plan path --plan ${t}, status changes only through plan start|done|fail|ask|answer|next|note. Do not change frozen contracts without asking me.`;
+const MAKE_BASE = 'Make a plan for this session with the plan CLI (plan new <topic> --title "<title>", then phases and task cards as in plan help, contracts first). Show me the plan and wait for my go before starting work.';
+
+test('updateMsg and makeMsg build the exact one-line messages, with or without a note', () => {
+  assert.strictEqual(plan2.updateMsg('checkout-v2', ''), UPDATE_BASE('checkout-v2'));
+  assert.strictEqual(plan2.updateMsg('checkout-v2', ' \n\t '), UPDATE_BASE('checkout-v2'));
+  assert.strictEqual(plan2.updateMsg('checkout-v2', '  drop\n\nT4,   add  a task\t'), UPDATE_BASE('checkout-v2') + ' Note: drop T4, add a task');
+  assert.strictEqual(plan2.makeMsg(''), MAKE_BASE);
+  assert.strictEqual(plan2.makeMsg('  rate\nlimits '), MAKE_BASE + ' Note: rate limits');
+  assert.ok(!/\n/.test(plan2.makeMsg('a\nb')));
+});
+
+test('updateMsg and makeMsg refuse a note over 2000 characters after collapsing', () => {
+  assert.strictEqual(plan2.updateMsg('t', 'a'.repeat(2001)), null);
+  assert.strictEqual(plan2.makeMsg('a'.repeat(2001)), null);
+  assert.ok(plan2.makeMsg('a'.repeat(1000) + '\n\n\n' + 'b'.repeat(999)));
+  assert.ok(plan2.updateMsg('t', 'a'.repeat(2000)));
+});
+
+const noteBoot = (sessions, active) => {
+  const dom = fakeDom();
+  const calls = { api: [] };
+  const p = boot({
+    document: dom.document, h: dom.h, ico: dom.ico, requestAnimationFrame() {},
+    S: { settings: { plans: true }, runtime: { sessions } }, TERM: { open: false, active },
+    claudeOf: name => (sessions.find(s => s.name === name) || {}).claude || null,
+    sessTitle: s => 'L:' + s.name, toast() {},
+    api: async (path, body) => { calls.api.push([path, JSON.parse(JSON.stringify(body))]); return { ok: true }; },
+  });
+  return { dom, p, calls };
+};
+
+test('Make a plan sheet previews exactly what is sent and sends it to the active session', async () => {
+  const { dom, p, calls } = noteBoot([sess('claude-a', { state: 'idle' })], 'claude-a');
+  p.openMake('claude-a');
+  const body = dom.body[1];
+  const ta = find(body, n => n.tag === 'textarea')[0];
+  const pv = () => dom.text(find(body, n => n.attrs.class === 'fp2-sh-pv')[0]);
+  const send = find(body, n => n.attrs.class && n.attrs.class.includes('fp2-sh-go'))[0];
+  assert.ok(pv().endsWith(p.makeMsg('')));
+  assert.strictEqual(send.disabled, false);
+  ta.value = 'rate\nlimits';
+  ta.listeners.input();
+  assert.ok(pv().endsWith(p.makeMsg('rate limits')));
+  await send.onclick();
+  assert.deepStrictEqual(calls.api, [['send', { session: 'claude-a', text: MAKE_BASE + ' Note: rate limits' }]]);
+  assert.strictEqual(dom.body.length, 0);
+});
+
+test('Make a plan sheet blocks Send over the limit and keeps the sheet when the send is refused', async () => {
+  const { dom, p, calls } = noteBoot([sess('claude-a', { state: 'permission' })], 'claude-a');
+  p.openMake('claude-a');
+  const body = dom.body[1];
+  const ta = find(body, n => n.tag === 'textarea')[0];
+  const send = find(body, n => n.attrs.class && n.attrs.class.includes('fp2-sh-go'))[0];
+  ta.value = 'x'.repeat(2001);
+  ta.listeners.input();
+  assert.strictEqual(send.disabled, true);
+  assert.ok(dom.text(find(body, n => n.attrs.class === 'fp2-sh-pv')[0]).includes('Too long: 2001 of 2000'));
+  ta.value = 'ok';
+  ta.listeners.input();
+  await send.onclick();
+  assert.deepStrictEqual(calls.api, []);
+  assert.strictEqual(dom.body.length, 2);
+});
+
+test('the actions menu offers Update plan, disabled with a hint when no live session runs the plan, and no lifecycle items yet', () => {
+  const plan = { id: 'a/t', topic: 't', sessions: ['claude-a'] };
+  const menuOf = state => {
+    const { dom, p } = noteBoot([sess('claude-a', { state })], 'claude-a');
+    find(p.actionsMenu(plan, () => {}), n => n.attrs.class && n.attrs.class.includes('fp2-act-b'))[0].attrs.onclick();
+    const menu = find(p.actionsMenu(plan, () => {}), n => n.attrs.class === 'menu fp2-actm')[0];
+    return { dom, menu, items: find(menu, n => n.attrs.role === 'menuitem') };
+  };
+  const live = menuOf('idle');
+  assert.strictEqual(live.items.length, 1);
+  assert.strictEqual(live.items[0].attrs.class, 'mi');
+  assert.ok(live.dom.text(live.menu).includes('Update plan…'));
+  const off = menuOf('ended');
+  assert.strictEqual(off.items[0].attrs.class, 'mi dis');
+  assert.ok(off.dom.text(off.menu).includes('No live session runs this plan'));
+});
+
+test('the no-plan row offers Make a plan for a live Claude session and keeps the org count with a chevron', () => {
+  const { dom, p } = noteBoot([sess('claude-a', { state: 'idle' })], 'claude-a');
+  const alone = p.quietStrip('claude-a', [], '', false);
+  assert.strictEqual(dom.text(alone), 'No plan·Make a plan…');
+  assert.strictEqual(find(alone, n => n.attrs.class === 'fp2-np-org').length, 0);
+  const org = p.quietStrip('claude-a', [{}, {}], 'acme', true);
+  assert.ok(dom.text(org).endsWith('2 in acme'));
+  assert.strictEqual(find(org, n => n.attrs.class === 'fp2-np-org').length, 1);
+  const ended = noteBoot([sess('claude-a', { state: 'ended' })], 'claude-a');
+  const btn = find(ended.p.quietStrip('claude-a', [], '', false), n => n.attrs.class === 'fp2-np-b')[0];
+  assert.strictEqual(btn.attrs.disabled, true);
+  assert.ok(!btn.attrs.title);
+  assert.strictEqual(ended.dom.text(ended.p.quietStrip('claude-a', [], '', false)), 'No plan·Make a plan…No live session runs this plan');
 });

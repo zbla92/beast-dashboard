@@ -205,3 +205,20 @@ body:not(.term-open) .fp2-scrim, body:not(.term-open) .fp2-panel.sheet { display
 .fp2-dgate.ok { background: color-mix(in srgb, var(--green) 14%, transparent); color: var(--green); }
 .fp2-dgate.bad { background: color-mix(in srgb, var(--red) 14%, transparent); color: var(--red); }
 .fp2-dnone { font-size: 12.5px; }
+
+.fp2-act-h { display: inline-flex; }
+.fp2-act-b.on { background: var(--fill2); color: var(--text); }
+.fp2-actm { position: absolute; top: 52px; right: 12px; width: 290px; max-width: calc(100% - 24px); }
+.fp2-panel.sheet .fp2-actm { top: 64px; }
+.fp2-mi-t { display: flex; flex-direction: column; font-weight: 500; }
+.fp2-mi-t small { font-size: 11.5px; font-weight: 400; color: var(--dim); }
+.fp2-np { flex-wrap: nowrap; min-height: 38px; padding-top: 0; padding-bottom: 0; gap: 7px; cursor: default; }
+.fp2-np:hover { background: none; }
+.fp2-np-b { padding: 2px 4px; border: 0; border-radius: 6px; background: none; color: var(--accent2); font: inherit; font-weight: 600; font-size: 12.5px; cursor: pointer; }
+.fp2-np-b:hover:not(:disabled) { background: var(--fill); }
+.fp2-np-b:disabled { color: var(--dim); cursor: default; }
+.fp2-np.off { flex-wrap: wrap; row-gap: 2px; padding-top: 6px; padding-bottom: 6px; }
+.fp2-np-hint { min-width: 0; font-size: 11.5px; color: var(--dim); }
+.fp2-np-org { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; min-width: 0; padding: 4px 0 4px 8px; border: 0; background: none; color: var(--muted); font: inherit; cursor: pointer; }
+.fp2-np-org .fp2-chev { margin-left: 0; }
+.fp2-note { min-height: 92px; }

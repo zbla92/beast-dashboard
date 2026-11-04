@@ -8,7 +8,7 @@
     } catch { return {}; }
   };
   const OPEN = readOpen();
-  const EXP = { tasks: {}, phases: {}, menu: false };
+  const EXP = { tasks: {}, phases: {}, menu: false, act: false };
   const PV = { phone: false, ctx: null, rerender: null, seen: null };
   const VIEW = {};
   const PH = { name: null };
@@ -115,13 +115,24 @@
     return `Plan ${topic}, answer to ${w.id} ("${clipTo(oneLine(w.q), 160)}"): ${a} — record it with plan answer ${w.id} "<this answer>" --plan ${topic}, then carry on with the plan.`;
   }
 
+  const withNote = (base, note) => {
+    const n = oneLine(note);
+    if (n.length > TEXT_MAX) return null;
+    return n ? `${base} Note: ${n}` : base;
+  };
+
+  const updateMsg = (topic, note) => withNote(`Update the plan ${topic} with the plan CLI: plan show --plan ${topic}, edit plan.md at the path from plan path --plan ${topic}, status changes only through plan start|done|fail|ask|answer|next|note. Do not change frozen contracts without asking me.`, note);
+
+  const makeMsg = note => withNote('Make a plan for this session with the plan CLI (plan new <topic> --title "<title>", then phases and task cards as in plan help, contracts first). Show me the plan and wait for my go before starting work.', note);
+
   const targetOf = p => p.sessions.includes(TERM.active) ? TERM.active : p.sessions[0] || null;
   const isLive = name => { const cl = name ? claudeOf(name) : null; return !!cl && cl.state !== 'ended'; };
+  const NOT_LIVE = 'No live session runs this plan';
   const sessLabel = name => { const s = ((S.runtime && S.runtime.sessions) || []).find(x => x.name === name); return s ? sessTitle(s) : name; };
 
   async function sendToSession(p, text) {
     const target = targetOf(p);
-    if (!isLive(target)) { toast('No live session runs this plan', 'err'); return false; }
+    if (!isLive(target)) { toast(NOT_LIVE, 'err'); return false; }
     const cl = claudeOf(target);
     if (cl.state === 'permission') { toast('Claude is at a permission prompt — answer it first', 'err'); return false; }
     if (cl.mode !== 'chat' && cl.draft) { toast('Something is typed in the terminal — send or clear it first', 'err'); return false; }
@@ -279,6 +290,56 @@
     QS.close = sheet({ title: 'Open questions', sub: [topic, count], body, onClose: () => Object.assign(QS, { id: null, pick: null, sig: '', render: null, close: null }) });
     renderQuestions();
     ensureDetail(p);
+  }
+
+  function noteSheet({ key, title, topic, p, build, placeholder, intro }) {
+    const ta = h('textarea', { class: 'fp2-sh-ta fp2-note', rows: 3, placeholder, autocomplete: 'off', autocapitalize: 'sentences', spellcheck: true });
+    ta.value = DRAFT[key] || '';
+    const pv = h('div', { class: 'fp2-sh-pv' });
+    const btn = h('button', { class: 'btn primary fp2-sh-go' }, ico('send', 14), 'Send');
+    const update = () => {
+      DRAFT[key] = ta.value;
+      const msg = build(ta.value);
+      btn.disabled = SENDING.has(key) || !msg;
+      if (msg) pv.replaceChildren(h('span', { class: 'fp2-sh-pvl' }, 'Message'), msg);
+      else pv.replaceChildren(h('span', { class: 'fp2-sh-over' }, `Too long: ${oneLine(ta.value).length} of ${TEXT_MAX} characters`));
+    };
+    const go = async () => {
+      const msg = build(ta.value);
+      if (!msg || SENDING.has(key)) return;
+      SENDING.add(key); update();
+      const ok = await sendToSession(p, msg);
+      SENDING.delete(key);
+      if (!ok) { update(); return; }
+      delete DRAFT[key];
+      close();
+    };
+    btn.onclick = go;
+    ta.addEventListener('input', update);
+    ta.addEventListener('keydown', ev => { if (ev.key === 'Escape') return; ev.stopPropagation(); if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); go(); } });
+    update();
+    requestAnimationFrame(() => { if (ta.isConnected && !isPhone()) ta.focus(); });
+    const hint = h('span', { class: 'fp2-sh-hint' }, 'Goes to ', h('b', null, sessLabel(targetOf(p))), ' as a message.');
+    const close = sheet({ title, sub: topic ? [h('span', { class: 'fp2-sh-tp' }, topic)] : null, body: h('div', { class: 'fp2-sh-ans fp2-note-b' }, h('div', { class: 'fp2-sh-intro dim' }, intro), ta, pv, h('div', { class: 'fp2-sh-foot' }, hint, btn)) });
+    return close;
+  }
+
+  const openUpdate = p => noteSheet({ key: 'upd|' + p.id, title: 'Update plan', topic: p.topic, p, build: note => updateMsg(p.topic, note), placeholder: 'What should change? (optional)', intro: 'Claude edits the plan with the plan CLI. Add a note if you want a specific change.' });
+
+  const openMake = name => noteSheet({ key: 'make|' + name, title: 'Make a plan', topic: '', p: { sessions: [name] }, build: makeMsg, placeholder: 'What is this plan for? (optional)', intro: 'Claude drafts a plan for this session and waits for your go before starting.' });
+
+  const LIFECYCLE = {};
+
+  function actionsMenu(p, rerender) {
+    const target = targetOf(p);
+    const live = isLive(target);
+    const item = (icon, label, small, on, dis) => h('div', { class: 'mi' + (dis ? ' dis' : ''), role: 'menuitem', onclick: () => { EXP.act = false; rerender(); on(); } }, ico(icon, 16), h('span', { class: 'fp2-mi-t' }, label, small ? h('small', null, small) : null));
+    const slots = 'finished' in p ? [['check', 'Mark finished', 'finish'], ['folder', 'Archive', 'archive']].filter(x => LIFECYCLE[x[2]]).map(x => item(x[0], x[1], '', () => LIFECYCLE[x[2]](p))) : [];
+    const btn = h('button', { class: 'fp2-x fp2-act-b' + (EXP.act ? ' on' : ''), 'aria-label': 'plan actions', 'aria-expanded': EXP.act ? 'true' : 'false', onclick: () => { EXP.act = !EXP.act; rerender(); } }, ico('dots', 16));
+    const menu = EXP.act ? h('div', { class: 'menu fp2-actm', role: 'menu' },
+      item('pencil', 'Update plan…', live ? 'Tell Claude what to change' : NOT_LIVE, () => openUpdate(p), !live),
+      ...(slots.length ? [h('div', { class: 'sep' }), ...slots] : [])) : null;
+    return h('span', { class: 'fp2-act' }, btn, menu);
   }
 
   function bucketEvents(timeline, phases) {
@@ -469,12 +530,14 @@
     const body = h('div', { class: 'fp2-pbody' });
     const sw = h('div', { class: 'fp2-sw' });
     const topic = h('span', { class: 'fp2-ptopic' });
+    const act = h('span', { class: 'fp2-act-h' });
     const rerender = () => {
       const top = body.scrollTop;
       const c = PV.ctx;
       const same = PV.shownId === c.shown.id;
       PV.shownId = c.shown.id;
       topic.textContent = c.shown.topic;
+      act.replaceChildren(actionsMenu(c.shown, rerender));
       sw.replaceChildren(...[switcher(c.list, c.names, c.shown.id, c.own && c.own.id, rerender)].filter(Boolean));
       body.replaceChildren(...panelBody(c.shown, rerender));
       body.scrollTop = same ? top : 0;
@@ -486,7 +549,7 @@
     PV.rerender = rerender;
     return h('div', { id: 'fp2-panel', class: 'fp2-panel' + (phone ? ' sheet' : '') },
       phone ? h('div', { class: 'fp2-grab' }) : null,
-      h('div', { class: 'fp2-ph-top' }, h('b', null, 'Plan'), topic, h('span', { class: 'fp2-sp' }), h('button', { class: 'fp2-x', 'aria-label': 'close plan', onclick: toggle }, ico('x', 16))),
+      h('div', { class: 'fp2-ph-top' }, h('b', null, 'Plan'), topic, h('span', { class: 'fp2-sp' }), act, h('button', { class: 'fp2-x', 'aria-label': 'close plan', onclick: toggle }, ico('x', 16))),
       sw, body);
   }
 
@@ -500,10 +563,13 @@
     ST.sig = '';
   }
 
-  function quietStrip(list, org, open) {
-    return h('button', { class: 'fp2-strip-b quiet', title: 'Plans in ' + org, onclick: toggle },
-      h('span', { class: 'fp2-nop' }, `No plan · ${list.length} in ${org}`),
-      h('span', { class: 'fp2-chev' + (open ? ' on' : '') }, ico('chevronDown', 15)));
+  function quietStrip(name, list, org, open) {
+    const can = isLive(name);
+    return h('div', { class: 'fp2-strip-b quiet fp2-np' + (can ? '' : ' off') },
+      h('span', { class: 'fp2-nop' }, 'No plan'), h('span', { class: 'fp2-nop' }, '·'),
+      h('button', { class: 'fp2-np-b', disabled: !can, title: can ? 'Ask Claude to make a plan' : null, onclick: () => openMake(name) }, 'Make a plan…'),
+      can ? null : h('span', { class: 'fp2-np-hint' }, NOT_LIVE),
+      list.length ? h('button', { class: 'fp2-np-org', title: 'Plans in ' + org, onclick: toggle }, h('span', { class: 'fp2-nop' }, `${list.length} in ${org}`), h('span', { class: 'fp2-chev' + (open ? ' on' : '') }, ico('chevronDown', 15))) : null);
   }
 
   function sync(force) {
@@ -517,21 +583,21 @@
     const sess = ((S.runtime && S.runtime.sessions) || []).find(x => x.name === name);
     const projects = S.projects || [];
     const list = orgPlans(ST.sums, projects, own, sess && sess.project);
-    if (!list.length) { if (stripEl()) teardown(); return; }
-    const shown = list.find(x => x.id === VIEW[name]) || own || list[0];
+    if (!own && !claudeOf(name)) { if (stripEl()) teardown(); return; }
+    const shown = list.find(x => x.id === VIEW[name]) || own || list[0] || null;
     const names = planNames(list, projects);
     const phone = isPhone();
-    const open = isOpen(name, !!own);
+    const open = list.length ? isOpen(name, !!own) : false;
     const org = own ? '' : orgLabel(projects, sess && sess.project);
     const found = document.getElementById('fp2-strip');
     const st = found || h('div', { id: 'fp2-strip', class: 'fp2-strip' });
     if (!found) { const bar = $('#term-bar'); if (bar) bar.after(st); else main.prepend(st); force = true; }
     main.style.setProperty('--fp2-top', (st.offsetTop + st.offsetHeight) + 'px');
-    const dm = DET[shown.id] ? DET[shown.id].mtime : 0;
-    const sig = JSON.stringify([name, own, org, list, names, shown.id, dm, STALE.has(shown.id), open, phone, EXP]);
+    const dm = shown && DET[shown.id] ? DET[shown.id].mtime : 0;
+    const sig = JSON.stringify([name, own, org, list, names, shown && shown.id, dm, shown && STALE.has(shown.id), open, phone, EXP, !own && isLive(name)]);
     if (sig === ST.sig && !force) return;
     ST.sig = sig;
-    st.replaceChildren(own ? strip(own, open) : quietStrip(list, org, open));
+    st.replaceChildren(own ? strip(own, open) : quietStrip(name, list, org, open));
     main.classList.toggle('fp2-open', open && !phone);
     const old = document.getElementById('fp2-panel');
     if (!open) { remove('fp2-panel', 'fp2-scrim'); return; }
@@ -550,6 +616,7 @@
   function toggle() {
     const name = TERM.active; if (!name) return;
     EXP.menu = false;
+    EXP.act = false;
     if (isPhone()) PH.name = PH.name === name ? null : name;
     else {
       OPEN[name] = !isOpen(name, !!planFor(ST.sums, name));
@@ -597,9 +664,14 @@
       h('div', { class: 'fp-bar' + (t.complete ? ' full' : '') }, h('i', { style: `width:${t.pct}%` })));
   }
 
+  document.addEventListener('click', ev => {
+    if (!EXP.act || (ev.target.closest && ev.target.closest('.fp2-act'))) return;
+    EXP.act = false;
+    if (PV.rerender && document.getElementById('fp2-panel')) PV.rerender();
+  }, true);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
   setInterval(() => { if (!document.hidden) load(); }, 60000);
   addEventListener('resize', () => sync());
 
-  FEAT.plan2 = { onState, termShown, termBarKey, termItem, plan: onPlan, live, cardChips, planFor, readOpen, ringMarkup, bucketEvents, orgPlans, planNames, answerMsg, questionsRow, sheet, sendToSession, saveAnswer, phaseSheet, taskSheet };
+  FEAT.plan2 = { onState, termShown, termBarKey, termItem, plan: onPlan, live, cardChips, planFor, readOpen, ringMarkup, bucketEvents, orgPlans, planNames, answerMsg, updateMsg, makeMsg, openMake, actionsMenu, quietStrip, questionsRow, sheet, sendToSession, saveAnswer, phaseSheet, taskSheet };
 })();
