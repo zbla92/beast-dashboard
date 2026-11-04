@@ -1059,6 +1059,7 @@ function sessMenu(ev, name) {
     !cl && sess ? sessInfoRow('Folder', home(sess.cwd), sess.cwd) : null,
     'sep',
     cl ? { label: 'New chat here', sub: [sess.project && byId()[sess.project]?.name, acct(cl.account)].filter(Boolean).join(' · '), icon: ico('plus', 15), onclick: () => newChatHere(name) } : null,
+    chat && !logOn ? { label: 'Focus', sub: CHAT.focus ? 'on: tool calls hidden' : 'off: tool calls shown', icon: ico('focus', 15), title: 'only your messages and Claude\'s replies', onclick: toggleChatFocus } : null,
     cl ? { label: 'Compact context', sub: c ? fmtTok(c.used) + ' · ' + ctxPct(c) + '%' : '', icon: ico('compact', 15), disabled: !canCompact(cl), title: idle ? 'summarise the conversation and continue with a smaller context' : 'only when Claude is idle', onclick: () => compactSession(name) } : null,
     cl ? { label: 'Rename…', icon: ico('pencil', 15), onclick: () => renameDialog(name) } : null,
     chat && FEAT.session?.move ? { label: 'Move to folder…', icon: ico('folder', 15), disabled: !idle, title: 'same conversation, Claude continues in another project or folder (only when idle)', onclick: () => FEAT.session.move(name) } : null,
@@ -1668,8 +1669,8 @@ function composer(box, name, cl, conv, scroller, o, busy, justSent, jobs, prevDr
   // 🎤 hold to talk (Web Speech API; Safari + Chrome): release sends
   const mic = voiceButton(ta, name);
   const clock = h('button', { class: 'btn sm ghost qk csched', title: 'schedule this message for later (or a chain of messages)', onclick: () => scheduleDialog(name, ta.value) }, ico('sched', 15));
-  const kbToggle = TOUCH ? h('button', { class: 'btn sm ghost qk', type: 'button', title: 'hide or show the keyboard', 'aria-label': 'Hide or show the keyboard', onmousedown: ev => ev.preventDefault(), onclick: () => { const on = document.activeElement; if (on?.matches('input, textarea')) on.blur(); else ta.focus(); } }, ico('keyboard', 15)) : null;
-  const keys = h('div', { class: 'ckeys' }, attach, mic, clock, focusToggle(conv, scroller), kbToggle, fileIn, ...feat('composerKeys', name),
+  conv.classList.toggle('focus', CHAT.focus && !box.closest('#drawer'));
+  const keys = h('div', { class: 'ckeys' }, attach, mic, clock, fileIn, ...feat('composerKeys', name),
     sj.length ? h('span', { class: 'sjobs' }, sj.map(j => h('span', { class: 'sjob', title: j.prompts.join('\n\n') }, ico('clock', 12), ' ', j.whenFree ? 'when free' : new Date(j.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), j.prompts.length > 1 ? ` ×${j.prompts.length}` : '', j.state === 'running' || j.state === 'sent' ? ' · ' + j.state : '', h('button', { class: 'x', title: 'remove', onclick: () => api('schedule-remove', { id: j.id }) }, ico('x', 11))))) : null);
   const el = h('div', { class: 'cbox2', 'data-k': compKey }, h('div', { class: 'cfield', onclick: ev => { if (ev.target === ev.currentTarget || ev.target.classList.contains('cfoot')) ta.focus(); } }, shBar && shBar.el, ta,
     h('div', { class: 'cfoot' }, keys, cl.state ? modelPicker(name, cl) : null, stopBtn, sendBtn)));
@@ -1766,18 +1767,17 @@ function assistantTurn(turn, ctx) {
   else if (turn.stopped != null) el.append(h('div', { class: 'tdur stopped' }, 'you stopped it after ' + durTxt(turn.stopped)));
   return el;
 }
-function focusToggle(conv, scroller) {
-  conv.classList.toggle('focus', CHAT.focus);
-  return h('button', { class: 'btn sm ghost qk cfocus' + (CHAT.focus ? ' on' : ''), title: 'Focus: only your messages and Claude\'s replies — tool calls hidden', onclick: () => {
-    // it can be pressed anywhere in the chat: what you're reading stays put while the tool rows above it fold away or come back (not every browser does scroll anchoring)
-    const top = scroller.getBoundingClientRect().top, atEnd = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 60;
-    const anchor = [...conv.querySelectorAll(':scope > .turn.user, :scope > .turn > .ttext')].find(el => el.getBoundingClientRect().bottom > top), was = anchor && anchor.getBoundingClientRect().top;
-    CHAT.focus = !CHAT.focus; try { localStorage.setItem('bd.chat.focus', CHAT.focus ? '1' : '0'); } catch {}
-    for (const c of document.querySelectorAll('.conv')) c.classList.toggle('focus', CHAT.focus);
-    for (const b of document.querySelectorAll('.cfocus')) b.classList.toggle('on', CHAT.focus);
-    if (atEnd) scroller.scrollTop = scroller.scrollHeight; else if (anchor) scroller.scrollTop += anchor.getBoundingClientRect().top - was;
-    toast(CHAT.focus ? 'Focus on: tool calls hidden' : 'Focus off: tool calls shown');
-  } }, ico('focus', 15), h('span', null, 'Focus'));
+function toggleChatFocus() {
+  // it can be pressed anywhere in the chat: what you're reading stays put while the tool rows above it fold away or come back (not every browser does scroll anchoring)
+  const spots = [...document.querySelectorAll('.conv')].map(conv => {
+    const scroller = conv.parentElement, top = scroller.getBoundingClientRect().top;
+    const anchor = [...conv.querySelectorAll(':scope > .turn.user, :scope > .turn > .ttext')].find(el => el.getBoundingClientRect().bottom > top);
+    return { conv, scroller, anchor, was: anchor && anchor.getBoundingClientRect().top, atEnd: scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 60 };
+  });
+  CHAT.focus = !CHAT.focus; try { localStorage.setItem('bd.chat.focus', CHAT.focus ? '1' : '0'); } catch {}
+  for (const { conv } of spots) conv.classList.toggle('focus', CHAT.focus);
+  for (const { scroller, anchor, was, atEnd } of spots) { if (atEnd) scroller.scrollTop = scroller.scrollHeight; else if (anchor) scroller.scrollTop += anchor.getBoundingClientRect().top - was; }
+  toast(CHAT.focus ? 'Focus on: tool calls hidden' : 'Focus off: tool calls shown');
 }
 const UPLOAD_MAX_MB = 100;   // same as the server
 // images: downscaled to 1568px on the long edge (what Claude uses anyway); anything else raw, keeping its name. Returns the server path.

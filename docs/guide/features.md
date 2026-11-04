@@ -92,7 +92,7 @@ said next — and while it works a live turn with what it is running right now a
 Consecutive tool calls fold into one quiet row (*ran a command · edited 3 files · read 2 files ›*);
 open it, then open any call: Edit / Write as a real diff with `+6 −1`, Bash with its command and
 output, an agent with its prompt and answer. Questions Claude asked you (and your answers) and its
-to-do list stay inline. **Focus**, in the reply box, hides the tool rows and leaves the conversation.
+to-do list stay inline. **Focus**, in the chat's Options menu, hides the tool rows and leaves the conversation.
 While you scroll through a long reply, the question it answers stays pinned at the top of the chat; tap it to get back to its start.
 Open it to see exactly what Claude changed: the Edit / Write diffs and the Bash commands with their results.
 

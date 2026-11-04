@@ -1179,9 +1179,6 @@ body.term-open { overflow: hidden; }
 .ckeys .qk { width: 36px; height: 32px; padding: 0; justify-content: center; }
 .ckeys .qk .ico { width: 18px; height: 18px; color: var(--muted); }
 .ckeys .qk:hover .ico { color: var(--text); }
-.ckeys .qk.cfocus { width: auto; padding: 0 9px; gap: 5px; font-size: var(--fs-sm); }
-.ckeys .qk.cfocus.on, .ckeys .qk.cfocus.on .ico { color: var(--text); }
-.ckeys .qk.cfocus.on { background: color-mix(in srgb, var(--accent) 20%, transparent); }
 .ckeys .qk.mic { width: auto; min-width: 44px; padding: 0 11px; gap: 6px; background: var(--fill); border: 0; }
 .mic { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .mic .mlbl { font-size: var(--fs-xs); font-weight: 500; color: var(--muted); }
@@ -1464,7 +1461,6 @@ body.recording .ckeys > :not(.mic) { pointer-events: none; opacity: .4; }
   .ckeys { gap: 0; flex-wrap: nowrap; }
   .ckeys .qk { width: 38px; height: 40px; border-radius: var(--r); } .ckeys .qk .ico { width: 21px; height: 21px; }
   .ckeys .qk.mic { min-width: 38px; height: 40px; padding: 0 8px; border-radius: var(--r); }
-  .ckeys .qk.cfocus { width: 38px; padding: 0; } .ckeys .qk.cfocus span { display: none; }
   .cfield .mpick { gap: 0; } .cfield .mpill { padding: 0 7px; }
   .csend { width: 32px; height: 32px; } .csend .ico { width: 15px; height: 15px; }
   .cstop-sq { width: 10px; height: 10px; }

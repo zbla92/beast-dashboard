@@ -66,3 +66,18 @@ test('another tab closes the Inbox, and the Inbox tab keeps it open', () => {
 test('the pinned question hides while the phone keyboard is open', () => {
   assert.match(pinCss, /body\.kb-open \.qpin \{ display: none; \}/);
 });
+
+test('the composer has no Focus or keyboard button, and Focus lives in the chat options', () => {
+  assert.doesNotMatch(app, /kbToggle|focusToggle|cfocus/);
+  assert.doesNotMatch(css, /cfocus/);
+  const menu = app.slice(app.indexOf('function sessMenu'), app.indexOf("label: 'Compact context'"));
+  assert.match(menu, /chat && !logOn \? \{ label: 'Focus'[^\n]*onclick: toggleChatFocus \}/);
+  assert.match(app, /conv\.classList\.toggle\('focus', CHAT\.focus && !box\.closest\('#drawer'\)\)/);
+});
+
+test('every glyph points at an icon that exists', () => {
+  const objectAfter = marker => { const start = app.indexOf(marker) + marker.length; return vm.runInNewContext('(' + app.slice(start, app.indexOf('\n};', start) + 2) + ')'); };
+  const icons = objectAfter('const ICONS = '), glyphs = objectAfter('const GLYPH = ');
+  assert.ok(Object.keys(glyphs).length > 5);
+  assert.deepStrictEqual(Object.values(glyphs).filter(name => !icons[name]), []);
+});
