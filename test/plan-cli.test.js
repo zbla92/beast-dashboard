@@ -716,6 +716,82 @@ test('parallel done commands write exactly one finish event', async t => {
   assert.equal(lifecycleEvents(e).filter(x => x.type === 'finish').length, 1);
 });
 
+test('undo sends a done task back to open, drops the gate and logs it', t => {
+  const e = env(t);
+  const file = seed(e);
+  assert.equal(e.run(['done', 'T1', '--gate', '12 tests']).code, 0);
+  assert.match(fs.readFileSync(file, 'utf8'), /- \[x\] T1 Index schema · Opus · gate ✓ 12 tests/);
+  const r = e.run(['undo', 'T1']);
+  assert.equal(r.code, 0);
+  assert.equal(r.out, 'T1 open · Index schema\n');
+  const text = fs.readFileSync(file, 'utf8');
+  assert.match(text, /^- \[ \] T1 Index schema · Opus$/m);
+  assert.equal(e.events('search-v2').pop().type, 'undo');
+  assert.equal(e.events('search-v2').pop().task, 'T1');
+  assert.equal(statusOf(e), 'active');
+});
+
+test('undo on an open task says already open and writes nothing', t => {
+  const e = env(t);
+  const file = seed(e);
+  const before = fs.readFileSync(file, 'utf8');
+  const n = e.events('search-v2').length;
+  const r = e.run(['undo', 'T2']);
+  assert.equal(r.code, 0);
+  assert.equal(r.out, 'already open\n');
+  assert.equal(fs.readFileSync(file, 'utf8'), before);
+  assert.equal(e.events('search-v2').length, n);
+});
+
+test('undo on a finished plan makes it active in the same log, and the next done finishes it again', t => {
+  const e = env(t);
+  seed(e);
+  finishAll(e);
+  assert.equal(statusOf(e), 'finished');
+  assert.equal(e.run(['undo', 'T5']).code, 0);
+  assert.equal(statusOf(e), 'active');
+  assert.deepStrictEqual(e.events('search-v2').slice(-2).map(x => x.type), ['undo', 'reopen']);
+  assert.equal(e.run(['done', 'T5']).code, 0);
+  assert.equal(statusOf(e), 'finished');
+});
+
+test('undo on a plan marked finished with open tasks leaves it alone when the task is open', t => {
+  const e = env(t);
+  seed(e);
+  assert.equal(e.run(['finish']).code, 0);
+  assert.equal(e.run(['undo', 'T1']).out, 'already open\n');
+  assert.equal(statusOf(e), 'finished');
+});
+
+test('undo takes doing and failed tasks back to open; a blocked task stays blocked', t => {
+  const e = env(t);
+  const file = seed(e);
+  assert.equal(e.run(['start', 'T1']).code, 0);
+  assert.equal(e.run(['undo', 'T1']).code, 0);
+  assert.match(fs.readFileSync(file, 'utf8'), /^- \[ \] T1 /m);
+  assert.equal(e.run(['fail', 'T2', '--gate', 'red']).code, 0);
+  assert.equal(e.run(['undo', 'T2']).code, 0);
+  assert.match(fs.readFileSync(file, 'utf8'), /^- \[ \] T2 Contract tests · Sonnet$/m);
+  assert.equal(e.run(['ask', 'why?', '--blocks', 'T3']).code, 0);
+  assert.equal(e.run(['undo', 'T3']).out, 'already open\n');
+  assert.match(fs.readFileSync(file, 'utf8'), /^- \[\?\] T3 /m);
+});
+
+test('undo refuses a bad or unknown task id and a -- keeps the argument positional', t => {
+  const e = env(t);
+  seed(e);
+  assert.equal(e.run(['undo']).code, 2);
+  assert.equal(e.run(['undo', 'x1']).code, 2);
+  assert.notEqual(e.run(['undo', 'T99']).code, 0);
+  assert.equal(e.run(['done', 'T1']).code, 0);
+  assert.equal(e.run(['undo', '--', 'T1']).code, 0);
+  assert.equal(e.events('search-v2').pop().type, 'undo');
+});
+
+test('help names undo', t => {
+  assert.match(env(t).run(['help']).out, /^ {2}undo <T> /m);
+});
+
 test('start, fail and ask --blocks reopen a finished plan', t => {
   for (const [name, args, status] of [
     ['start', ['start', 'T1'], 'doing'],

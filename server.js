@@ -1165,6 +1165,8 @@ async function api(req, res, url) {
     case 'plan-finish': { const r = await planOps.finish(b); return json(res, r.status, r.body); }
     case 'plan-archive': { const r = await planOps.archive(b); return json(res, r.status, r.body); }
     case 'plan-restore': { const r = await planOps.restore(b); return json(res, r.status, r.body); }
+    case 'plan-step': { const r = await planOps.step(b); return json(res, r.status, r.body); }
+    case 'plan-complete': { const r = await planOps.complete(b); return json(res, r.status, r.body); }
     case 'claude-model': {
       const MODELS = ['default', 'opus', 'sonnet', 'haiku', 'fable'], EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
       if (typeof b.session !== 'string' || (b.model == null && b.effort == null)) return json(res, 400, { error: 'session + model and/or effort' });

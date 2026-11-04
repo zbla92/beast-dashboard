@@ -87,6 +87,16 @@ for ep in finish archive restore; do
     r="$(pl "$ep" "$right" -H "$h")"; [ "$r" = 403 ] && ok "POST plan-$ep with $h -> 403" || fail "POST plan-$ep with $h -> $r"
   done
 done
+for ep in step complete; do
+  for d in '{"id":"demo-docs/nope"}' '{"id":"../../etc"}' '{"id":5}' '{}'; do
+    r="$(pl "$ep" "$d")"; [ "$r" = 404 ] && ok "POST plan-$ep $d -> 404" || fail "POST plan-$ep $d -> $r $(head -c 200 /tmp/gate-$$.body)"
+  done
+  d="{\"id\":\"demo-app/_archive/$ARCH\",\"task\":\"T1\",\"done\":true}"
+  r="$(pl "$ep" "$d")"; [ "$r" = 400 ] && ok "POST plan-$ep archived id -> 400" || fail "POST plan-$ep archived id -> $r $(head -c 200 /tmp/gate-$$.body)"
+  for h in "Origin: https://evil.example" "Sec-Fetch-Site: cross-site"; do
+    r="$(pl "$ep" '{"id":"demo-docs/style-guide","task":"T1","done":true}' -H "$h")"; [ "$r" = 403 ] && ok "POST plan-$ep with $h -> 403" || fail "POST plan-$ep with $h -> $r"
+  done
+done
 json /api/plan/demo-docs/release-notes
 [ "$(jq_ 'd.finished===true&&d.status==="finished"&&!("changed" in d)&&!("autoArchiveAt" in d)')" = true ] && ok "finished plan has no auto-archive fields" || fail "finished plan fields"
 for i in 1 2; do
@@ -101,6 +111,15 @@ r="$(pl restore "{\"id\":\"demo-docs/_archive/$FOLDER\"}" -H "Origin: $B")"; [ "
 rm -rf "$PLANS/demo-docs/release-notes"
 r="$(pl restore "{\"id\":\"demo-docs/_archive/$FOLDER\"}" -H "Origin: $B")"
 [ "$r" = 200 ] && [ "$(jq_ 'd.ok===true&&d.id==="demo-docs/release-notes"')" = true ] && grep -q '^status: finished$' "$PLANS/demo-docs/release-notes/plan.md" && [ ! -e "$PLANS/demo-docs/_archive/$FOLDER" ] && ok "POST plan-restore -> finished again" || fail "POST plan-restore -> $r $(head -c 200 /tmp/gate-$$.body)"
+for c in '409 {"id":"demo-docs/release-notes","task":"T99","done":true}' '409 {"id":"demo-docs/release-notes","task":"1;rm","done":true}' '400 {"id":"demo-docs/release-notes","task":"T1","done":"yes"}'; do
+  want="${c%% *}"; r="$(pl step "${c#* }")"; [ "$r" = "$want" ] && ok "POST plan-step ${c#* } -> $r" || fail "POST plan-step ${c#* } -> $r (want $want) $(head -c 200 /tmp/gate-$$.body)"
+done
+r="$(pl step '{"id":"demo-docs/release-notes","task":"T1","done":false}' -H "Origin: $B")"
+[ "$r" = 200 ] && grep -q '^status: active$' "$PLANS/demo-docs/release-notes/plan.md" && grep -q '^- \[ \] T1 ' "$PLANS/demo-docs/release-notes/plan.md" && ok "POST plan-step untick -> open, plan active" || fail "POST plan-step untick -> $r $(head -c 200 /tmp/gate-$$.body)"
+r="$(pl step '{"id":"demo-docs/release-notes","task":"T1","done":true}' -H "Origin: $B")"
+[ "$r" = 200 ] && grep -q '^status: finished$' "$PLANS/demo-docs/release-notes/plan.md" && ok "POST plan-step tick -> done, plan finished" || fail "POST plan-step tick -> $r $(head -c 200 /tmp/gate-$$.body)"
+r="$(pl complete '{"id":"demo-docs/release-notes"}' -H "Origin: $B")"
+[ "$r" = 200 ] && [ "$(jq_ 'd.id.startsWith("demo-docs/_archive/")')" = true ] && [ ! -e "$PLANS/demo-docs/release-notes" ] && ok "POST plan-complete -> archived" || fail "POST plan-complete -> $r $(head -c 200 /tmp/gate-$$.body)"
 json /api/worktrees
 [ -n "$GITP" ] && json "/api/worktrees/$GITP"
 json "/api/usage/models?days=7"

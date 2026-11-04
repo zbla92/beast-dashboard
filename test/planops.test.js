@@ -114,6 +114,122 @@ test('plan-finish, plan-archive and plan-restore refuse bad ids and write nothin
   assert.strictEqual((await e.ops.restore({ id: ARCHIVED })).status, 409);
 });
 
+test('plan-step and plan-complete refuse bad ids and write nothing', async t => {
+  const e = lifecycle(t);
+  const snapshot = () => e.store.summaries({ archived: true }).map(p => [p.id, p.status, p.mtime]);
+  const before = snapshot();
+  for (const op of ['step', 'complete']) {
+    for (const body of [null, [], {}, { id: 5 }, { id: 'demo-app/nope' }, { id: '../../etc' }, { id: 'demo-app' }, { id: 'demo-app/_archive/../search-v2' }]) {
+      assert.deepStrictEqual(await e.ops[op](body), { status: 404, body: { ok: false, error: 'no such plan' } }, `${op} ${JSON.stringify(body)}`);
+    }
+    assert.strictEqual((await e.ops[op]({ id: ARCHIVED, task: 'T1', done: true })).status, 400);
+  }
+  assert.deepStrictEqual(snapshot(), before);
+  fs.rmSync(path.join(e.root, 'demo-app', '.repo'));
+  assert.strictEqual((await e.ops.step({ id: ID, task: 'T1', done: true })).status, 409);
+  assert.strictEqual((await e.ops.complete({ id: ID })).status, 409);
+});
+
+test('plan-step refuses a task that is not in the plan and a done that is not a boolean', async t => {
+  const e = lifecycle(t);
+  const n = e.events(REL).length;
+  for (const [task, error] of [['T99', 'no task T99'], ['1;rm', 'no task 1;rm'], ['T1234567', 'no task T1234567'], ['--plan=x', 'no task --plan=x'], [5, 'no task'], [undefined, 'no task']]) {
+    assert.deepStrictEqual(await e.ops.step({ id: REL, task, done: true }), { status: 409, body: { ok: false, error } }, String(task));
+  }
+  for (const done of ['true', 1, null, undefined]) {
+    assert.deepStrictEqual(await e.ops.step({ id: REL, task: 'T1', done }), { status: 400, body: { ok: false, error: 'done must be true or false' } }, String(done));
+  }
+  assert.strictEqual(e.events(REL).length, n);
+});
+
+const taskOf = (e, id, task) => pf.findTask(pf.readPlan(e.dir(id)).doc, task);
+
+test('plan-step unticks and ticks through bin/plan, reopening and finishing the plan, and answers the same id', async t => {
+  const e = lifecycle(t);
+  assert.strictEqual(e.meta(REL).status, 'finished');
+  assert.deepStrictEqual(await e.ops.step({ id: REL, task: 'T1', done: false }), { status: 200, body: { ok: true, id: REL } });
+  assert.strictEqual(taskOf(e, REL, 'T1').status, 'todo');
+  assert.strictEqual(taskOf(e, REL, 'T1').gate, null);
+  assert.strictEqual(e.meta(REL).status, 'active');
+  assert.deepStrictEqual(e.events(REL).slice(-2).map(x => x.type), ['undo', 'reopen']);
+  assert.deepStrictEqual(await e.ops.step({ id: REL, task: 'T1', done: false }), { status: 200, body: { ok: true, id: REL } });
+  assert.deepStrictEqual(e.events(REL).slice(-2).map(x => x.type), ['undo', 'reopen']);
+  assert.deepStrictEqual(await e.ops.step({ id: REL, task: 'T1', done: true }), { status: 200, body: { ok: true, id: REL } });
+  assert.strictEqual(taskOf(e, REL, 'T1').status, 'done');
+  assert.strictEqual(e.meta(REL).status, 'finished');
+});
+
+test('ticking a task that is already done answers 200, writes nothing and keeps its gate', async t => {
+  const e = lifecycle(t);
+  const gate = taskOf(e, 'demo-docs/old-cleanup', 'T1').gate;
+  assert.ok(gate);
+  const n = e.events('demo-docs/old-cleanup').length;
+  assert.deepStrictEqual(await e.ops.step({ id: 'demo-docs/old-cleanup', task: 'T1', done: true }), { status: 200, body: { ok: true, id: 'demo-docs/old-cleanup' } });
+  assert.deepStrictEqual(taskOf(e, 'demo-docs/old-cleanup', 'T1').gate, gate);
+  assert.strictEqual(e.events('demo-docs/old-cleanup').length, n);
+});
+
+test('plan-step on a blocked task is a 409 with the reason, and the task stays blocked', async t => {
+  const e = lifecycle(t);
+  const blocked = pf.readPlan(e.dir(ID)).doc;
+  const q = pf.questions(blocked).find(x => x.blocks.length);
+  const r = await e.ops.step({ id: ID, task: q.blocks[0], done: true });
+  assert.strictEqual(r.status, 409);
+  assert.match(r.body.error, /is blocked by q\d+; the user has to answer first$/);
+  assert.strictEqual(taskOf(e, ID, q.blocks[0]).status, 'blocked');
+});
+
+test('plan-complete finishes and archives in one press and answers the archived id', async t => {
+  const e = lifecycle(t);
+  const folder = `${pf.iso().slice(0, 10)}-search-v2`;
+  assert.deepStrictEqual(await e.ops.complete({ id: ID }), { status: 200, body: { ok: true, id: `demo-app/_archive/${folder}` } });
+  assert.strictEqual(e.store.find(ID), null);
+  const archived = `demo-app/_archive/${folder}`;
+  assert.strictEqual(e.store.find(archived).archived, true);
+  assert.deepStrictEqual(e.events(archived).slice(-2).map(x => x.type), ['finish', 'archive']);
+  assert.strictEqual(e.events(archived).slice(-2)[0].text, 'marked finished');
+});
+
+test('plan-complete on a finished plan adds no second finish event', async t => {
+  const e = lifecycle(t);
+  const before = e.events(REL).filter(x => x.type === 'finish').length;
+  const r = await e.ops.complete({ id: REL });
+  assert.strictEqual(r.status, 200);
+  assert.strictEqual(e.events(r.body.id).filter(x => x.type === 'finish').length, before);
+});
+
+test('plan-complete: when finish is refused nothing is archived; when archive fails the plan stays finished and the error comes back', async t => {
+  const e = lifecycle(t);
+  const file = path.join(e.dir(REL), 'plan.md');
+  const text = fs.readFileSync(file, 'utf8');
+  fs.writeFileSync(file, text.replace('- [x] T1', '- [z] T1'));
+  const refused = await e.ops.complete({ id: REL });
+  assert.strictEqual(refused.status, 409);
+  assert.match(refused.body.error, /^plan\.md has errors/);
+  assert.ok(fs.existsSync(file));
+  fs.writeFileSync(file, text);
+  const fake = path.join(e.root, '..', 'fake-plan.js');
+  const real = path.join(__dirname, '..', 'bin', 'plan');
+  fs.writeFileSync(fake, `const { spawnSync } = require('child_process');
+if (process.argv[2] === 'archive') { process.stderr.write('plan: archive went wrong\\n'); process.exit(1); }
+const r = spawnSync(process.execPath, [${JSON.stringify(real)}, ...process.argv.slice(2)], { encoding: 'utf8' });
+process.exit(r.status);
+`);
+  const ops = createPlanOps({ store: e.store, root: e.root, bin: fake });
+  assert.deepStrictEqual(await ops.complete({ id: ID }), { status: 409, body: { ok: false, error: 'archive went wrong' } });
+  assert.strictEqual(e.meta(ID).status, 'finished');
+  assert.ok(e.store.find(ID));
+});
+
+test('two Complete presses at once: one archives, the other finds no plan', async t => {
+  const e = lifecycle(t);
+  const [done, late] = await Promise.all([e.ops.complete({ id: ID }), e.ops.complete({ id: ID })]);
+  assert.strictEqual(done.status, 200);
+  assert.strictEqual(late.status, 404);
+  assert.ok(late.body.error);
+  assert.strictEqual(e.store.summaries({ archived: true }).filter(p => p.topic === 'search-v2').length, 1);
+});
+
 test('plan-finish marks the plan and answers the same id, twice', async t => {
   const e = lifecycle(t);
   assert.deepStrictEqual(await e.ops.finish({ id: ID }), { status: 200, body: { ok: true, id: ID } });
@@ -197,7 +313,7 @@ test('a symlink to the real store does not get past the guard', { skip: !fs.exis
   assert.strictEqual(await guardAnswer({ BD_TEST: '1', BEAST_PLANS_DIR: link }), 403);
 });
 
-const ENDPOINTS = { answer: { id: ID, q: 'q1', text: 'x' }, finish: { id: ID }, archive: { id: ID }, restore: { id: ARCHIVED } };
+const ENDPOINTS = { answer: { id: ID, q: 'q1', text: 'x' }, finish: { id: ID }, archive: { id: ID }, restore: { id: ARCHIVED }, step: { id: ID, task: 'T1', done: false }, complete: { id: ID } };
 
 for (const [op, body] of Object.entries(ENDPOINTS)) {
   test(`plan-${op}: a test copy without its own store gets 403 and nothing is written; with its own store it runs`, async t => {

@@ -284,6 +284,8 @@ test('events: makeEvent orders keys and drops empties; append and read back; bad
   assert.strictEqual(r.bad, 2);
   assert.deepStrictEqual(pf.readEvents(dir, { limit: 1 }).events.map(x => x.type), ['note']);
   assert.deepStrictEqual(pf.readEvents(path.join(dir, 'none')), { events: [], bad: 0 });
+  assert.strictEqual(pf.eventError({ ts: e.ts, type: 'undo', task: 'T1' }), null);
+  assert.match(pf.eventError({ ts: e.ts, type: 'undo' }), /undo needs task/);
   for (const [bad, why] of [[{ type: 'start' }, /ts/], [{ ts: e.ts, type: 'edit' }, /type must be one of/], [{ ts: e.ts, type: 'start' }, /start needs task/],
     [{ ts: e.ts, type: 'fail', task: 'T1', gate: { ok: true, text: '' } }, /fail needs a failed gate/], [{ ts: e.ts, type: 'ask' }, /ask needs q/], [{ ts: e.ts, type: 'note', phase: 0 }, /phase/]]) {
     assert.throws(() => pf.appendEvent(dir, bad), why);
@@ -591,4 +593,29 @@ test('detail carries the summary lifecycle fields', () => {
   const d = pf.detail(rn.doc, rn.events);
   assert.deepStrictEqual([d.finished, d.finishedAt], [true, '2026-11-02T10:00:00.000Z']);
   assert.ok(d.timeline.some(e => e.type === 'finish'));
+});
+
+test('a later undo cancels the task finished time and the gate it wrote stops being the last gate', () => {
+  const doc = pf.parse(['---', 'topic: u', 'title: U', 'repo: /srv/u', 'status: active', 'created: 2026-11-01T09:00:00Z', '---', '', '## Phase 1 — A', '', '- [x] T1 One', '- [ ] T2 Two', ''].join('\n'));
+  const ts = n => `2026-11-02T10:0${n}:00.000Z`;
+  const taskOne = events => pf.detail(doc, events).phases[0].tasks[0];
+  const earlier = { ts: ts(0), type: 'done', task: 'T2', gate: { ok: true, text: 'two' } };
+  const done = { ts: ts(1), type: 'done', task: 'T1', gate: { ok: true, text: 'one' } };
+  assert.strictEqual(taskOne([earlier, done]).finished, ts(1));
+  assert.strictEqual(pf.summarize(doc, [earlier, done]).lastGate.text, 'one');
+  const undone = [earlier, done, { ts: ts(2), type: 'undo', task: 'T1' }];
+  assert.strictEqual(taskOne(undone).finished, null);
+  assert.strictEqual(pf.summarize(doc, undone).lastGate.text, 'two');
+  const again = [...undone, { ts: ts(3), type: 'done', task: 'T1', gate: { ok: true, text: 'again' } }];
+  assert.strictEqual(pf.summarize(doc, again).lastGate.text, 'again');
+  assert.strictEqual(taskOne(again).finished, ts(3));
+});
+
+test('undo returns no event for an open or blocked task and a done task with a live question goes back to blocked', () => {
+  const doc = pf.parse(['---', 'topic: u', 'title: U', 'repo: /srv/u', 'status: active', 'created: 2026-11-01T09:00:00Z', '---', '', '## Waiting on you', '', '- q1 Why? · blocks T1 · asked 2026-11-01T09:00:00Z', '', '## Phase 1 — A', '', '- [x] T1 One', '- [ ] T2 Two', '- [?] T3 Three', ''].join('\n'));
+  assert.deepStrictEqual(pf.undo(doc, 'T2'), []);
+  assert.deepStrictEqual(pf.undo(doc, 'T3'), []);
+  assert.deepStrictEqual(pf.undo(doc, 'T1'), [{ type: 'undo', task: 'T1' }]);
+  assert.strictEqual(pf.findTask(doc, 'T1').status, 'blocked');
+  assert.throws(() => pf.undo(doc, 'T9'));
 });

@@ -24,6 +24,7 @@ const COMMANDS = {
   use: { min: 0, max: 1, flags: ['clear'] },
   start: { min: 1, max: 1, flags: [] },
   done: { min: 1, max: 1, flags: ['gate'] },
+  undo: { min: 1, max: 1, flags: [] },
   fail: { min: 1, max: 1, flags: ['gate'] },
   ask: { min: 1, max: 1, flags: ['blocks', 'detail'] },
   answer: { min: 2, max: 2, flags: [] },
@@ -46,6 +47,7 @@ const USAGE = `usage: plan <command> [args] [flags]
   use <topic> | use --clear                  claim a plan for this session / drop the claim
   start <T>                                  task -> doing
   done <T> [--gate "<text>"]                 task -> done
+  undo <T>                                   task -> open again, gate gone
   fail <T> --gate "<text>"                   task -> failed
   ask "<question>" [--blocks T5,T6] [--detail "<text>"]
   answer <qN> "<answer>"
@@ -300,6 +302,16 @@ const commands = {
     const phase = r.events.find(e => e.type === 'phase');
     const finished = r.events.some(e => e.type === 'finish');
     return `${id} done · ${r.title}${phase ? ` · phase ${phase.phase} complete` : ''}${finished ? ` · plan finished. ${ASK_TO_ARCHIVE}` : ''}`;
+  },
+
+  undo(ctx, [id]) {
+    requireTaskId(id);
+    const r = mutate(ctx, locate(ctx), doc => {
+      const undone = pf.undo(doc, id);
+      const title = pf.findTask(doc, id).title;
+      return undone.length ? { events: [...undone, ...pf.reopen(doc)], title } : { events: [], title, unchanged: true };
+    });
+    return r.unchanged ? 'already open' : `${id} open · ${r.title}`;
   },
 
   fail(ctx, [id]) {

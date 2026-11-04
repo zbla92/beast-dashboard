@@ -141,21 +141,22 @@ this order and are omitted when empty:
 |---|---|---|
 | `ts` | ISO time with ms (`Date#toISOString`) | required |
 | `type` | see below | required |
-| `task` | task id | start, done, fail; optional on note |
+| `task` | task id | start, done, undo, fail; optional on note |
 | `q` | question id | ask, answer |
 | `phase` | phase number | phase |
 | `session` | tmux session name of the writer, if any | optional |
 | `text` | string | create: title · ask: question · answer: the answer · note: the note · phase: phase name · finish: `all tasks done` or `marked finished` |
 | `gate` | `{ ok: boolean, text: string }` | done (optional), fail (required, `ok: false`) |
 
-Types: `create` (plan made or imported), `start`, `done`, `fail`, `ask`, `answer`, `note`, `phase`
+Types: `create` (plan made or imported), `start`, `done`, `undo` (a task went back to open), `fail`, `ask`, `answer`, `note`, `phase`
 (every task of phase N is done; written by `plan done` when it completes a phase), `finish`
 (the plan became finished), `reopen` (a finished plan went back to active), `archive`, `restore`.
 `plan next` and hand edits write no event. Readers skip lines that are not valid JSON or fail
 validation and report how many they skipped.
 
 Derived from events (not stored in `plan.md`): a task's `started` (last `start`), `finished` (last
-`done`), the plan's `lastGate` (last event with `gate`) and `updated` (last event).
+`done`, cancelled by a later `undo`), the plan's `lastGate` (last event with `gate` whose task was not
+undone after it) and `updated` (last event).
 
 ## 3. Store layout
 
@@ -220,6 +221,7 @@ Read-only commands claim nothing.
 | `use <topic>` / `use --clear` | the session claims a plan of this repo / drops its claim | |
 | `start <T>` | → doing. Refused if done or blocked by an open question | start |
 | `done <T> [--gate "<text>"]` | → done, gate `✓ <text>` (no `--gate` clears the gate). Refused if blocked. The last open task adds ` · plan finished. Ask the user whether to archive it; do not archive without asking.` to the output | done (+ phase, finish) |
+| `undo <T>` | → open (`[ ]`, gate gone; `[?]` when an open question still blocks it). On a finished plan also → active. Already open or blocked: exit 0, `already open`, nothing written | undo (+ reopen) |
 | `fail <T> --gate "<text>"` | → failed, gate `✗ <text>` | fail |
 | `ask "<question>" [--blocks T5,T6] [--detail "<text>"]` | adds the next `qN` to Waiting on you; named tasks → blocked (done tasks refused) | ask |
 | `answer <qN> "<answer>"` | removes the question; tasks it blocked go back to todo unless another question still blocks them | answer |
@@ -237,7 +239,7 @@ Read-only commands claim nothing.
 - **Finish and reopen** happen inside the lock of the command that causes them:
   - `done` leaving every task done on an `active` plan → `finished`, event `finish` with text
     `all tasks done`. `plan finish` writes the text `marked finished`.
-  - `start`, `fail`, `ask --blocks`, or a `done` that leaves a task open, on a `finished` plan →
+  - `start`, `fail`, `ask --blocks`, `undo`, or a `done` that leaves a task open, on a `finished` plan →
     `active`, event `reopen`. A task added by hand does not reopen the plan; its `start` does.
     `ask` without `--blocks`, `answer`, `next` and `note` leave the status alone.
 - **Archiving is never automatic.** When a plan becomes finished, Claude asks the user whether to
@@ -363,17 +365,25 @@ The task in `now` may carry `steps: [{ c, s }]` — the mapped session's latest 
   new id `<repoDir>/_archive/<folder>`.
 - `POST /api/plan-restore` `{ id }` — `plan restore` on an archived plan:
   `200 { ok: true, id }` with the new id `<repoDir>/<topic>`; topic taken → `409`.
+- `POST /api/plan-step` `{ id, task, done }` — the tick box of a step: `plan done` (`done: true`) or
+  `plan undo` (`done: false`) on a live plan, `200 { ok: true, id }` with the same id. `task` not a
+  task of that plan → `409 no task T`; `done` not a boolean → `400`. Ticking a task that is already
+  done answers `200` and writes nothing, so its gate stays. A blocked task refuses with `409`.
+- `POST /api/plan-complete` `{ id }` — the Complete press: `plan finish`, then `plan archive`, one
+  after the other in one queue slot. `200 { ok: true, id }` with the new archived id. If archive fails
+  after finish the plan stays finished and the error comes back.
 
-  The last three run `bin/plan` the way `plan-answer` does, in the same queue, with the same exit code
-  mapping and guards. Unknown or malformed `id` → `404 no such plan`; an archived id for finish or
-  archive, or a live id for restore → `400`; no `.repo` marker → `409`. Errors are
-  `{ ok: false, error }`.
+  These run `bin/plan` the way `plan-answer` does, in the same queue, with the same exit code
+  mapping and guards. Unknown or malformed `id` → `404 no such plan`; an archived id for finish,
+  archive, step or complete, or a live id for restore → `400`; no `.repo` marker → `409`. Errors are
+  `{ ok: false, error }`. Agents use the CLI; the panel only presses `plan-step`, `plan-complete`,
+  `plan-restore` and `plan-answer`.
 
 **No auto-archive**: no timer and no sweep. A plan is archived only when the user presses Archive or
 says so. A plan with `status: active` and every task done stays as it is; `summarize` reports it as
 `finished`.
 
-With `BD_TEST=1` all four endpoints answer `403 test copy has no plan store` unless `BEAST_PLANS_DIR`
+With `BD_TEST=1` all these endpoints answer `403 test copy has no plan store` unless `BEAST_PLANS_DIR`
 is set and is not the user's real store (`~/.beast/plans` or below it), so a test copy can never
 change real plans.
 
