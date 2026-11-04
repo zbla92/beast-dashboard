@@ -46,7 +46,7 @@ function env(t) {
       cwd: opts.cwd || repo,
       input: opts.input,
       encoding: 'utf8',
-      env: { PATH: process.env.PATH, HOME: os.tmpdir(), BEAST_PLANS_DIR: root },
+      env: { PATH: process.env.PATH, HOME: os.tmpdir(), BEAST_PLANS_DIR: root, ...opts.env },
     });
     return { code: r.status, out: r.stdout, err: r.stderr };
   };
@@ -684,4 +684,285 @@ test('context Answered: the last three answers since the last start, clipped', t
   e.run(['done', 'T1']);
   e.run(['start', 'T2']);
   assert.doesNotMatch(e.run(['context'], { input: '{}' }).out, /^Answered:/m);
+});
+
+const statusOf = (e, topic = 'search-v2') => pf.parse(e.planText(topic)).meta.status;
+const lifecycleEvents = (e, topic = 'search-v2') => e.events(topic).filter(x => ['finish', 'reopen', 'restore'].includes(x.type));
+const finishAll = (e, ids = ['T1', 'T2', 'T3', 'T4', 'T5']) => { for (const id of ids) assert.equal(e.run(['done', id]).code, 0); };
+
+test('done on the last task finishes the plan, in the same line and log', t => {
+  const e = env(t);
+  seed(e);
+  finishAll(e, ['T1', 'T2', 'T3', 'T4']);
+  assert.equal(statusOf(e), 'active');
+  assert.deepStrictEqual(lifecycleEvents(e), []);
+  const r = e.run(['done', 'T5']);
+  assert.equal(r.code, 0);
+  assert.equal(r.out, 'T5 done · Runbook · phase 2 complete · plan finished. Ask the user whether to archive it; do not archive without asking.\n');
+  assert.equal(statusOf(e), 'finished');
+  const last = e.events('search-v2').slice(-3).map(x => x.type);
+  assert.deepStrictEqual(last, ['done', 'phase', 'finish']);
+  assert.equal(lifecycleEvents(e)[0].text, 'all tasks done');
+  assert.doesNotMatch(e.run(['done', 'T5']).out, /plan finished/);
+  assert.equal(lifecycleEvents(e).length, 1);
+});
+
+test('parallel done commands write exactly one finish event', async t => {
+  const e = env(t);
+  seed(e);
+  const rs = await Promise.all(['T1', 'T2', 'T3', 'T4', 'T5'].map(id => spawnPlan(e, ['done', id])));
+  assert.deepStrictEqual(rs.map(r => r.code), [0, 0, 0, 0, 0], rs.map(r => r.err).join());
+  assert.equal(statusOf(e), 'finished');
+  assert.equal(lifecycleEvents(e).filter(x => x.type === 'finish').length, 1);
+});
+
+test('start, fail and ask --blocks reopen a finished plan', t => {
+  for (const [name, args, status] of [
+    ['start', ['start', 'T1'], 'doing'],
+    ['fail', ['fail', 'T1', '--gate', 'red'], 'failed'],
+    ['ask', ['ask', 'Why?', '--blocks', 'T1'], 'blocked'],
+  ]) {
+    const e = env(t);
+    seed(e);
+    assert.equal(e.run(['finish']).code, 0, name);
+    const r = e.run(args);
+    assert.equal(r.code, 0, r.err);
+    assert.equal(statusOf(e), 'active', name);
+    assert.equal(pf.findTask(pf.parse(e.planText('search-v2')), 'T1').status, status, name);
+    assert.deepStrictEqual(lifecycleEvents(e).map(x => x.type), ['finish', 'reopen'], name);
+    assert.equal(e.events('search-v2').pop().type, 'reopen', name);
+    assert.equal(e.events('search-v2').pop().text, undefined, name);
+  }
+});
+
+test('done that leaves an open task reopens a finished plan; done that leaves none stays finished', t => {
+  const e = env(t);
+  seed(e);
+  e.run(['finish']);
+  assert.equal(e.run(['done', 'T1']).code, 0);
+  assert.equal(statusOf(e), 'active');
+  assert.deepStrictEqual(lifecycleEvents(e).map(x => x.type), ['finish', 'reopen']);
+  finishAll(e, ['T2', 'T3', 'T4', 'T5']);
+  assert.equal(statusOf(e), 'finished');
+  assert.equal(e.run(['done', 'T1']).code, 0);
+  assert.equal(statusOf(e), 'finished');
+  assert.deepStrictEqual(lifecycleEvents(e).map(x => x.type), ['finish', 'reopen', 'finish']);
+});
+
+test('a refused command does not reopen; ask without blocks, answer, note, next and a hand-added task do not either', t => {
+  const e = env(t);
+  seed(e);
+  finishAll(e);
+  assert.equal(e.run(['start', 'T1']).code, 1);
+  assert.equal(statusOf(e), 'finished');
+  assert.equal(e.run(['ask', 'Plain question?']).code, 0);
+  assert.equal(e.run(['answer', 'q1', 'fine']).code, 0);
+  assert.equal(e.run(['note', 'hello']).code, 0);
+  assert.equal(e.run(['next', 'later']).code, 0);
+  assert.equal(statusOf(e), 'finished');
+  const file = path.join(e.planDir('search-v2'), 'plan.md');
+  fs.appendFileSync(file, '- [ ] T6 Added by hand\n');
+  assert.equal(e.run(['validate']).code, 0);
+  assert.equal(e.run(['note', 'still finished']).code, 0);
+  assert.equal(statusOf(e), 'finished');
+  assert.equal(e.run(['start', 'T6']).code, 0);
+  assert.equal(statusOf(e), 'active');
+  assert.deepStrictEqual(lifecycleEvents(e).map(x => x.type), ['finish', 'reopen']);
+});
+
+test('finish marks an active plan with open tasks; a second finish writes nothing', t => {
+  const e = env(t);
+  seed(e);
+  const r = e.run(['finish']);
+  assert.equal(r.code, 0, r.err);
+  assert.equal(r.out, 'search-v2 · plan finished. Ask the user whether to archive it; do not archive without asking.\n');
+  assert.equal(statusOf(e), 'finished');
+  assert.deepStrictEqual(lifecycleEvents(e).map(x => [x.type, x.text]), [['finish', 'marked finished']]);
+  const file = path.join(e.planDir('search-v2'), 'plan.md');
+  const events = path.join(e.planDir('search-v2'), 'events.jsonl');
+  const past = new Date(Date.now() - 86400000);
+  fs.utimesSync(file, past, past);
+  fs.utimesSync(events, past, past);
+  const before = [fs.statSync(file).mtimeMs, fs.statSync(events).mtimeMs, fs.readFileSync(events, 'utf8')];
+  const again = e.run(['finish']);
+  assert.equal(again.code, 0);
+  assert.equal(again.out, 'already finished\n');
+  assert.deepStrictEqual([fs.statSync(file).mtimeMs, fs.statSync(events).mtimeMs, fs.readFileSync(events, 'utf8')], before);
+  assert.equal(e.run(['finish', 'extra']).code, 2);
+});
+
+test('a finished plan stays live: resolved, claimable, mutable, in plan context, in plan list', t => {
+  const e = env(t);
+  seed(e);
+  finishAll(e);
+  assert.equal(e.run(['validate']).code, 0);
+  assert.equal(e.run(['show']).code, 0);
+  assert.match(e.run(['show']).out, /· finished$/m);
+  assert.equal(e.run(['path']).code, 0);
+  assert.match(e.run(['list']).out, /search-v2 {2}5\/5 {2}finished/);
+  assert.equal(e.run(['use', 'search-v2', '--session', 'claude-other']).code, 0);
+  assert.equal(e.run(['note', 'done and dusted']).code, 0);
+  assert.match(e.run(['context'], { input: '{}' }).out, /^Plan search-v2 "Search v2" \(demo-app\): 5\/5 tasks done/);
+  const j = JSON.parse(e.run(['show', '--json']).out);
+  assert.equal(j.finished, true);
+  assert.ok(pf.isIso(j.finishedAt));
+  assert.equal(e.run(['archive']).code, 0);
+  assert.equal(e.run(['show']).code, 3);
+});
+
+test('restore brings a complete plan back as finished, with the lock gone and the event logged', t => {
+  const e = env(t);
+  seed(e);
+  finishAll(e);
+  assert.equal(e.run(['archive']).code, 0);
+  const folder = `${pf.iso().slice(0, 10)}-search-v2`;
+  const r = e.run(['restore', folder]);
+  assert.equal(r.code, 0, r.err);
+  assert.equal(r.out, 'restored search-v2 -> demo-app/search-v2\n');
+  assert.ok(!fs.existsSync(path.join(e.root, 'demo-app', '_archive', folder)));
+  assert.ok(!fs.existsSync(path.join(e.planDir('search-v2'), '.lock')));
+  const doc = pf.parse(e.planText('search-v2'));
+  assert.equal(doc.meta.status, 'finished');
+  assert.ok(!Object.hasOwn(doc.meta, 'archived'));
+  assert.equal(e.events('search-v2').pop().type, 'restore');
+  assert.equal(e.run(['note', 'back again']).code, 0);
+});
+
+const failingRestore = (t, hookCode) => {
+  const e = env(t);
+  seed(e);
+  finishAll(e);
+  assert.equal(e.run(['archive']).code, 0);
+  const folder = `${pf.iso().slice(0, 10)}-search-v2`;
+  const archived = path.join(e.root, 'demo-app', '_archive', folder);
+  const planBefore = fs.readFileSync(path.join(archived, 'plan.md'), 'utf8');
+  const eventsBefore = fs.readFileSync(path.join(archived, 'events.jsonl'), 'utf8');
+  const hook = path.join(tmp(t, 'bd-plancli-hook-'), 'fail.js');
+  fs.writeFileSync(hook, hookCode);
+  const r = e.run(['restore', folder], { env: { NODE_OPTIONS: `--require ${hook}` } });
+  assert.equal(r.code, 1);
+  assert.match(r.err, /disk full/);
+  assert.ok(!fs.existsSync(e.planDir('search-v2')));
+  assert.deepStrictEqual(fs.readdirSync(archived).sort(), ['events.jsonl', 'plan.md']);
+  assert.equal(fs.readFileSync(path.join(archived, 'plan.md'), 'utf8'), planBefore);
+  assert.equal(fs.readFileSync(path.join(archived, 'events.jsonl'), 'utf8'), eventsBefore);
+  const again = e.run(['restore', folder]);
+  assert.equal(again.code, 0, again.err);
+  assert.equal(statusOf(e), 'finished');
+  assert.deepStrictEqual(e.events('search-v2').filter(x => x.type === 'restore').length, 1);
+};
+
+test('restore moves the plan back to the archive when writing plan.md fails, and can be run again', t => {
+  failingRestore(t, `const fs = require('fs');
+const rename = fs.renameSync;
+fs.renameSync = (from, to) => {
+  if (String(to).endsWith('plan.md')) throw new Error('disk full');
+  return rename(from, to);
+};
+`);
+});
+
+test('restore moves the plan back and undoes the write when logging the event fails', t => {
+  failingRestore(t, `const fs = require('fs');
+fs.appendFileSync = () => { throw new Error('disk full'); };
+`);
+});
+
+const FINISHED_LINE = 'This plan is finished. Ask the user whether to archive it; do not archive without asking.';
+const contextOf = e => e.run(['context'], { input: JSON.stringify({ session_id: 's', cwd: e.repo, hook_event_name: 'SessionStart', source: 'startup' }) }).out;
+
+test('plan context tells Claude to ask before archiving a finished plan, and only then', t => {
+  const e = env(t);
+  seed(e);
+  assert.ok(!contextOf(e).includes(FINISHED_LINE));
+  assert.equal(e.run(['finish']).code, 0);
+  assert.ok(contextOf(e).split('\n').includes(FINISHED_LINE));
+  assert.equal(e.run(['start', 'T1']).code, 0);
+  assert.ok(!contextOf(e).includes(FINISHED_LINE));
+});
+
+test('a plan with every task done but status active stays active, and context still says it is finished', t => {
+  const e = env(t);
+  seed(e);
+  const file = path.join(e.planDir('search-v2'), 'plan.md');
+  fs.writeFileSync(file, e.planText('search-v2').replace(/^(\s*- )\[.\]/gm, '$1[x]'));
+  assert.ok(contextOf(e).split('\n').includes(FINISHED_LINE));
+  assert.equal(statusOf(e), 'active');
+  assert.deepStrictEqual(lifecycleEvents(e), []);
+});
+
+test('restore brings an unfinished plan back as active', t => {
+  const e = env(t);
+  seed(e);
+  assert.equal(e.run(['archive']).code, 0);
+  assert.equal(e.run(['restore', `${pf.iso().slice(0, 10)}-search-v2`]).code, 0);
+  assert.equal(statusOf(e), 'active');
+  assert.equal(e.run(['start', 'T1']).code, 0);
+});
+
+test('restore refuses a taken topic and leaves the archive as it was', t => {
+  const e = env(t);
+  seed(e);
+  assert.equal(e.run(['archive']).code, 0);
+  seed(e);
+  const folder = `${pf.iso().slice(0, 10)}-search-v2`;
+  const dir = path.join(e.root, 'demo-app', '_archive', folder);
+  const before = fs.readFileSync(path.join(dir, 'plan.md'), 'utf8');
+  const r = e.run(['restore', folder]);
+  assert.equal(r.code, 1);
+  assert.equal(r.err, `plan: plan search-v2 already exists for ${e.repo}\n`);
+  assert.equal(fs.readFileSync(path.join(dir, 'plan.md'), 'utf8'), before);
+  assert.ok(!fs.existsSync(path.join(dir, '.lock')));
+  assert.equal(pf.readEvents(dir).events.pop().type, 'archive');
+});
+
+test('restore takes the topic from the frontmatter, not the folder name', t => {
+  const e = env(t);
+  seed(e);
+  assert.equal(e.run(['archive']).code, 0);
+  const archive = path.join(e.root, 'demo-app', '_archive');
+  fs.renameSync(path.join(archive, `${pf.iso().slice(0, 10)}-search-v2`), path.join(archive, 'renamed'));
+  assert.equal(e.run(['restore', 'renamed']).code, 0);
+  assert.ok(fs.existsSync(path.join(e.planDir('search-v2'), 'plan.md')));
+});
+
+test('restore refuses bad folders, unknown repos, symlinks and an archived plan with errors', t => {
+  const e = env(t);
+  seed(e);
+  assert.equal(e.run(['restore']).code, 2);
+  for (const bad of ['../search-v2', '..', 'a/b', '_x']) assert.equal(e.run(['restore', '--', bad]).code, 2, bad);
+  assert.equal(e.run(['restore', 'nope']).code, 3);
+  assert.equal(e.run(['restore', 'x', '--repo', path.join(e.repo, 'not-here')]).code, 3);
+  assert.equal(e.run(['archive']).code, 0);
+  const archive = path.join(e.root, 'demo-app', '_archive');
+  const folder = `${pf.iso().slice(0, 10)}-search-v2`;
+  const outside = path.join(tmp(t), 'outside');
+  fs.cpSync(path.join(archive, folder), outside, { recursive: true });
+  fs.symlinkSync(outside, path.join(archive, 'linked'));
+  assert.equal(e.run(['restore', 'linked']).code, 3);
+  const file = path.join(archive, folder, 'plan.md');
+  fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('status: done', 'status: paused'));
+  const r = e.run(['restore', folder]);
+  assert.equal(r.code, 1);
+  assert.match(r.err, /plan\.md has errors/);
+  assert.ok(fs.existsSync(file));
+  assert.ok(!fs.existsSync(e.planDir('search-v2')));
+});
+
+test('finish and restore act through --repo and -- from outside the repo, like the server', t => {
+  const e = env(t);
+  seed(e);
+  const outside = { cwd: e.root };
+  assert.equal(e.run(['finish', '--repo', e.repo, '--plan', 'search-v2'], outside).code, 0);
+  const a = e.run(['archive', '--repo', e.repo, '--plan', 'search-v2'], outside);
+  assert.equal(a.code, 0);
+  const folder = /_archive\/(\S+)$/m.exec(a.out)[1];
+  assert.equal(e.run(['restore', '--repo', e.repo, '--', folder], outside).code, 0);
+  assert.equal(statusOf(e), 'active');
+});
+
+test('help lists finish and restore', t => {
+  const out = env(t).run(['help']).out;
+  assert.match(out, /^ {2}finish\b/m);
+  assert.match(out, /^ {2}restore <folder>/m);
 });

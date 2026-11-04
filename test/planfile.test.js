@@ -135,7 +135,7 @@ test('validation: the malformed fixture reports each problem with its line', () 
     '2: topic must be 1-64 letters',
     '3: title is empty',
     '4: repo must be the absolute path of the main worktree: "relative/path"',
-    '5: status must be active or done: "paused"',
+    '5: status must be active, finished or done: "paused"',
     '6: created needs an ISO time',
     "7: frontmatter line must be 'key: value': \"owner jane\"",
     "13: unknown status marker '[y]'",
@@ -376,8 +376,12 @@ test('store: listPlans finds live and archived plans, skips symlinks and junk', 
   assert.deepStrictEqual(list.map(p => [p.id, p.repo, p.topic, p.archived]), [
     ['demo-app/search-v2', '/srv/demo-app', 'search-v2', false],
     ['demo-app/_archive/2026-10-28-onboarding', '/srv/demo-app', '2026-10-28-onboarding', true],
+    ['demo-docs/old-cleanup', '/srv/demo-docs', 'old-cleanup', false],
+    ['demo-docs/release-notes', '/srv/demo-docs', 'release-notes', false],
+    ['demo-docs/style-guide', '/srv/demo-docs', 'style-guide', false],
   ]);
   assert.deepStrictEqual(pf.activeTopics(root, 'demo-app'), ['search-v2']);
+  assert.deepStrictEqual(pf.activeTopics(root, 'demo-docs'), ['old-cleanup', 'release-notes', 'style-guide']);
 });
 
 test('store: readPlan flags a topic that does not match its folder; writePlan refuses invalid docs', t => {
@@ -390,7 +394,7 @@ test('store: readPlan flags a topic that does not match its folder; writePlan re
   assert.strictEqual(pf.readPlan(path.join(root, 'none')), null);
   const d = mid();
   d.meta.status = 'paused';
-  assert.throws(() => pf.writePlan(dir, d), /plan\.md:5: status must be active or done/);
+  assert.throws(() => pf.writePlan(dir, d), /plan\.md:5: status must be active, finished or done/);
   const ok = mid();
   pf.writePlan(dir, ok);
   assert.strictEqual(read(path.join(dir, 'plan.md')), midText());
@@ -498,4 +502,93 @@ test('withLock: a stale lock is broken once; a fresh lock that replaced it is ke
   assert.throws(() => pf.withLock(dir, () => 1, { wait: 100 }), /locked by another plan command/);
   assert.strictEqual(fs.readFileSync(lock, 'utf8'), 'fresh holder');
   assert.deepStrictEqual(fs.readdirSync(dir), ['.lock']);
+});
+
+const DOCS = path.join(STORE, 'demo-docs');
+const docsPlan = topic => ({ doc: pf.readPlan(path.join(DOCS, topic)).doc, events: pf.readEvents(path.join(DOCS, topic)).events });
+
+test('lifecycle fixtures are canonical and their events valid', () => {
+  for (const topic of ['release-notes', 'style-guide', 'old-cleanup']) {
+    const r = pf.readPlan(path.join(DOCS, topic));
+    assert.deepStrictEqual(r.doc.errors, [], topic);
+    assert.deepStrictEqual(r.doc.warnings, [], topic);
+    assert.strictEqual(pf.serialize(r.doc), r.text, topic);
+    assert.strictEqual(pf.readEvents(path.join(DOCS, topic)).bad, 0, topic);
+  }
+});
+
+test('lifecycle: status finished is valid, the new event types pass, a finish carries its text', () => {
+  const d = pf.parse(midText().replace('status: active', 'status: finished'));
+  assert.deepStrictEqual(d.errors, []);
+  for (const type of ['finish', 'reopen', 'restore']) assert.strictEqual(pf.eventError(pf.makeEvent({ type })), null, type);
+  assert.deepStrictEqual(pf.markFinished(d), [{ type: 'finish', text: 'marked finished' }]);
+  assert.strictEqual(d.meta.status, 'finished');
+});
+
+test('lifecycle: reopen only acts on a finished plan', () => {
+  const d = mid();
+  assert.deepStrictEqual(pf.reopen(d), []);
+  assert.strictEqual(d.meta.status, 'active');
+  d.meta.status = 'finished';
+  assert.deepStrictEqual(pf.reopen(d), [{ type: 'reopen' }]);
+  assert.strictEqual(d.meta.status, 'active');
+});
+
+test('lifecycle: settleAfterDone finishes a complete active plan and reopens an incomplete finished one', () => {
+  const all = docsPlan('old-cleanup').doc;
+  assert.deepStrictEqual(pf.settleAfterDone(all), [{ type: 'finish', text: 'all tasks done' }]);
+  assert.strictEqual(all.meta.status, 'finished');
+  assert.deepStrictEqual(pf.settleAfterDone(all), []);
+  assert.strictEqual(all.meta.status, 'finished');
+  const open = docsPlan('style-guide').doc;
+  assert.deepStrictEqual(pf.settleAfterDone(open), [{ type: 'reopen' }]);
+  assert.strictEqual(open.meta.status, 'active');
+  const midway = mid();
+  assert.deepStrictEqual(pf.settleAfterDone(midway), []);
+  assert.strictEqual(midway.meta.status, 'active');
+});
+
+test('lifecycle: restore drops archived, finished when complete, active otherwise', () => {
+  const complete = pf.readPlan(ARCH).doc;
+  assert.deepStrictEqual(pf.restore(complete), [{ type: 'restore' }]);
+  assert.strictEqual(complete.meta.status, 'finished');
+  assert.ok(!Object.hasOwn(complete.meta, 'archived'));
+  const empty = pf.newPlan({ topic: 'x', title: 'X', repo: '/srv/x' });
+  pf.archive(empty);
+  pf.restore(empty);
+  assert.strictEqual(empty.meta.status, 'active');
+  const open = docsPlan('style-guide').doc;
+  pf.archive(open);
+  pf.restore(open);
+  assert.strictEqual(open.meta.status, 'active');
+});
+
+test('summarize: finished and finishedAt', () => {
+  const rn = docsPlan('release-notes');
+  const s1 = pf.summarize(rn.doc, rn.events);
+  assert.deepStrictEqual([s1.status, s1.finished, s1.finishedAt], ['finished', true, '2026-11-02T10:00:00.000Z']);
+  const sg = docsPlan('style-guide');
+  const s2 = pf.summarize(sg.doc, sg.events);
+  assert.deepStrictEqual([s2.finished, s2.complete, s2.finishedAt], [true, false, '2026-10-12T08:00:00.000Z']);
+  const old = docsPlan('old-cleanup');
+  const s3 = pf.summarize(old.doc, old.events);
+  assert.deepStrictEqual([s3.status, s3.finished, s3.finishedAt], ['active', true, '2026-10-02T12:00:00.000Z']);
+  assert.deepStrictEqual([pf.summarize(old.doc).finished, pf.summarize(old.doc).finishedAt], [true, null]);
+  const live = pf.summarize(mid(), pf.readEvents(MID).events);
+  assert.deepStrictEqual([live.finished, live.finishedAt], [false, null]);
+  const arch = pf.summarize(pf.readPlan(ARCH).doc, pf.readEvents(ARCH).events);
+  assert.deepStrictEqual([arch.status, arch.complete, arch.finished, arch.finishedAt], ['done', true, false, null]);
+  const bare = pf.summarize(pf.newPlan({ topic: 'x', title: 'X', repo: '/srv/x' }));
+  assert.deepStrictEqual([bare.finished, bare.finishedAt], [false, null]);
+  const handEdited = pf.parse(pf.serialize(rn.doc));
+  assert.strictEqual(pf.summarize(handEdited, []).finishedAt, null);
+  const reopened = pf.summarize(sg.doc, [...sg.events, { ts: '2026-10-13T08:00:00.000Z', type: 'reopen' }]);
+  assert.strictEqual(reopened.finishedAt, '2026-10-12T08:00:00.000Z');
+});
+
+test('detail carries the summary lifecycle fields', () => {
+  const rn = docsPlan('release-notes');
+  const d = pf.detail(rn.doc, rn.events);
+  assert.deepStrictEqual([d.finished, d.finishedAt], [true, '2026-11-02T10:00:00.000Z']);
+  assert.ok(d.timeline.some(e => e.type === 'finish'));
 });

@@ -1,0 +1,7 @@
+{"ts":"2026-11-01T09:00:00.000Z","type":"create","text":"Release notes page"}
+{"ts":"2026-11-01T09:05:00.000Z","type":"start","task":"T1"}
+{"ts":"2026-11-01T11:00:00.000Z","type":"done","task":"T1","gate":{"ok":true,"text":"14 tests"}}
+{"ts":"2026-11-01T11:05:00.000Z","type":"start","task":"T2"}
+{"ts":"2026-11-02T10:00:00.000Z","type":"done","task":"T2","gate":{"ok":true,"text":"22 tests"}}
+{"ts":"2026-11-02T10:00:00.000Z","type":"phase","phase":1,"text":"Page"}
+{"ts":"2026-11-02T10:00:00.000Z","type":"finish","text":"all tasks done"}

@@ -288,3 +288,41 @@ test('find resolves a live and an archived plan with its repo, and nothing else'
   fs.rmSync(path.join(root, 'demo-app', '.repo'));
   assert.strictEqual(createPlanStore({ root }).find('demo-app/search-v2').repo, null);
 });
+
+test('a finished plan is still mapped to its sessions', async t => {
+  const root = storeCopy(t);
+  const repo = gitRepo(t, 'demo-docs');
+  fs.writeFileSync(path.join(root, 'demo-docs', '.repo'), repo + '\n');
+  pf.writeClaim(root, 'claude-c', 'demo-docs', 'release-notes');
+  const store = createPlanStore({ root });
+  const sessions = [{ name: 'claude-c', cwd: repo }];
+  const mapped = () => store.detail('demo-docs/release-notes', { sessions }).sessions;
+  await waitFor(() => mapped().length === 1);
+  assert.deepStrictEqual(mapped(), ['claude-c']);
+});
+
+test('nothing about auto-archive is left: no fields, and a complete active plan stays active but reports finished', t => {
+  const root = storeCopy(t);
+  const store = createPlanStore({ root });
+  const old = store.detail('demo-docs/old-cleanup', {});
+  assert.strictEqual(old.status, 'active');
+  assert.strictEqual(old.finished, true);
+  for (const p of [...store.summaries({ archived: true }), old]) {
+    assert.ok(!('changed' in p), p.id);
+    assert.ok(!('autoArchiveAt' in p), p.id);
+  }
+  assert.strictEqual(store.finishedPlans, undefined);
+  assert.strictEqual(pf.readPlan(path.join(root, 'demo-docs/old-cleanup')).doc.meta.status, 'active');
+});
+
+test('a restore sends removed for the archived id and an event for the live id', async t => {
+  const root = storeCopy(t);
+  const seen = [];
+  const w = createPlanStore({ root }).watch(ev => seen.push(ev));
+  t.after(() => w.close());
+  await sleep(100);
+  fs.renameSync(path.join(root, 'demo-app/_archive/2026-10-28-onboarding'), path.join(root, 'demo-app/onboarding'));
+  await waitFor(() => seen.some(e => e.id === 'demo-app/onboarding') && seen.some(e => e.id.includes('_archive')));
+  assert.ok(seen.some(e => e.id === 'demo-app/_archive/2026-10-28-onboarding' && e.removed));
+  assert.ok(seen.some(e => e.id === 'demo-app/onboarding' && !e.removed));
+});
