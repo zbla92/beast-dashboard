@@ -895,9 +895,9 @@ function drawHist(c, d) {
   const dpr = window.devicePixelRatio || 1; const W = c.clientWidth, H = c.clientHeight; if (!W) return; c.width = W * dpr; c.height = H * dpr;
   const ctx = c.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
   const t1 = Date.now(), t0 = t1 - 24 * 3600e3; const x = t => (t - t0) / (t1 - t0) * W; const y = v => H - 4 - (Math.min(hi, Math.max(lo, v)) - lo) / (hi - lo) * (H - 10);
-  ctx.strokeStyle = 'rgba(255,255,255,.07)'; ctx.lineWidth = 1; ctx.font = '10px ' + getComputedStyle(document.body).getPropertyValue('--mono'); ctx.fillStyle = 'rgba(255,255,255,.3)';
-  for (let i = 0; i <= 4; i++) { const v = lo + (hi - lo) * i / 4; ctx.beginPath(); ctx.moveTo(0, y(v)); ctx.lineTo(W, y(v)); ctx.stroke(); ctx.fillText(v.toFixed(0), 2, y(v) - 2); }
-  for (let hh = 0; hh <= 24; hh += 6) { const t = t1 - hh * 3600e3; ctx.beginPath(); ctx.moveTo(x(t), 0); ctx.lineTo(x(t), H); ctx.stroke(); if (hh) ctx.fillText('-' + hh + 'h', x(t) + 3, H - 2); }
+  ctx.strokeStyle = 'rgba(255,255,255,.07)'; ctx.lineWidth = 1; ctx.font = '10px ' + getComputedStyle(document.body).getPropertyValue('--mono'); ctx.fillStyle = 'rgba(255,255,255,.5)';
+  for (let i = 0; i <= 4; i++) { const v = lo + (hi - lo) * i / 4; ctx.beginPath(); ctx.moveTo(0, y(v)); ctx.lineTo(W, y(v)); ctx.stroke(); ctx.fillText(v.toFixed(0), 4, Math.max(y(v) - 3, 11)); }
+  for (let hh = 0; hh <= 24; hh += 6) { const t = t1 - hh * 3600e3; ctx.beginPath(); ctx.moveTo(x(t), 0); ctx.lineTo(x(t), H); ctx.stroke(); if (hh && hh < 24) ctx.fillText('-' + hh + 'h', x(t) + 4, H - 4); }
   if (d.length < 2) return;
   if (c.dataset.band) { const bc = +c.dataset.band; ctx.fillStyle = colour.replace('rgb', 'rgba').replace(')', ',.08)');   // a gap of 5+ min (server down) isn't shaded
     for (let i = 0; i < d.length - 1; i++) if (d[i][bc] === 1 && d[i + 1][0] - d[i][0] < 5 * 60e3) ctx.fillRect(x(d[i][0]), 0, x(d[i + 1][0]) - x(d[i][0]) + .5, H); }
@@ -911,7 +911,7 @@ function renderStats() {
   const s = S.stats; const el = $('#stats'); if (!s) return;
   const tiles = [];
   const DETAIL = { cpu: 'cpu', gpu: 'gpu', mem: 'mem', disk: 'disk', bat: 'bat' };
-  const tile = (key, k, v, unit, sub, cls, extra) => h('div', { class: 'tile ' + (cls || '') + (DETAIL[key] ? ' clickable' : ''), 'data-k': key, title: DETAIL[key] ? 'click: 24 h history' : null, onclick: DETAIL[key] ? () => sysModal(DETAIL[key]) : null }, h('div', { class: 'k' }, h('span', null, k), extra?.right), h('div', { class: 'v' }, v, h('small', null, unit)), h('div', { class: 's' }, sub), extra?.body, h('canvas'));
+  const tile = (key, k, v, unit, sub, cls, extra) => h('div', { class: 'tile ' + (cls || '') + (DETAIL[key] ? ' clickable' : ''), 'data-k': key, title: DETAIL[key] ? 'click: 24 h history' : null, onclick: DETAIL[key] ? () => sysModal(DETAIL[key]) : null }, h('div', { class: 'k' }, h('span', null, k), extra?.right), h('div', { class: 'v' }, v, h('small', null, unit)), h('div', { class: 's', title: sub }, sub), extra?.body, h('canvas'));
   const cpuCls = s.cpu.pct > 85 ? 'hot' : s.cpu.pct > 60 ? 'warn' : '';
   tiles.push(tile('cpu', 'CPU', s.cpu.pct.toFixed(0), '%', `${s.cpu.count} cores · load ${s.load.map(x => x.toFixed(2)).join(' ')}`, cpuCls, { right: tempChip(s.cpu.temp, 'CPU (Tctl)'), body: h('div', { class: 'cores' }, s.cpu.cores.map(c => h('i', null, h('b', { style: `width:${c}%;background:${c > 85 ? 'var(--red)' : c > 50 ? 'var(--amber)' : 'var(--cyan)'}` })))) }));
   const memPct = s.mem.used / s.mem.total * 100;
