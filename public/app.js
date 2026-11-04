@@ -61,6 +61,7 @@ const UI = { view: localStorage.getItem('bd.view') || 'home', q: '', filter: 'al
 
 // ---------- api ----------
 async function api(path, body) {
+  if (body && SAVED.stale && path !== 'send') throw Object.assign(new Error('Still connecting — try again in a moment'), { status: 0 });
   const r = await fetch('/api/' + path, body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : (AbortSignal.timeout ? { signal: AbortSignal.timeout(30000) } : {}));
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw Object.assign(new Error(j.error || j.out || r.statusText), { status: r.status });
@@ -211,13 +212,17 @@ async function renderChatPane(force) {
   liveStream(liveWanted());
   pane.classList.toggle('hidden', !on); const f = name && TERM.frames.get(name); if (f) f.classList.toggle('on', !on && f.classList.contains('on'));
   if (!on) return;
-  if (pane.dataset.name !== name) { pane.innerHTML = ''; pane.append(h('div', { class: 'dim', style: 'padding:20px' }, 'loading…')); pane.dataset.name = name; TERM.chatEv.key = ''; }
+  const opening = pane.dataset.name !== name;
+  if (opening) { pane.innerHTML = ''; delete pane.dataset.chat; pane.append(h('div', { class: 'dim', style: 'padding:20px' }, 'loading…')); pane.dataset.name = name; TERM.chatEv.key = ''; }
   if (TERM.chatEv.inflight && !force) return;
   const req = TERM.chatEv.req = (TERM.chatEv.req || 0) + 1; TERM.chatEv.inflight = req;
+  const run = cachedFirst(pane, name, opening ? TERM.chatN : 0, () => TERM.active === name && pane.dataset.name === name, ct => renderConversation(pane, name, ct, { n: TERM.chatN, more: () => { TERM.chatN = Math.min(200, TERM.chatN * 2); renderChatPane(true); }, refresh: () => renderChatPane(false) }));
   const t = await transcriptOf(name, TERM.chatN);
+  run.open = false;
   if (TERM.chatEv.inflight === req) TERM.chatEv.inflight = 0;
   if (req !== TERM.chatEv.req || TERM.active !== name) return;
-  chatOffline(pane, !t); if (!t) return;
+  chatOffline(pane, !t); if (!t) { if (run.shown) updateFailed(pane); return; }
+  cachedDone();
   if (document.body.classList.contains('recording')) return;   // never rebuild the reply box under a running recording; the next poll catches up
   const cl = claudeOf(name) || {}; const key = [name, t.sig, t.total, cl.state, cl.lastTool, TERM.chatN, (PENDING[name] || []).length, queuedKey(name), (cl.status || '').split(' (')[0], t.pending || '', menuKey(cl.menu), liveKey(name), cl.ask ? cl.ask.rid : ''].join(':');
   if (!force && TERM.chatEv.key === key) { const st = pane.querySelector('.ag-status'); if (st && cl.status) st.textContent = cl.status; return; }   // same turn: just tick Claude's status line
@@ -1430,9 +1435,14 @@ async function renderSessionDrawer(full = true) {
     h('div', { class: 'tabs' }, [['transcript', 'Conversation'], ['touched', `Files edited${cl.touched ? ' (' + cl.touched + ')' : ''}`]].map(([k, l]) => h('div', { class: 'tab' + (SESS.tab === k ? ' on' : ''), onclick: () => { SESS.tab = k; renderSessionDrawer(); } }, l))));
   const body = h('div', { class: 'db sess' }); d.replaceChildren(head, body);
   body.append(h('div', { class: 'dim', style: 'padding:20px' }, 'loading…'));
-  let t; try { t = await api(`transcript/${encodeURIComponent(name)}?n=${SESS.n}`); } catch (e) { body.replaceChildren(h('div', { class: 'dim', style: 'padding:20px' }, e.message)); return; }
+  const drawerOpts = { n: SESS.n, more: () => { SESS.n = Math.min(200, SESS.n * 2); renderSessionDrawer(); }, refresh: () => renderSessionDrawer(false) };
+  const run = cachedFirst(body, name, SESS.tab === 'transcript' ? SESS.n : 0, () => SESS.name === name && SESS.tab === 'transcript' && body.isConnected, ct => renderConversation(body, name, ct, drawerOpts));
+  const failure = {};
+  const t = await fetchTranscript(name, SESS.n).catch(e => { failure.e = e; return null; });
+  run.open = false;
+  if (!t) { if (run.shown && SESS.name === name) updateFailed(body); else body.replaceChildren(h('div', { class: 'dim', style: 'padding:20px' }, failure.e.message)); return; }
   if (SESS.name !== name) return;
-  body.innerHTML = '';
+  if (run.shown) cachedDone(); else body.innerHTML = '';
   if (SESS.tab === 'touched') {
     const list = t.touched || []; if (!list.length) { body.append(h('div', { class: 'dim' }, 'No files edited by Claude in this session yet (counted from Edit / Write tool calls since the hooks were installed).')); return; }
     const root = pr ? pr.path : (t.cwd || ''); const rel = f => root && f.startsWith(root + '/') ? f.slice(root.length + 1) : f;
@@ -1443,7 +1453,7 @@ async function renderSessionDrawer(full = true) {
     return;
   }
   SESS.key = [name, t.sig, t.total, cl.state, cl.lastTool, SESS.n, (PENDING[name] || []).length, queuedKey(name), (cl.status || '').split(' (')[0], t.pending || '', menuKey(cl.menu)].join(':');
-  renderConversation(body, name, t, { n: SESS.n, more: () => { SESS.n = Math.min(200, SESS.n * 2); renderSessionDrawer(); }, refresh: () => renderSessionDrawer(false) });
+  renderConversation(body, name, t, drawerOpts);
 }
 // The conversation itself: turns, tool calls, and a reply box that grows with the text and stays above the keyboard.
 // `t` is the /api/transcript payload. Draft text in the reply box survives re-renders.
@@ -1473,8 +1483,25 @@ const draftKey = n => 'bd.draft.' + n;
 const loadDraft = n => { try { return localStorage.getItem(draftKey(n)) || ''; } catch { return ''; } };
 const saveDraft = (n, v) => { try { if (v && v.trim()) localStorage.setItem(draftKey(n), v); else localStorage.removeItem(draftKey(n)); } catch {} };
 const NO_TRANSCRIPT = { total: 0, turns: [], size: 0, pending: null, empty: true };
+const CHAT_FIRST_N = 40, CHAT_READ_CAP_MS = 300;
+async function fetchTranscript(name, n) {
+  const t = await api(`transcript/${encodeURIComponent(name)}?n=${n}`);
+  if (n === CHAT_FIRST_N && window.CHATS) CHATS.save(name, t, MY_VER);
+  return t;
+}
+function cachedFirst(box, name, n, still, paint) {
+  const run = { open: !!window.CHATS && n === CHAT_FIRST_N, shown: false };
+  if (run.open) CHATS.load(name, CHAT_READ_CAP_MS).then(ct => {
+    if (!run.open || !ct || !still() || box.dataset.chat === name) return;
+    try { paint(ct); } catch { CHATS.drop(name); box.replaceChildren(); delete box.dataset.chat; return; }
+    run.shown = true; CHATS.barOn(box, 'updating…');
+  }).catch(() => {});
+  return run;
+}
+const cachedDone = () => { if (window.CHATS) CHATS.barOff(); };
+const updateFailed = box => { if (window.CHATS) CHATS.barOn(box, "couldn't update", 6000); };
 async function transcriptOf(name, n) {
-  try { return await api(`transcript/${encodeURIComponent(name)}?n=${n}`); } catch (e) { return e.status && e.status < 500 ? NO_TRANSCRIPT : null; }
+  try { return await fetchTranscript(name, n); } catch (e) { return e.status && e.status < 500 ? NO_TRANSCRIPT : null; }
 }
 function chatOffline(box, on) {
   const was = box.querySelector('.coff'); if (!on) { was?.remove(); return; } if (was) return;
@@ -2763,7 +2790,7 @@ function renderLiveDot() {
 function liveUp() { LIVE.lastMsg = Date.now(); if (LIVE.connected) return; LIVE.connected = true; feat('live'); LIVE.retry = 0; LIVE.offlineSince = 0; if (LIVE.base) renderHeader(); else renderLiveDot(); }
 function liveDown() { feat('liveDown'); LIVE.connected = false; if (!LIVE.offlineSince) LIVE.offlineSince = Date.now(); renderLiveDot(); }
 function retryLive() { if (LIVE.timer) return; const ms = LIVE_BACKOFF[Math.min(LIVE.retry++, LIVE_BACKOFF.length - 1)]; LIVE.timer = setTimeout(() => { LIVE.timer = null; reconnect(); }, ms); }
-function applyState(d) { if (d.host && d.host.build) { if (!S.build) S.build = d.host.build; else if (S.build !== d.host.build) { S.build = d.host.build; newBuild(); } } Object.assign(S, { projects: d.projects, wip: d.wip || S.wip, runtime: d.runtime, settings: d.settings, host: d.host, claude: d.claude || S.claude, health: d.health || S.health || {}, crashes: d.crashes || [] }); render(); }
+function applyState(d, cached) { if (!cached && d.host && d.host.build) { if (!S.build) S.build = d.host.build; else if (S.build !== d.host.build) { S.build = d.host.build; newBuild(); } } Object.assign(S, { projects: d.projects, wip: d.wip || S.wip, runtime: d.runtime, settings: d.settings, host: d.host, claude: d.claude || S.claude, health: d.health || S.health || {}, crashes: d.crashes || [] }); render(); }
 function applyOps(root, ops) {
   for (const [p, ...val] of ops) {
     if (p.includes('__proto__')) throw new Error('unsafe path');
@@ -2776,12 +2803,12 @@ function connect() {
   const es = new EventSource('/api/events');
   es.onopen = liveUp;
   es.addEventListener('ping', liveUp);
-  es.addEventListener('state', e => { liveUp(); const d = JSON.parse(e.data); LIVE.seq = d.seq; delete d.seq; LIVE.base = d; applyState(structuredClone(d)); firstState(); });
+  es.addEventListener('state', e => { liveUp(); const d = JSON.parse(e.data); LIVE.seq = d.seq; delete d.seq; LIVE.base = d; clearStale(); applyState(structuredClone(d)); firstState(); saveState(); pruneChats(); });
   es.addEventListener('patch', e => {
     liveUp(); const p = JSON.parse(e.data);
     if (!LIVE.base || p.from !== LIVE.seq) return reconnect();
     try { applyOps(LIVE.base, p.ops); } catch { return reconnect(); }
-    LIVE.seq = p.to; applyState(structuredClone(LIVE.base));
+    LIVE.seq = p.to; applyState(structuredClone(LIVE.base)); pruneChats();
   });
   es.addEventListener('history', e => { S.hist = JSON.parse(e.data); drawSparks(); });
   es.addEventListener('stats', e => { S.stats = JSON.parse(e.data); const H = S.hist; const push = (a, v) => { a.push(v); if (a.length > 180) a.shift(); }; push(H.cpu, S.stats.cpu.pct); push(H.mem, S.stats.mem.used / S.stats.mem.total * 100); push(H.gpu, S.stats.gpu?.util || 0); push(H.net, [S.stats.net.rxRate, S.stats.net.txRate]); renderRailFoot(); if (!UI.menuOpen && UI.view === 'home') renderStats(); });
@@ -2953,6 +2980,7 @@ if (SW.ok) afterFirstPaint(() => swRegister().catch(() => {}));
 const dropLocalDb = () => new Promise(done => { try { const r = indexedDB.deleteDatabase('bd-local'); r.onsuccess = r.onerror = r.onblocked = () => done(); } catch { done(); } });
 async function wipeDevice() {
   try { const names = await caches.keys(); await Promise.all(names.filter(n => n.startsWith('bd-app-') || n === 'bd-meta').map(n => caches.delete(n))); } catch {}
+  if (window.LOCAL) LOCAL.stop();
   await dropLocalDb();
 }
 async function clearDevice() {
@@ -3024,6 +3052,36 @@ if (navigator.serviceWorker) navigator.serviceWorker.addEventListener('message',
 document.addEventListener('visibilitychange', () => { if (document.visibilityState !== 'visible') return; for (const ms of [0, 250, 600, 1200, 2000, 3500, 5000]) setTimeout(takePendingOpen, ms); });
 window.addEventListener('focus', () => { for (const ms of [0, 600, 2000]) setTimeout(takePendingOpen, ms); });
 window.addEventListener('pageshow', () => takePendingOpen());
+const STATE_KEEP_MS = 7 * 86400000, STATE_SAVE_MS = 30000, STATE_READ_CAP_MS = 300;
+const SAVED = { seq: null, at: 0, stale: false };
+function clearStale() { if (!SAVED.stale) return; SAVED.stale = false; feat('stale', false); }
+function saveState(force) {
+  if (!window.LOCAL || !LIVE.base || LIVE.seq === SAVED.seq || !(LIVE.base.runtime?.sessions?.length)) return;
+  if (!force && Date.now() - SAVED.at < STATE_SAVE_MS) return;
+  SAVED.seq = LIVE.seq; SAVED.at = Date.now();
+  const { stats, statsHistory, ...data } = LIVE.base;
+  LOCAL.put('state', data, MY_VER);
+}
+const PRUNED = { key: '' };
+function pruneChats() {
+  const list = S.runtime && S.runtime.sessions;
+  if (!window.CHATS || !Array.isArray(list) || !list.length) return;
+  const names = list.map(x => x.name), key = names.join('\n');
+  if (key === PRUNED.key) return;
+  PRUNED.key = key; CHATS.prune(names);
+}
+function restoreState(rec) {
+  if (!rec || LIVE.base) return;
+  if (!(Date.now() - rec.at < STATE_KEEP_MS) || !rec.data || !rec.data.projects) { LOCAL.del('state'); return; }
+  try { applyState(structuredClone(rec.data), true); } catch { LOCAL.del('state'); return; }
+  SAVED.stale = true; feat('stale', true);
+}
+const RESET_CACHE = new URLSearchParams(location.search).has('reset-cache');
+if (window.LOCAL && RESET_CACHE) LOCAL.stop();
+if (window.LOCAL && !RESET_CACHE) LOCAL.get('state', STATE_READ_CAP_MS).then(restoreState).catch(() => {});
+setInterval(() => saveState(), STATE_SAVE_MS);
+addEventListener('pagehide', () => saveState(true));
+document.addEventListener('visibilitychange', () => { if (document.hidden) saveState(true); });
 connect();
 $('#btn-palette').onclick = () => openPalette();
 
@@ -3053,7 +3111,7 @@ setInterval(checkVersion, 60000);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(checkVersion, 1500); });
 setTimeout(checkVersion, 5000);
 if (navigator.serviceWorker) navigator.serviceWorker.addEventListener('message', ev => { const v = ev.data && ev.data.bdShell; if (v && MY_VER && parseInt(v, 36) > parseInt(MY_VER, 36)) { newVer = v; newBuild(); } });
-if (new URLSearchParams(location.search).has('reset-cache')) {
+if (RESET_CACHE) {
   const u = new URL(location.href); u.searchParams.delete('reset-cache');
   history.replaceState(history.state, '', u.pathname + u.search + u.hash);
   if (!navigator.serviceWorker?.controller) wipeDevice();
