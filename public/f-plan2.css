@@ -139,8 +139,8 @@ body:not(.term-open) .fp2-scrim, body:not(.term-open) .fp2-panel.sheet { display
 .fp2-dtrs { display: flex; flex-direction: column; }
 .fp2-dtr { display: flex; align-items: flex-start; gap: 9px; width: 100%; padding: 8px 0; border: 0; border-top: 1px solid var(--line); background: none; color: var(--text); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
 .fp2-dtr:first-child { border-top: 0; padding-top: 2px; }
-.fp2-dtr .fp2-si, .fp2-dtr .fp2-id, .fp2-dtr .fp2-model, .fp2-dtr svg { margin-top: 2px; flex: none; }
-.fp2-dtr svg { color: var(--dim); }
+.fp2-dtr .fp2-si, .fp2-dtr .fp2-id, .fp2-dtr .fp2-model, .fp2-dtr > svg { margin-top: 2px; flex: none; }
+.fp2-dtr > svg { color: var(--dim); }
 .fp2-dtr-t { flex: 1; min-width: 0; line-height: 1.4; word-break: break-word; }
 .fp2-dtr-t small { display: block; font-size: 11.5px; color: var(--amber); }
 .fp2-dlog { display: flex; flex-direction: column; gap: 7px; }

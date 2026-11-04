@@ -1430,3 +1430,9 @@ test('long plan names shrink with an ellipsis and never push the header buttons 
   assert.ok(rule('\\.btn\\.fp2-edit').includes('flex: none'));
   assert.ok(rule('\\.fp2-top \\.fp2-x').includes('flex: none'));
 });
+
+test('the detail sheet greys its row arrow, never the check inside a step mark', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'f-plan2.css'), 'utf8');
+  assert.doesNotMatch(css, /\.fp2-dtr svg/);
+  assert.match(css, /^\.fp2-dtr > svg \{ color: var\(--dim\); \}/m);
+});
