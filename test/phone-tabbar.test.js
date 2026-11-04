@@ -81,3 +81,7 @@ test('every glyph points at an icon that exists', () => {
   assert.ok(Object.keys(glyphs).length > 5);
   assert.deepStrictEqual(Object.values(glyphs).filter(name => !icons[name]), []);
 });
+
+test('nothing behind the chat shows between the message field and the keyboard', () => {
+  assert.match(css, /\.termpanel \{ left: 0;[^}]*box-shadow: 0 50vh 0 50vh var\(--bg\);/);
+});

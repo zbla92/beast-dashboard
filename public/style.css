@@ -1417,7 +1417,7 @@ body.recording .ckeys > :not(.mic) { pointer-events: none; opacity: .4; }
   .sr { flex-wrap: wrap; } .sr-c .txt { width: 100%; } .sr-c { width: 100%; justify-content: flex-end; }
 
   /* sessions panel: full screen, list as an overlay, chat in a narrow column */
-  .termpanel { left: 0; grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+  .termpanel { left: 0; grid-template-columns: 1fr; grid-template-rows: auto 1fr; box-shadow: 0 50vh 0 50vh var(--bg); }
   .termpanel.showlist .termside { display: flex !important; position: fixed; inset: 0 0 calc(var(--tab-h) + env(safe-area-inset-bottom)) 0; z-index: 3; }
   .termpanel.showlist .termmain { visibility: hidden; }
   .termmain { grid-row: 1 / span 2; }
