@@ -2511,20 +2511,19 @@ const STATUS_TITLE = { M: 'modified', A: 'added', D: 'deleted', R: 'renamed', '?
 function tabFiles(el, p, o = {}) {
   const st = o.st || FILES; const okey = o.key || 'bd.fopen';
   el.classList.add('files-tab');
-  const tree = h('div', { class: 'ftree' }); const prev = h('div', { class: 'fprev' }, h('div', { class: 'dim', style: 'padding:20px' }, o.select ? 'Pick a file to preview it (images, PDFs, text). Tick files or folders on the left to download them — several at once come as one .zip.' : 'Pick a file. Changed files are marked; the preview shows their diff against HEAD.'));
+  const tree = h('div', { class: 'ftree' }); const prev = h('div', { class: 'fprev' }, h('div', { class: 'dim fempty', style: 'padding:20px' }, o.select ? 'Pick a file to preview it. Select several to download them as one .zip.' : 'Pick a file. Changed files are marked; the preview shows their diff against HEAD.'));
   // selection (Downloads): a checkbox per row, a sticky bar with Download (one file direct, more / folders as .zip) and Delete
   const picked = st.picked || (st.picked = new Set());
   const selBar = o.select ? h('div', { class: 'fselbar' }) : null;
   const renderSel = () => {
-    if (!selBar) return; const n = picked.size; const ps = [...picked];
+    if (!selBar) return; const n = picked.size; tree.classList.toggle('picking', n > 0); const ps = [...picked];
     const one = n === 1 && tree.querySelector(`.frow.file[data-path="${CSS.escape(ps[0])}"]`);
     const href = one ? `/api/download/${p.id}?path=${encodeURIComponent(ps[0])}` : `/api/zip/${p.id}?` + ps.map(x => 'path=' + encodeURIComponent(x)).join('&');
     selBar.replaceChildren(...[
-      h('button', { class: 'btn sm ghost', title: n ? 'clear selection' : 'select everything at the top level', onclick: () => { if (n) picked.clear(); else for (const r of tree.querySelectorAll(':scope > .frow')) picked.add(r.dataset.path); syncChecks(); } }, n ? '☐ none' : '☑ all'),
-      h('span', { class: 'dim mono fselc' }, n ? n + ' selected' : 'tick files to download'),
+      h('button', { class: 'btn sm ghost', title: n ? 'clear selection' : 'select everything at the top level', onclick: () => { if (n) picked.clear(); else for (const r of tree.querySelectorAll(':scope > .frow')) picked.add(r.dataset.path); syncChecks(); } }, n ? gl('☐ Clear') : gl('☑ Select all')),
       h('span', { class: 'sp' }),
       h('button', { class: 'btn sm ghost', title: 'reload', onclick: () => loadDir('', tree, 0) }, gl('↻')),
-      n ? h('button', { class: 'btn sm ghost danger', title: 'delete the selected files / folders from the server', onclick: async () => { if (!confirm(`Delete ${n} item${n > 1 ? 's' : ''} from ${o.rootLabel || 'here'}?\n\n` + ps.slice(0, 12).join('\n') + (n > 12 ? '\n…' : ''))) return; try { const r = await api('rmpaths', { id: p.id, paths: ps }); toast(r.failed?.length ? 'some failed: ' + r.failed[0] : 'deleted ' + n, r.failed?.length ? 'err' : 'ok'); } catch (e) { toast(e.message, 'err'); } picked.clear(); if (ps.includes(st.sel)) { st.sel = null; prev.replaceChildren(h('div', { class: 'dim', style: 'padding:20px' }, 'Pick a file.')); } loadDir('', tree, 0); } }, '🗑') : null,
+      n ? h('button', { class: 'btn sm ghost danger', title: 'delete the selected files / folders from the server', onclick: async () => { if (!confirm(`Delete ${n} item${n > 1 ? 's' : ''} from ${o.rootLabel || 'here'}?\n\n` + ps.slice(0, 12).join('\n') + (n > 12 ? '\n…' : ''))) return; try { const r = await api('rmpaths', { id: p.id, paths: ps }); toast(r.failed?.length ? 'some failed: ' + r.failed[0] : 'deleted ' + n, r.failed?.length ? 'err' : 'ok'); } catch (e) { toast(e.message, 'err'); } picked.clear(); renderSel(); if (ps.includes(st.sel)) { st.sel = null; prev.replaceChildren(h('div', { class: 'dim fempty', style: 'padding:20px' }, 'Pick a file.')); } loadDir('', tree, 0); } }, '🗑') : null,
       n ? h('a', { class: 'btn sm primary', href, download: one ? ps[0].split('/').pop() : '', title: one ? 'download' : 'download as one .zip' }, one ? gl('⬇ Download') : gl(`⬇ Download ${n} (.zip)`)) : null].filter(Boolean));
   };
   const syncChecks = () => { for (const c of tree.querySelectorAll('.fchk')) c.classList.toggle('on', picked.has(c.parentElement.dataset.path)); renderSel(); };
@@ -2569,10 +2568,10 @@ function tabFiles(el, p, o = {}) {
         h('span', { class: 'dim mono', style: 'font-size:11px' }, fmtB(content.size || e.size)),
         h('span', { class: 'sp' }),
         status ? h('button', { class: 'btn sm' + (showDiff ? ' primary' : ''), onclick: () => { st.mode = 'diff'; showFile(e); } }, '± diff') : null,
-        h('button', { class: 'btn sm' + (!showDiff && !st.editing ? ' primary' : ''), onclick: () => { st.mode = 'content'; st.editing = false; showFile(e); } }, gl('▤ content')),
+        o.select ? null : h('button', { class: 'btn sm' + (!showDiff && !st.editing ? ' primary' : ''), onclick: () => { st.mode = 'content'; st.editing = false; showFile(e); } }, gl('▤ content')),
         !o.noEdit && !content.error && !content.binary && !content.truncated ? h('button', { class: 'btn sm' + (st.editing ? ' primary' : ''), title: 'edit in place (simple text editor)', onclick: () => { st.mode = 'content'; st.editing = true; render(); } }, gl('✎ edit')) : null,
-        h('a', { class: 'btn sm', href: `/api/download/${p.id}?path=${encodeURIComponent(e.path)}&inline=1`, target: '_blank', rel: 'noopener', title: 'open in a new tab' }, '↗ open'),
-        h('a', { class: 'btn sm', href: `/api/download/${p.id}?path=${encodeURIComponent(e.path)}`, download: e.name, title: 'download this file' }, gl('⇩ download')),
+        h('a', { class: 'btn sm', href: `/api/download/${p.id}?path=${encodeURIComponent(e.path)}&inline=1`, target: '_blank', rel: 'noopener', title: 'open in a new tab' }, o.select ? '↗ Open' : '↗ open'),
+        h('a', { class: 'btn sm' + (o.select ? ' primary' : ''), href: `/api/download/${p.id}?path=${encodeURIComponent(e.path)}`, download: e.name, title: 'download this file' }, gl(o.select ? '⇩ Download' : '⇩ download')),
         h('button', { class: 'btn sm ghost', title: st.wide ? 'show tree' : 'hide tree', onclick: () => { st.wide = !st.wide; !o.st && localStorage.setItem('bd.fwide', st.wide ? '1' : '0'); el.querySelector('.fwrap').classList.toggle('wide', st.wide); } }, st.wide ? '⇤' : '⇥'));
       prev.append(bar);
       if (st.editing && content && !content.error && !content.binary) {
@@ -2595,7 +2594,7 @@ function tabFiles(el, p, o = {}) {
       prev.append(h('pre', { class: 'fcode hljs' }, lines.map((l, i) => h('div', { class: 'ln' }, h('span', { class: 'n' }, i + 1), h('span', { class: 't', html: l || ' ' }))), content.truncated ? h('div', { class: 'dim' }, '… truncated (2 MB shown) — download for the whole file') : null));
     }
   };
-  loadDir('', tree, 0).then(() => { if (st.sel) { const row = tree.querySelector(`.frow.file[data-path="${CSS.escape(st.sel)}"]`); if (row) row.click(); else { const parts = st.sel.split('/'); if (parts.length > 1) { for (let i = 1; i < parts.length; i++) st.open.add(parts.slice(0, i).join('/')); loadDir('', tree, 0).then(() => setTimeout(() => { const r2 = tree.querySelector(`.frow.file[data-path="${CSS.escape(st.sel)}"]`); if (r2) r2.click(); }, 400)); } } } });
+  loadDir('', tree, 0).then(() => { if (st.sel) { const row = tree.querySelector(`.frow.file[data-path="${CSS.escape(st.sel)}"]`); if (row) row.click(); else { const parts = st.sel.split('/'); if (parts.length > 1) { for (let i = 1; i < parts.length; i++) st.open.add(parts.slice(0, i).join('/')); loadDir('', tree, 0).then(() => setTimeout(() => { const r2 = tree.querySelector(`.frow.file[data-path="${CSS.escape(st.sel)}"]`); if (r2) r2.click(); }, 400)); } } } else if (o.newest && !IS_PHONE) tree.querySelector('.frow.file')?.click(); });
 }
 
 async function tabBranches(el, p) {
@@ -2890,13 +2889,14 @@ $('#btn-settings').onclick = settingsModal;
 // checkboxes: download one file, or several files / folders as one .zip; delete. Newest first.
 const DLF = { open: new Set(JSON.parse(localStorage.getItem('bd.dlopen') || '[]')), sel: null, mode: 'content', editing: false, wide: false, picked: new Set() };
 function downloadsModal() {
+  DLF.sel = null; DLF.wide = false;
   const m = $('#modal'); m.classList.remove('hidden');
   const close = () => { m.classList.add('hidden'); document.removeEventListener('keydown', esc, true); };
   const esc = e => { if (e.key === 'Escape' && !m.classList.contains('hidden')) { e.preventDefault(); e.stopPropagation(); close(); } };
   document.addEventListener('keydown', esc, true);
   const body = h('div', { class: 'db files-tab dlx-body' });
   const box = h('div', { class: 'box dlx' },
-    h('div', { class: 'sh' }, h('h3', null, gl('⬇ Downloads')), h('span', { class: 'dim mono', style: 'font-size:12px' }, '~/Downloads on the server'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', onclick: close }, ico('x', 15))),
+    h('div', { class: 'sh' }, h('h3', null, 'Downloads'), h('span', { class: 'dim dlx-where' }, '~/Downloads on the server'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', onclick: close }, ico('x', 15))),
     body);
   m.replaceChildren(box); m.onclick = e => { if (e.target === m) close(); };
   tabFiles(body, { id: '_downloads', isGit: false, parent: null, rel: '' }, { st: DLF, key: 'bd.dlopen', select: true, noEdit: true, newest: true, rootLabel: '~/Downloads on the server' });
