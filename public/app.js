@@ -205,12 +205,21 @@ const chatMode = name => { const cl = claudeOf(name); return !!cl && cl.mode ===
 // Focus: hide the session list in the terminal panel (screen sharing) — per device, remembered
 TERM.focus = localStorage.getItem('bd.focus') === '1' && !IS_PHONE;   // focus mode is a desktop thing; on the phone the list must always be reachable
 function setFocus(on) { TERM.focus = on; localStorage.setItem('bd.focus', on ? '1' : '0'); document.body.classList.toggle('focus', on); renderTermPanel(true); }
+function releaseHiddenFrame() {
+  const a = document.activeElement;
+  if (!a?.classList?.contains('termframe') || a.getClientRects().length) return;
+  a.blur();
+  const reply = $('#term-chat:not(.hidden) .creply');
+  if (reply && !reply.disabled && !TOUCH) reply.focus({ preventScroll: true });
+}
+window.addEventListener('blur', () => setTimeout(releaseHiddenFrame, 0));
 function setMode(mode) { if (TERM.active && isChatSess(TERM.active)) TERM.view[TERM.active] = mode; renderTermPanel(true); renderChatPane(true); if (mode === 'term') { const f = TERM.frames.get(TERM.active); if (f) setTimeout(() => f.focus(), 50); } }
 // Chat mode for the active session: the conversation view in place of the tmux iframe (same tmux session underneath)
 async function renderChatPane(force) {
   const pane = $('#term-chat'); if (!pane) return; const name = TERM.active; const on = TERM.open && name && chatMode(name);
   liveStream(liveWanted());
   pane.classList.toggle('hidden', !on); const f = name && TERM.frames.get(name); if (f) f.classList.toggle('on', !on && f.classList.contains('on'));
+  releaseHiddenFrame();
   if (!on) return;
   const opening = pane.dataset.name !== name;
   if (opening) { pane.innerHTML = ''; delete pane.dataset.chat; pane.append(h('div', { class: 'dim', style: 'padding:20px' }, 'loading…')); pane.dataset.name = name; TERM.chatEv.key = ''; }
@@ -425,9 +434,15 @@ async function shellHas(want) {
   const r = await swAsk({ bdRefresh: want }, 15000);
   return !!r && (r.v === want || r.v === null);
 }
+const RELOAD_QUIET_MS = 45e3, REFOCUS_KEY = 'bd.refocus';
+const reloadWaits = (hidden, sinceInput) => !hidden && sinceInput < RELOAD_QUIET_MS;
+const refocusAfterReload = { name: (() => { try { const name = sessionStorage.getItem(REFOCUS_KEY); sessionStorage.removeItem(REFOCUS_KEY); return name; } catch { return null; } })() };
+function takeRefocus(box, name) { if (box.id !== 'term-chat' || refocusAfterReload.name !== name) return false; refocusAfterReload.name = null; return true; }
+const usingTerminal = () => document.hasFocus() && !!document.activeElement?.classList?.contains('termframe');
 function reloadIntoNewBuild() {
+  if (reloadWaits(document.hidden, usingTerminal() ? 0 : Date.now() - WATCH.input)) return;
   const go = () => (SHELL.wipe ? clearDevice() : Promise.resolve()).then(() => location.replace(contextUrl()));
-  if (safeToReload()) { try { sessionStorage.setItem('bd.updated', '1'); } catch {} go(); return; }
+  if (safeToReload()) { try { sessionStorage.setItem('bd.updated', '1'); if (!TOUCH && TERM.active && document.activeElement?.closest('#term-chat .creply')) sessionStorage.setItem(REFOCUS_KEY, TERM.active); } catch {} go(); return; }
   if (!$('#newbuild')) document.body.append(h('button', { id: 'newbuild', class: 'btn primary', onclick: go }, ico('refresh', 14), 'Dashboard updated — reload'));
 }
 function closeTermPanel(pop = true) { if (!TERM.open) return; if (TERM.active) TERM.lastUsed.set(TERM.active, Date.now()); TERM.open = false; renderTermPanel(); renderRail(); if (pop) leaveChats(); if (TOUCH) requestAnimationFrame(() => window.scrollTo(0, TERM.pageY || 0)); }
@@ -595,7 +610,7 @@ function renderTermPanel(force) {
   const el = $('#termpanel'); const live = S.runtime.sessions.length; $('#term-count').textContent = live;
   if (TERM.open && !document.body.classList.contains('term-open')) TERM.pageY = window.scrollY;   // body goes position:fixed -> remember where the page was
   el.classList.toggle('hidden', !TERM.open); document.body.classList.toggle('term-open', TERM.open);
-  if (!TERM.open) { fitTermPanel(); return; }
+  if (!TERM.open) { fitTermPanel(); releaseHiddenFrame(); return; }
   trackVV(300);
   el.classList.toggle('showlist', TERM.showList); el.classList.toggle('focus', TERM.focus); document.body.classList.toggle('focus', !!TERM.focus);
   if (!$('#term-list')) {
@@ -610,6 +625,7 @@ function renderTermPanel(force) {
   const frames = $('#term-frames'); const chatOn = TERM.active && chatMode(TERM.active);
   for (const [k, f] of TERM.frames) { if (!f.isConnected) frames.append(f); f.classList.toggle('on', k === TERM.active && !chatOn); }
   $('#term-chat').classList.toggle('hidden', !chatOn);
+  releaseHiddenFrame();
   feat('termShown');
   if (!force && key === TERM.listKey) return;
   TERM.listKey = key;
@@ -1551,7 +1567,7 @@ function renderConversation(box, name, t, o) {
   const prevDraft = same && box.querySelector('.creply') ? box.querySelector('.creply').value : loadDraft(name);
   box.dataset.chat = name;
   const prevScroll = box.querySelector('.cscroll'); const atBottom = !prevScroll || prevScroll.scrollHeight - prevScroll.scrollTop - prevScroll.clientHeight < 60; const prevTop = prevScroll ? prevScroll.scrollTop : 0;
-  const hadFocus = document.activeElement && document.activeElement.classList.contains('creply');
+  const hadFocus = takeRefocus(box, name) || (document.activeElement && document.activeElement.classList.contains('creply'));
   // drop local echoes once the transcript has them (or after a minute)
   const lastUser = [...t.turns].reverse().find(x => x.role === 'user');
   const lv0 = (claudeOf(name) || {}).mode === 'chat' ? liveOf(name) : null;
