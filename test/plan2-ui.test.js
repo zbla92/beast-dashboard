@@ -125,7 +125,7 @@ const projects = [
   { id: 'solo', name: 'solo', org: '' },
   { id: 'other', name: 'other', org: 'zed' },
 ];
-const mk = (id, projectId, extra = {}) => ({ id, topic: id.split('/')[1], projectId, archived: null, sessions: [], ...extra });
+const mk = (id, projectId, extra = {}) => ({ id, topic: id.split('/')[1], projectId, archived: null, sessions: [], offered: [], ...extra });
 
 test('orgPlans lists the own plan first, then the other active plans of the same org by topic', () => {
   const own = mk('web/checkout', 'web');
@@ -445,15 +445,15 @@ test('the no-plan row offers Make a plan for a live Claude session and keeps the
   assert.strictEqual(ended.dom.text(ended.p.quietStrip('claude-a', [], '', false)), 'No plan·Make a plan…No live session runs this planArchived');
 });
 
-const FIN_AT = '2026-11-04T11:52:00.000Z';
+const FIN_AT = '2026-10-04T11:52:00.000Z';
 const plan = (id, projectId, extra = {}) => ({
-  id, topic: id.split('/').pop(), title: id, projectId, archived: null, sessions: [], waiting: [], done: 1, total: 2, pct: 50, complete: false,
+  id, topic: id.split('/').pop(), title: id, projectId, archived: null, sessions: [], offered: [], waiting: [], done: 1, total: 2, pct: 50, complete: false,
   phase: null, lastGate: null, now: null, next: null, mtime: 1, finished: false, finishedAt: null, ...extra,
 });
 const finishedPlan = (id, projectId, extra = {}) => plan(id, projectId, { done: 2, pct: 100, complete: true, finished: true, finishedAt: FIN_AT, ...extra });
 const tick = () => Array.from({ length: 6 }).reduce(wait => wait.then(() => new Promise(r => setImmediate(r))), Promise.resolve());
 
-const lifeBoot = async ({ sums, archived = [], phone = false, active = 'claude-a', project = 'web', fail = null, failList = null, post = null, claude = { state: 'idle' } }) => {
+const lifeBoot = async ({ sums, archived = [], phone = false, active = 'claude-a', project = 'web', fail = null, failList = null, post = null, claude = { state: 'idle' }, detail = { phases: [], timeline: [], waiting: [], mtime: 1 } }) => {
   const dom = fakeDom();
   const reg = {};
   const h = (tag, attrs, ...kids) => {
@@ -470,9 +470,10 @@ const lifeBoot = async ({ sums, archived = [], phone = false, active = 'claude-a
   const calls = { api: [], toast: [] };
   const store = { sums, archived };
   const S = { settings: { plans: true }, projects, runtime: { sessions: [{ name: active, project, claude }] } };
+  const TERM = { open: true, active };
   const p = boot({
     document: dom.document, h, ico: dom.ico, requestAnimationFrame() {}, S,
-    TERM: { open: true, active }, matchMedia: () => ({ matches: phone }),
+    TERM, matchMedia: () => ({ matches: phone }),
     window: { dispatchEvent() {} }, Event: class {}, setTimeout, clearTimeout,
     $: sel => sel === '.termmain' ? main : { after() {} },
     claudeOf: name => (S.runtime.sessions.find(x => x.name === name) || {}).claude || null,
@@ -484,7 +485,7 @@ const lifeBoot = async ({ sums, archived = [], phone = false, active = 'claude-a
         if (failList) throw new Error(failList);
         return { plans: [...store.sums, ...store.archived] };
       }
-      if (path.startsWith('plan/')) return { phases: [], timeline: [], waiting: [], mtime: 1 };
+      if (path.startsWith('plan/')) return detail;
       if (fail) throw new Error(fail);
       return post(store, path, body);
     },
@@ -502,7 +503,7 @@ const lifeBoot = async ({ sums, archived = [], phone = false, active = 'claude-a
   const dialogButton = label => find(dialog(), n => n.tag === 'button' && dom.text(n) === label)[0];
   const scrim = () => dom.body.find(n => n.attrs.class === 'fp2-sh-scrim');
   const footerArchive = () => find(byClass('fp2-fin')[0], n => n.tag === 'button')[0];
-  return { dom, p, calls, store, panel, byClass, button, topic, paths, openActions, menuItems, reg, dialog, dialogButton, scrim, footerArchive };
+  return { dom, p, S, TERM, calls, store, panel, byClass, button, topic, paths, openActions, menuItems, reg, dialog, dialogButton, scrim, footerArchive };
 };
 const clockOf = iso => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 const dateOf = ts => new Date(ts).toLocaleDateString([], { day: 'numeric', month: 'short' });
@@ -511,9 +512,9 @@ test('the menu shows Mark finished with the open tasks as its sub-line, and alwa
   const t = await lifeBoot({ sums: [plan('web/one', 'web', { sessions: ['claude-a'], done: 3, total: 7 })] });
   t.openActions();
   const texts = t.menuItems().map(n => t.dom.text(n));
-  assert.deepStrictEqual(texts, ['Update plan…Tell Claude what to change', 'New plan…Ask Claude to make a plan', 'Mark finished4 tasks still open', 'ArchiveHide it; restore any time from the plan list']);
+  assert.deepStrictEqual(texts, ['Update plan…Tell Claude what to change', 'New plan…Ask Claude to make a plan', 'Mark finished4 tasks still open', 'Leave this planThis chat stops working on it; the plan stays', 'ArchiveHide it; restore any time from the plan list']);
   const menu = t.byClass('fp2-actm')[0];
-  assert.deepStrictEqual(menu.kids.map(k => k.attrs.class), ['mi', 'mi', 'mi', 'sep', 'mi']);
+  assert.deepStrictEqual(menu.kids.map(k => k.attrs.class), ['mi', 'mi', 'mi', 'mi', 'sep', 'mi']);
 });
 
 test('Mark finished says one task in the singular, has no sub-line with nothing open, and is gone once finished', async () => {
@@ -525,7 +526,7 @@ test('Mark finished says one task in the singular, has no sub-line with nothing 
   assert.strictEqual(empty.dom.text(empty.menuItems()[2]), 'Mark finished');
   const done = await lifeBoot({ sums: [finishedPlan('web/one', 'web', { sessions: ['claude-a'] })] });
   done.openActions();
-  assert.deepStrictEqual(done.menuItems().map(n => done.dom.text(n)), ['Update plan…Tell Claude what to change', 'New plan…Ask Claude to make a plan', 'ArchiveHide it; restore any time from the plan list']);
+  assert.deepStrictEqual(done.menuItems().map(n => done.dom.text(n)), ['Update plan…Tell Claude what to change', 'New plan…Ask Claude to make a plan', 'Leave this planThis chat stops working on it; the plan stays', 'ArchiveHide it; restore any time from the plan list']);
 });
 
 test('Mark finished posts the plan id, toasts and reloads; a server error shows as it is and nothing reloads', async () => {
@@ -556,8 +557,11 @@ test('Mark finished posts the plan id, toasts and reloads; a server error shows 
 test('a finished plan shows the badge and the exact footer with an Archive button', async () => {
   const t = await lifeBoot({ sums: [finishedPlan('web/one', 'web', { sessions: ['claude-a'] })] });
   assert.strictEqual(t.dom.text(t.byClass('fp2-badge-h')[0]), 'Finished');
-  assert.strictEqual(t.dom.text(t.byClass('fp2-fin-t')[0]), `Finished ${clockOf(FIN_AT)}.`);
+  assert.strictEqual(t.dom.text(t.byClass('fp2-fin-t')[0]), `Finished ${dateOf(FIN_AT)}, ${clockOf(FIN_AT)}.`);
   assert.strictEqual(t.dom.text(find(t.byClass('fp2-fin')[0], n => n.tag === 'button')[0]), 'Archive');
+  const today = new Date().toISOString();
+  const now = await lifeBoot({ sums: [finishedPlan('web/one', 'web', { sessions: ['claude-a'], finishedAt: today })] });
+  assert.strictEqual(now.dom.text(now.byClass('fp2-fin-t')[0]), `Finished ${clockOf(today)}.`);
   const active = await lifeBoot({ sums: [plan('web/one', 'web', { sessions: ['claude-a'] })] });
   assert.strictEqual(active.dom.text(active.byClass('fp2-badge-h')[0]), '');
   assert.strictEqual(active.byClass('fp2-fin').length, 0);
@@ -596,7 +600,7 @@ test('Archive on the viewed plan falls back to the session plan and does not com
 test('Archive on the only plan of the org closes the panel and leaves the no-plan row', async () => {
   const t = await lifeBoot({ sums: [plan('web/own', 'web', { sessions: ['claude-a'] })], post: archivePost });
   t.openActions();
-  t.menuItems()[3].attrs.onclick();
+  t.menuItems()[4].attrs.onclick();
   t.dialogButton('Archive').attrs.onclick();
   await tick();
   assert.strictEqual(t.panel(), null);
@@ -606,7 +610,7 @@ test('Archive on the only plan of the org closes the panel and leaves the no-pla
 test('Archive refused by the server keeps the plan and shows the error as it is', async () => {
   const t = await lifeBoot({ sums: [plan('web/own', 'web', { sessions: ['claude-a'] })], fail: 'no such plan' });
   t.openActions();
-  t.menuItems()[3].attrs.onclick();
+  t.menuItems()[4].attrs.onclick();
   t.dialogButton('Archive').attrs.onclick();
   await tick();
   assert.deepStrictEqual(t.calls.toast, [['no such plan', 'err']]);
@@ -627,7 +631,7 @@ const POSTS = ['plan-finish', 'plan-archive', 'plan-restore', 'plan-answer'];
 const posted = t => t.paths().filter(x => POSTS.includes(x));
 const ENTRIES = {
   'menu Mark finished': { sums: () => [plan('web/one', 'web', { sessions: ['claude-a'] })], open: t => { t.openActions(); t.menuItems()[2].attrs.onclick(); }, action: 'Mark finished', path: 'plan-finish' },
-  'menu Archive': { sums: () => [plan('web/one', 'web', { sessions: ['claude-a'] })], open: t => { t.openActions(); t.menuItems()[3].attrs.onclick(); }, action: 'Archive', path: 'plan-archive' },
+  'menu Archive': { sums: () => [plan('web/one', 'web', { sessions: ['claude-a'] })], open: t => { t.openActions(); t.menuItems()[4].attrs.onclick(); }, action: 'Archive', path: 'plan-archive' },
   'footer Archive': { sums: () => [finishedPlan('web/one', 'web', { sessions: ['claude-a'] })], open: t => t.footerArchive().attrs.onclick(), action: 'Archive', path: 'plan-archive' },
 };
 const okPost = (store, path, body) => ({ ok: true, id: body.id });
@@ -676,7 +680,7 @@ test('Archive asks with the same exact sheet from the menu and from the footer',
   assert.deepStrictEqual(dialogTexts(t), want);
   t.dialogButton('Cancel').attrs.onclick();
   t.openActions();
-  t.menuItems()[2].attrs.onclick();
+  t.menuItems()[3].attrs.onclick();
   assert.deepStrictEqual(dialogTexts(t), want);
 });
 
@@ -763,7 +767,7 @@ test('desktop: the Archived chip loads the list only when it opens, also with on
 
 test('phone: the menu lists this org with the Finished tag, then the Archived group, and says so when it is empty', async () => {
   const t = await lifeBoot({ phone: true, sums: [finishedPlan('web/own', 'web', { sessions: ['claude-a'] })] });
-  find(t.reg['fp2-strip'], n => n.attrs.class === 'fp2-strip-b')[0].attrs.onclick();
+  t.p.sessMenu('claude-a', {}, { state: 'idle' }).onclick();
   await tick();
   assert.strictEqual(t.byClass('fp2-archw').length, 0);
   assert.ok(t.dom.text(t.byClass('fp2-menu-b')[0]).endsWith('1 plan'));
@@ -944,4 +948,225 @@ test('the timeline names finish, reopen and restore', () => {
   const d = { ...detail, timeline: [ev('finish', { text: 'marked finished' }), ev('reopen'), ev('restore')] };
   const t = dom.text(p.phaseSheet({ topic: 'checkout' }, d, 1, nav).body);
   for (const part of ['finishedmarked finished', 'reopened', 'restored']) assert.ok(t.includes(part), part);
+});
+
+test('continueMsg and leaveMsg build the exact one-line messages', () => {
+  const { p } = noteBoot([sess('claude-a', { state: 'idle' })], 'claude-a');
+  assert.strictEqual(p.continueMsg('search-v2'), 'Continue the plan search-v2: run plan use search-v2, then plan show, and carry on with it.');
+  assert.strictEqual(p.leaveMsg('search-v2'), 'This chat no longer works on the plan search-v2: run plan use --clear. The plan itself stays as it is. Do not work on it unless I ask.');
+});
+
+test('finishedWhen shows the clock on the same day and the date with the clock on any other day', () => {
+  const { p } = noteBoot([sess('claude-a', { state: 'idle' })], 'claude-a');
+  const at = new Date(2026, 10, 4, 13, 5);
+  assert.strictEqual(p.finishedWhen(at.toISOString(), new Date(2026, 10, 4, 23, 59)), clockOf(at));
+  assert.strictEqual(p.finishedWhen(at.toISOString(), new Date(2026, 10, 5, 0, 1)), `${dateOf(at)}, ${clockOf(at)}`);
+  assert.strictEqual(p.finishedWhen(at.toISOString(), new Date(2025, 10, 4, 13, 5)), `${dateOf(at)}, ${clockOf(at)}`);
+});
+
+const noPlanButtons = t => find(t.reg['fp2-strip'], n => n.tag === 'button').map(n => t.dom.text(n));
+const continueButton = t => find(t.reg['fp2-strip'], n => n.tag === 'button' && t.dom.text(n).endsWith('Continue?'))[0];
+const sent = t => t.calls.api.filter(c => c[0] === 'send');
+
+test('no-plan row: an offered plan shows Continue after Make a plan and sends to this session, not to the plan claimers', async () => {
+  const t = await lifeBoot({
+    post: () => ({ ok: true }),
+    sums: [plan('web/one', 'web', { offered: ['claude-a'], sessions: ['claude-z'], done: 3, total: 7 })],
+  });
+  assert.deepStrictEqual(noPlanButtons(t).slice(0, 3), ['Make a plan…', 'one 3/7 · Continue?', 'Archived']);
+  assert.ok(noPlanButtons(t)[3].startsWith('1 in'));
+  assert.ok(!t.reg['fp2-panel']);
+  await continueButton(t).attrs.onclick();
+  assert.deepStrictEqual(sent(t), [['send', { session: 'claude-a', text: 'Continue the plan one: run plan use one, then plan show, and carry on with it.' }]]);
+});
+
+test('no-plan row: Continue is not shown without an offer, and is disabled with the hint on an ended session', async () => {
+  const none = await lifeBoot({ sums: [plan('web/one', 'web', { offered: ['claude-other'] })] });
+  assert.strictEqual(continueButton(none), undefined);
+  const ended = await lifeBoot({ sums: [plan('web/one', 'web', { offered: ['claude-a'] })], claude: { state: 'ended' } });
+  assert.strictEqual(continueButton(ended).attrs.disabled, true);
+  assert.ok(ended.dom.text(ended.reg['fp2-strip']).includes('No live session runs this plan'));
+});
+
+test('no-plan row: Continue refuses at a permission prompt and a second press while sending sends once', async () => {
+  const perm = await lifeBoot({ sums: [plan('web/one', 'web', { offered: ['claude-a'] })], claude: { state: 'permission' } });
+  await continueButton(perm).attrs.onclick();
+  assert.deepStrictEqual(sent(perm), []);
+  assert.ok(perm.calls.toast[0][0].includes('permission prompt'));
+  const t = await lifeBoot({ post: () => ({ ok: true }), sums: [plan('web/one', 'web', { offered: ['claude-a'] })] });
+  const btn = continueButton(t);
+  await Promise.all([btn.attrs.onclick(), btn.attrs.onclick()]);
+  assert.strictEqual(sent(t).length, 1);
+});
+
+test('Leave this plan sends without asking, and is only there for the plan of the active session', async () => {
+  const t = await lifeBoot({ post: () => ({ ok: true }), sums: [plan('web/one', 'web', { sessions: ['claude-a'] })] });
+  t.openActions();
+  find(t.byClass('fp2-actm')[0], n => t.dom.text(n).startsWith('Leave this plan') && n.attrs.role === 'menuitem')[0].attrs.onclick();
+  await tick();
+  assert.strictEqual(t.dialog(), null);
+  assert.deepStrictEqual(sent(t), [['send', { session: 'claude-a', text: 'This chat no longer works on the plan one: run plan use --clear. The plan itself stays as it is. Do not work on it unless I ask.' }]]);
+  const other = await lifeBoot({ sums: [plan('web/one', 'web', { sessions: ['claude-z'] })] });
+  find(other.reg['fp2-strip'], n => n.attrs.class === 'fp2-np-org')[0].attrs.onclick();
+  await tick();
+  other.openActions();
+  assert.ok(!other.menuItems().some(n => other.dom.text(n).startsWith('Leave this plan')));
+});
+
+test('phone: no strip and no no-plan row at the top of a session, ever', async () => {
+  for (const sums of [[], [plan('web/one', 'web', { sessions: ['claude-a'] })], [plan('web/one', 'web', { offered: ['claude-a'] })]]) {
+    const t = await lifeBoot({ phone: true, sums });
+    assert.strictEqual(t.reg['fp2-strip'], undefined);
+    assert.strictEqual(t.panel(), null);
+  }
+});
+
+test('session Options: nothing on a desktop or for a shell session or with plans off', async () => {
+  const desk = await lifeBoot({ sums: [plan('web/one', 'web', { sessions: ['claude-a'] })] });
+  assert.strictEqual(desk.p.sessMenu('claude-a', {}, { state: 'idle' }), null);
+  const shell = await lifeBoot({ phone: true, sums: [], active: 'sh-1', claude: null });
+  assert.strictEqual(shell.p.sessMenu('sh-1', {}, null), null);
+});
+
+test('session Options with a plan: the topic and count, the open questions as a sub line, and it opens the panel', async () => {
+  const q = id => ({ id, text: id, blocks: [] });
+  const none = await lifeBoot({ phone: true, sums: [plan('web/one', 'web', { sessions: ['claude-a'], done: 3, total: 7 })] });
+  const item = none.p.sessMenu('claude-a', {}, { state: 'idle' });
+  assert.strictEqual(item.label, 'Plan · one 3/7');
+  assert.strictEqual(item.sub, '');
+  item.onclick();
+  await tick();
+  assert.strictEqual(none.topic(), 'one');
+  item.onclick();
+  assert.ok(none.panel());
+  const single = await lifeBoot({ phone: true, sums: [plan('web/one', 'web', { sessions: ['claude-a'], waiting: [q('q1')] })] });
+  assert.strictEqual(single.p.sessMenu('claude-a', {}, { state: 'idle' }).sub, '1 open question');
+  const two = await lifeBoot({ phone: true, sums: [plan('web/one', 'web', { sessions: ['claude-a'], waiting: [q('q1'), q('q2')] })] });
+  assert.strictEqual(two.p.sessMenu('claude-a', {}, { state: 'idle' }).sub, '2 open questions');
+});
+
+test('session Options without a plan: Make a plan, Continue when offered, Archived plans', async () => {
+  const labels = t => [...t.p.sessMenu('claude-a', {}, { state: 'idle' })].map(i => i.label);
+  const plain = await lifeBoot({ phone: true, sums: [plan('web/one', 'web', { offered: ['claude-other'] })] });
+  assert.deepStrictEqual(labels(plain), ['Make a plan…', '1 in acme…', 'Archived plans…']);
+  const noOrg = await lifeBoot({ phone: true, project: null, sums: [plan('web/one', 'web')] });
+  assert.deepStrictEqual(labels(noOrg), ['Make a plan…', 'Archived plans…']);
+  plain.p.sessMenu('claude-a', {}, { state: 'idle' })[0].onclick();
+  assert.ok(plain.dialog());
+  const t = await lifeBoot({ phone: true, post: () => ({ ok: true }), archived: ARCHIVED_ORG, sums: [plan('web/one', 'web', { offered: ['claude-a'], done: 3, total: 7 })] });
+  assert.deepStrictEqual(labels(t), ['Make a plan…', '1 in acme…', 'Continue one', 'Archived plans…']);
+  const items = t.p.sessMenu('claude-a', {}, { state: 'idle' });
+  await items[2].onclick();
+  assert.deepStrictEqual(sent(t), [['send', { session: 'claude-a', text: 'Continue the plan one: run plan use one, then plan show, and carry on with it.' }]]);
+  items[3].onclick();
+  await tick();
+  assert.deepStrictEqual(archRows(t).map(n => t.dom.text(find(n, x => x.attrs.class === 'fp2-cn')[0])), ['new-api', 'old-web']);
+});
+
+test('session Options on an ended session: Make a plan and Continue are disabled with the hint, Archived plans still works', async () => {
+  const t = await lifeBoot({ phone: true, claude: { state: 'ended' }, sums: [plan('web/one', 'web', { offered: ['claude-a'] })] });
+  const items = t.p.sessMenu('claude-a', {}, { state: 'ended' });
+  assert.deepStrictEqual([...items].map(i => [!!i.disabled, i.sub || '']), [[true, 'No live session runs this plan'], [false, ''], [true, 'No live session runs this plan'], [false, '']]);
+});
+
+test('session Options without a plan: the org item opens the panel on an org plan', async () => {
+  const t = await lifeBoot({ phone: true, sums: [plan('web/one', 'web')] });
+  t.p.sessMenu('claude-a', {}, { state: 'idle' })[1].onclick();
+  await tick();
+  assert.ok(t.panel());
+  assert.strictEqual(t.topic(), 'one');
+});
+
+test('phone: a panel whose plan is gone does not come back by itself', async () => {
+  const t = await lifeBoot({ phone: true, sums: [plan('web/one', 'web', { sessions: ['claude-a'] })] });
+  t.p.sessMenu('claude-a', {}, { state: 'idle' }).onclick();
+  await tick();
+  assert.ok(t.panel());
+  t.store.sums = [];
+  t.p.plan({ id: 'web/one', mtime: 2, removed: true });
+  await new Promise(r => setTimeout(r, 200));
+  assert.strictEqual(t.panel(), null);
+  t.store.sums = [plan('web/two', 'web', { sessions: ['claude-a'] })];
+  t.p.plan({ id: 'web/two', mtime: 3 });
+  await new Promise(r => setTimeout(r, 200));
+  assert.strictEqual(t.panel(), null);
+});
+
+const TWO = { phases: [{ n: 1, name: 'A', done: 0, total: 2, tasks: [
+  { id: 'T1', title: 'One', status: 'done', model: null, body: '', by: [], gate: null },
+  { id: 'T2', title: 'Two', status: 'todo', model: null, body: '', by: [], gate: null },
+] }], timeline: [{ ts: '2026-10-04T11:00:00.000Z', type: 'create', text: 'x' }], waiting: [], mtime: 1 };
+const NEXT2 = { id: 'T2', title: 'Two', model: null };
+
+test('a finished plan with open tasks shows no next in the strip and no next chip; an unfinished one shows both', async () => {
+  const open = await lifeBoot({ detail: TWO, sums: [plan('web/one', 'web', { sessions: ['claude-a'], next: NEXT2 })] });
+  assert.ok(open.dom.text(open.reg['fp2-strip']).includes('next: T2'));
+  assert.strictEqual(open.byClass('fp2-nx').length, 1);
+  const fin = await lifeBoot({ detail: TWO, sums: [finishedPlan('web/one', 'web', { sessions: ['claude-a'], next: NEXT2 })] });
+  assert.ok(!fin.dom.text(fin.reg['fp2-strip']).includes('next'));
+  assert.strictEqual(fin.byClass('fp2-nx').length, 0);
+});
+
+test('the Steps header shows the date of an old plan start, and only the clock for today', async () => {
+  const old = await lifeBoot({ detail: TWO, sums: [plan('web/one', 'web', { sessions: ['claude-a'] })] });
+  assert.ok(old.dom.text(old.panel()).includes(`started ${dateOf('2026-10-04T11:00:00.000Z')}, ${clockOf('2026-10-04T11:00:00.000Z')}`));
+  const now = new Date().toISOString();
+  const today = await lifeBoot({ detail: { ...TWO, timeline: [{ ts: now, type: 'create', text: 'x' }] }, sums: [plan('web/one', 'web', { sessions: ['claude-a'] })] });
+  assert.ok(today.dom.text(today.panel()).includes(`started ${clockOf(now)}`));
+  assert.ok(!today.dom.text(today.panel()).includes(`started ${dateOf(now)}`));
+});
+
+test('oneLine drops control characters from a message', () => {
+  const m = plan2.answerMsg('t', { id: 'q1', q: 'a\u0007b\u001b[31m?' }, 'x\u0000y\u007fz');
+  assert.ok(!/[\u0000-\u001f\u007f]/.test(m));
+  assert.ok(m.includes('xyz') && m.includes('("ab[31m?")'));
+  assert.ok(!/[\u0000-\u001f\u007f]/.test(plan2.makeMsg('n\u0008ote')));
+});
+
+test('phone: closing the terminal clears the open panel, so it does not reopen with the session', async () => {
+  const t = await lifeBoot({ phone: true, sums: [plan('web/one', 'web', { sessions: ['claude-a'] })] });
+  t.p.sessMenu('claude-a', {}, { state: 'idle' }).onclick();
+  await tick();
+  assert.ok(t.panel());
+  t.TERM.open = false;
+  t.p.onState();
+  assert.strictEqual(t.panel(), null);
+  t.TERM.open = true;
+  t.p.onState();
+  assert.strictEqual(t.panel(), null);
+});
+
+test('phone: Claude going away clears the open panel, so it does not reopen when Claude is back', async () => {
+  const t = await lifeBoot({ phone: true, sums: [plan('web/one', 'web')] });
+  t.p.sessMenu('claude-a', {}, { state: 'idle' })[1].onclick();
+  await tick();
+  assert.ok(t.panel());
+  const claude = t.S.runtime.sessions[0].claude;
+  t.S.runtime.sessions[0].claude = null;
+  t.p.onState();
+  assert.strictEqual(t.panel(), null);
+  t.S.runtime.sessions[0].claude = claude;
+  t.p.onState();
+  assert.strictEqual(t.panel(), null);
+});
+
+test('phone: a sheet opened from session Options goes away with the terminal', async () => {
+  const t = await lifeBoot({ phone: true, sums: [plan('web/one', 'web', { offered: ['claude-a'] })] });
+  t.p.sessMenu('claude-a', {}, { state: 'idle' })[0].onclick();
+  await tick();
+  assert.ok(t.dialog());
+  t.TERM.open = false;
+  t.p.onState();
+  assert.strictEqual(t.dialog(), null);
+});
+
+test('phone: turning plans off closes an open panel', async () => {
+  const t = await lifeBoot({ phone: true, sums: [plan('web/one', 'web', { sessions: ['claude-a'] })] });
+  t.p.sessMenu('claude-a', {}, { state: 'idle' }).onclick();
+  await tick();
+  assert.ok(t.panel());
+  t.S.settings.plans = false;
+  t.p.onState();
+  assert.strictEqual(t.panel(), null);
+  assert.strictEqual(t.p.sessMenu('claude-a', {}, { state: 'idle' }), null);
 });

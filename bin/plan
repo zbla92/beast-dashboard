@@ -163,15 +163,27 @@ function stamp(ctx, events) {
   return events.map(e => pf.makeEvent({ ...e, session: ctx.session || undefined }, now));
 }
 
+function claimIfUnclaimed(ctx, plan) {
+  if (!ctx.session) return;
+  try {
+    const claim = pf.readClaim(ctx.root, ctx.session);
+    const live = claim && pf.activeTopics(ctx.root, claim.repoDir).includes(claim.topic);
+    if (live && !(plan.source === 'single' && !ctx.repo && claim.repoDir !== plan.repoDir)) return;
+    pf.writeClaim(ctx.root, ctx.session, plan.repoDir, plan.topic);
+  } catch {}
+}
+
 function mutate(ctx, plan, apply, { write = true } = {}) {
-  return pf.withLock(plan.dir, () => {
+  const result = pf.withLock(plan.dir, () => {
     const { doc } = loadValid(plan.dir);
     const { events } = pf.readEvents(plan.dir);
-    const result = apply(doc, events);
-    if (write && !result.unchanged) pf.writePlan(plan.dir, doc);
-    for (const e of stamp(ctx, result.events)) pf.appendEvent(plan.dir, e);
-    return result;
+    const applied = apply(doc, events);
+    if (write && !applied.unchanged) pf.writePlan(plan.dir, doc);
+    for (const e of stamp(ctx, applied.events)) pf.appendEvent(plan.dir, e);
+    return applied;
   });
+  claimIfUnclaimed(ctx, plan);
+  return result;
 }
 
 function requireTaskId(id) {
@@ -342,12 +354,20 @@ const commands = {
     const plan = locate(ctx);
     const now = new Date();
     const target = pf.withLock(plan.dir, moveTo => {
-      const { doc } = loadValid(plan.dir);
+      const { doc, text } = loadValid(plan.dir);
+      const files = pf.planFiles(plan.dir);
+      const eventsBefore = textOrNull(files.events);
       const events = pf.archive(doc, now);
-      pf.writePlan(plan.dir, doc);
-      for (const e of stamp(ctx, events)) pf.appendEvent(plan.dir, e);
       const to = pf.archiveTarget(ctx.root, plan.repoDir, plan.topic, now);
-      moveTo(to);
+      try {
+        pf.writePlan(plan.dir, doc);
+        for (const e of stamp(ctx, events)) pf.appendEvent(plan.dir, e);
+        moveTo(to);
+      } catch (e) {
+        putBack(files.plan, text);
+        putBack(files.events, eventsBefore);
+        throw e;
+      }
       return to;
     });
     return `archived ${plan.topic} -> ${plan.repoDir}/_archive/${path.basename(target)}`;
@@ -461,13 +481,21 @@ function contextText(plan) {
   return clipText(fit(NEXT_MAX), CONTEXT_MAX);
 }
 
-function contextMany(root, repoDir, topics) {
-  const rows = topics.slice(0, 5).map(t => {
-    const dir = pf.planDir(root, repoDir, t);
-    const s = pf.summarize(pf.readPlan(dir).doc, pf.readEvents(dir).events);
-    return `${t} ${s.done}/${s.total}${s.now ? `, now ${s.now.id}` : s.next ? `, next ${s.next.id}` : ''}`;
-  });
+function contextMany(repoDir, plans) {
+  const rows = plans.slice(0, 5).map(({ topic, s }) => `${topic} ${s.done}/${s.total}${s.now ? `, now ${s.now.id}` : s.next ? `, next ${s.next.id}` : ''}`);
   return clipText([`Active plans for ${repoDir}, none claimed by this session:`, ...rows, 'Pick one with: plan use <topic>'].join('\n'), CONTEXT_MAX);
+}
+
+function contextUnclaimed(root, repoDir) {
+  if (!repoDir) return '';
+  const open = pf.activeTopics(root, repoDir).map(topic => {
+    const dir = pf.planDir(root, repoDir, topic);
+    return { topic, s: pf.summarize(pf.readPlan(dir).doc, pf.readEvents(dir).events) };
+  }).filter(x => !x.s.finished);
+  if (!open.length) return '';
+  if (open.length > 1) return contextMany(repoDir, open);
+  const { topic, s } = open[0];
+  return clipText(`Open plan in this repo, not picked by this session: ${topic} "${s.title}" ${s.done}/${s.total}. If the user wants to continue it: plan use ${topic}. Do not work on it otherwise.`, CONTEXT_MAX);
 }
 
 function contextUnder(root, cwd) {
@@ -477,12 +505,11 @@ function contextUnder(root, cwd) {
     .filter(p => !p.archived && p.repo && inside(p.repo))
     .map(p => ({ p, r: pf.readPlan(p.dir) }))
     .filter(x => x.r && x.r.doc.meta.status !== 'done')
+    .map(x => ({ ...x, s: pf.summarize(x.r.doc, pf.readEvents(x.p.dir).events) }))
+    .filter(x => !x.s.finished)
     .sort((a, b) => b.r.mtimeMs - a.r.mtimeMs)
     .slice(0, 5)
-    .map(({ p, r }) => {
-      const s = pf.summarize(r.doc, pf.readEvents(p.dir).events);
-      return `${p.id} "${clipText(s.title, 60)}" ${s.done}/${s.total}${s.now ? `, now ${s.now.id}` : s.next ? `, next ${s.next.id}` : ''} (${p.repo})`;
-    });
+    .map(({ p, s }) => `${p.id} "${clipText(s.title, 60)}" ${s.done}/${s.total}${s.now ? `, now ${s.now.id}` : s.next ? `, next ${s.next.id}` : ''} (${p.repo})`);
   if (!rows.length) return '';
   return clipText([`Not a git repository. Active plans in repos under ${base}:`, ...rows, 'Continue one by working in its repo, or pass --repo <path> to the plan CLI.'].join('\n'), CONTEXT_MAX);
 }
@@ -522,9 +549,8 @@ function runContext(env, flags) {
       const cwd = typeof input.cwd === 'string' && path.isAbsolute(input.cwd) ? input.cwd : process.cwd();
       const session = flags.session || tmuxSession(env);
       const plan = pf.resolvePlan({ root, cwd, repo: repoArg(flags), session, topic: flags.plan });
-      const text = !plan.error ? contextText(plan)
-        : plan.candidates && plan.candidates.length > 1 ? contextMany(root, plan.repoDir, plan.candidates)
-          : plan.repo ? '' : contextUnder(root, cwd);
+      const picked = !plan.error && plan.source !== 'single';
+      const text = picked ? contextText(plan) : plan.repo ? contextUnclaimed(root, plan.repoDir) : contextUnder(root, cwd);
       if (text) process.stdout.write(text + '\n', () => process.exit(0));
       else process.exit(0);
     } catch {

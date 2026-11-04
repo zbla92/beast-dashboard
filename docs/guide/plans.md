@@ -63,7 +63,7 @@ line). Unknown keys are kept as they are.
 | Status | Meaning | Set by |
 |---|---|---|
 | `active` | work is going on | `plan new`, a reopen, `plan restore` of an incomplete plan |
-| `finished` | every task is done, or someone called it finished. Still a live plan: resolved, claimable, changeable, in `plan context`, mapped to sessions. Nothing archives it by itself | the `plan done` of the last task, `plan finish`, `plan restore` of a complete plan |
+| `finished` | every task is done, or someone called it finished. Still a live plan: resolved, claimable, changeable, in `plan context` of a session that claimed it, mapped to the sessions that claimed it. Nothing archives it by itself | the `plan done` of the last task, `plan finish`, `plan restore` of a complete plan |
 | `done` | archived: lives in `_archive/`, refuses changes until restored | `plan archive` |
 
 ### Sections
@@ -183,6 +183,7 @@ $BEAST_PLANS_DIR                      default ~/.beast/plans
   Moving a repo does not move its plans: rename the folder or edit `.repo` by hand.
 - **Archive**: `plan archive` sets `status: done` and `archived:`, logs `archive`, and moves the
   folder to `<repoDir>/_archive/<date>-<topic>` (`-2`… if taken). The topic is then free again.
+  A failed move puts `plan.md` and `events.jsonl` back, so the plan stays live as it was.
 - **Restore**: `plan restore <folder>` moves `<repoDir>/_archive/<folder>` back to
   `<repoDir>/<topic>` (topic from the frontmatter), drops `archived:`, sets `status: finished` if
   the plan has tasks and all are done, else `active`, and logs `restore`.
@@ -197,11 +198,16 @@ session of `$TMUX_PANE`, found the way `bin/claude-hook.sh` does; none outside t
 ends the flags: every argument after it is text, even one that starts with `--`
 (`plan answer --plan search-v2 -- q1 "--plan=x copy them"`).
 
-**Which plan** a command acts on (the same rule the server uses for a session):
+**Which plan** a command acts on:
 1. `--plan <topic>` in the current repo;
 2. else the session's claim (`plan use`), if it points to an active plan of this repo;
 3. else the repo's only live plan (`status` is not `done`, so `finished` counts);
 4. else exit 3 with the candidates listed.
+
+A session that has no live claim also claims the plan it acted on with a command that changes it
+(`start`, `done`, `fail`, `ask`, `answer`, `next`, `note`, `finish`), so a chat that works on a plan
+keeps it. A live claim is never taken away this way, not even with `--plan` on another plan.
+Read-only commands claim nothing.
 
 | Command | Does | Event |
 |---|---|---|
@@ -254,20 +260,25 @@ ends the flags: every argument after it is text, even one that starts with `--`
 Installed (only when `plans` is on) as a SessionStart command hook. It reads the hook input JSON on
 stdin — `session_id`, `transcript_path`, `cwd`, `hook_event_name: "SessionStart"`, `source`
 (`startup`, `resume`, `clear`, `compact`, `fork`) — and resolves the plan from `cwd` and the tmux
-session like any command. Claude Code adds a SessionStart hook's plain stdout (exit 0) to the
+session. Only a claim or `--plan` picks a plan here; the repo's only live plan is not enough. Claude Code adds a SessionStart hook's plain stdout (exit 0) to the
 agent's context; it caps it at 10,000 characters, our budget is ≈ 400 tokens (≤ 1,600 chars).
 
-- No active plan for the repo, `plans` off, or any error: **prints nothing**, exit 0.
-  It never fails the session start.
-- `cwd` not inside a git repo (e.g. a folder of projects): the active plans whose `repo` is that
-  folder or below it, most recently changed first, max 5; nothing when there are none:
+- No claim and no unfinished live plan for the repo, `plans` off, or any error: **prints nothing**,
+  exit 0. It never fails the session start. With no claim, finished plans are never offered.
+- `cwd` not inside a git repo (e.g. a folder of projects): the unfinished live plans whose `repo` is
+  that folder or below it, most recently changed first, max 5; nothing when there are none:
 
 ```
 Not a git repository. Active plans in repos under /home/u/dev:
 demo-app/search-v2 "Search v2" 4/10, now T6 (/home/u/dev/demo-app)
 Continue one by working in its repo, or pass --repo <path> to the plan CLI.
 ```
-- One plan (claimed or the only one), facts, no instructions in imperative system style:
+- No claim and one unfinished live plan:
+
+```
+Open plan in this repo, not picked by this session: search-v2 "Search v2" 4/10. If the user wants to continue it: plan use search-v2. Do not work on it otherwise.
+```
+- The claimed plan (or `--plan`), facts, no instructions in imperative system style:
 
 ```
 Plan search-v2 "Search v2" (demo-app): 4/10 tasks done, phase 2/3 API. File: /home/u/.beast/plans/demo-app/search-v2/plan.md
@@ -286,7 +297,7 @@ Then: T7 Rate limits (Sonnet), T8 Feature flag (Haiku).
   tasks after `now`. `Answered:` lists up to 3 `answer` events newer than the plan's last `start`
   event, oldest first, as `qN "<question, clipped to 80>" → <answer, clipped to 160>`, joined
   with `; `.
-- Several active plans and no claim: one line per plan (`search-v2 4/10, now T6`, max 5) plus
+- Several unfinished live plans and no claim: one line per plan (`search-v2 4/10, now T6`, max 5) plus
   `Pick one with: plan use <topic>`.
 
 ## 5. Server API
@@ -305,7 +316,9 @@ Plans are read from the store (`BEAST_PLANS_DIR`, default `~/.beast/plans`); leg
 
 ```js
 { id: 'demo-app/search-v2', repoDir: 'demo-app', projectId: 'demo-app' /* project whose path is repo, or null */,
-  sessions: ['claude-search'] /* tmux sessions mapped to this plan */, mtime: 1762166460000 /* plan.md, ms */,
+  sessions: ['claude-search'] /* tmux sessions that claimed this plan */,
+  offered: ['claude-other'] /* sessions in this repo with no claim, when this is its only unfinished live plan */,
+  mtime: 1762166460000 /* plan.md, ms */,
   topic, title, repo, status: 'active', created, archived: null, updated,
   done: 4, total: 10, pct: 40, complete: false,
   finished: false /* status finished, or active with every task done */,
@@ -365,8 +378,17 @@ is set and is not the user's real store (`~/.beast/plans` or below it), so a tes
 change real plans.
 
 **Session ↔ plan**: for a tmux session, its cwd is resolved to a repo as in §3; the plan is its
-claim (`.claims/<name>.json`) if that names an active plan of the same repo, else the repo's only
-active plan, else none. `/clear` keeps the tmux session and so the claim.
+claim (`.claims/<name>.json`) if that names a live plan of the same repo, else none. The repo's only
+plan is not mapped to a session that did not pick it; it is only offered (`offered` above). `/clear`
+keeps the tmux session and so the claim.
+
+In the dashboard a session with no plan shows `No plan · Make a plan…`, then
+`{topic} {done}/{total} · Continue?` when it is offered one, which asks Claude to run `plan use`. The
+⋯ menu of the session's own plan has `Leave this plan`, which asks Claude to run `plan use --clear`;
+it is how a chat kept by `/clear` gets rid of an old plan. Both need a live session. On a phone there
+is no strip at the top of a session: the same things are in the session Options menu, as
+`Plan · {topic} {done}/{total}` with a plan, else `Make a plan…`, `Continue {topic}…` when offered and
+`Archived plans…`.
 
 **Live updates**: the server watches the store (`fs.watch`, recursive) and broadcasts on the
 existing `/api/events` stream, debounced ~300 ms per plan:

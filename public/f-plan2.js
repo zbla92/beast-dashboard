@@ -30,8 +30,10 @@
   const enabled = () => !!(S.settings && S.settings.plans);
   const isPhone = () => matchMedia('(max-width: 900px)').matches;
   const planFor = (sums, name) => sums.find(p => !p.archived && p.sessions.includes(name)) || null;
+  const offerFor = (sums, name) => sums.find(p => !p.archived && p.offered.includes(name)) || null;
   const clock = iso => iso ? new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }) : '';
   const dayMonth = ts => new Date(ts).toLocaleDateString([], { day: 'numeric', month: 'short' });
+  const finishedWhen = (iso, now = new Date()) => new Date(iso).toDateString() === now.toDateString() ? clock(iso) : `${dayMonth(iso)}, ${clock(iso)}`;
   const ringMarkup = (pct, size) => {
     const dash = (RING_C * Math.max(0, Math.min(100, pct)) / 100).toFixed(1);
     return `<svg viewBox="0 0 28 28" width="${size}" height="${size}"><circle class="t" cx="14" cy="14" r="${RING_R}"/><circle class="a" cx="14" cy="14" r="${RING_R}" stroke-dasharray="${dash} ${RING_C.toFixed(1)}" transform="rotate(-90 14 14)"/></svg>`;
@@ -115,7 +117,7 @@
     const meta = [];
     if (p.phase) meta.push(h('span', { class: 'fp2-meta' }, 'Phase ', h('b', null, `${p.phase.n}/${p.phase.of}`)));
     meta.push(h('span', { class: 'fp2-meta' }, h('b', null, `${p.done}/${p.total}`)));
-    const focus = p.now ? ['now: ', p.now.id, p.now.title] : p.next ? ['next: ', p.next.id, p.next.title] : p.complete ? ['all tasks done'] : null;
+    const focus = p.now ? ['now: ', p.now.id, p.now.title] : p.next && !p.finished ? ['next: ', p.next.id, p.next.title] : p.complete ? ['all tasks done'] : null;
     return h('button', { class: 'fp2-strip-b', title: 'Plan — ' + planLabel(p), onclick: toggle },
       ring(p, 26), h('span', { class: 'fp2-name' }, p.topic), ...meta,
       p.waiting.length ? h('span', { class: 'fp2-wait' }, h('i'), `${p.waiting.length} waiting on you`) : null,
@@ -127,7 +129,7 @@
   const modelChip = m => m ? h('span', { class: 'fp2-model' }, m) : null;
   const spin = () => h('span', { class: 'fp2-spin' });
 
-  const oneLine = s => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+  const oneLine = s => String(s == null ? '' : s).replace(/\s+/g, ' ').replace(/[\u0000-\u001f\u007f]/g, '').trim();
   const clipTo = (s, n) => s.length > n ? s.slice(0, n - 1) + '…' : s;
 
   function answerMsg(topic, w, text) {
@@ -146,6 +148,10 @@
 
   const makeMsg = note => withNote('Make a plan for this session with the plan CLI (plan new <topic> --title "<title>", then phases and task cards as in plan help, contracts first). Show me the plan and wait for my go before starting work.', note);
 
+  const continueMsg = topic => `Continue the plan ${topic}: run plan use ${topic}, then plan show, and carry on with it.`;
+
+  const leaveMsg = topic => `This chat no longer works on the plan ${topic}: run plan use --clear. The plan itself stays as it is. Do not work on it unless I ask.`;
+
   const targetOf = p => p.sessions.includes(TERM.active) ? TERM.active : p.sessions[0] || null;
   const NOT_LIVE = 'No live session runs this plan';
   const isLive = name => { const cl = name ? claudeOf(name) : null; return !!cl && cl.state !== 'ended'; };
@@ -160,6 +166,13 @@
     try { await api('send', { session: target, text }); } catch (e) { toast(e.message, 'err'); return false; }
     toast('Sent to ' + sessLabel(target), 'ok');
     return true;
+  }
+
+  async function sendOnce(name, text) {
+    const key = name + '|' + text;
+    if (SENDING.has(key)) return false;
+    SENDING.add(key);
+    try { return await sendToSession({ sessions: [name] }, text); } finally { SENDING.delete(key); }
   }
 
   async function saveAnswer(id, q, text) {
@@ -410,6 +423,7 @@
       item('pencil', 'Update plan…', live ? 'Tell Claude what to change' : NOT_LIVE, () => openUpdate(p), !live),
       item('plus', 'New plan…', canMake ? 'Ask Claude to make a plan' : NOT_LIVE, () => openMake(TERM.active), !canMake),
       p.finished ? null : item('check', 'Mark finished', openTasks(p), () => confirmFinish(p)),
+      p.sessions.includes(TERM.active) ? item('x', 'Leave this plan', canMake ? 'This chat stops working on it; the plan stays' : NOT_LIVE, () => sendOnce(TERM.active, leaveMsg(p.topic)), !canMake) : null,
       h('div', { class: 'sep' }),
       item('archive', 'Archive', 'Hide it; restore any time from the plan list', () => confirmArchive(p))) : null;
     return h('span', { class: 'fp2-act' }, btn, menu);
@@ -527,7 +541,7 @@
   function taskRow(p, t, evs, rerender, nav) {
     const key = p.id + '|' + t.id;
     const open = !!EXP.tasks[key];
-    const isNext = !!(p.next && p.next.id === t.id);
+    const isNext = !p.finished && !!(p.next && p.next.id === t.id);
     const steps = p.now && p.now.id === t.id ? p.now.steps || [] : [];
     const shown = t.status === 'done' ? open ? evs.filter(e => e.type !== 'start') : [] : evs;
     const cur = currentId(p) === t.id;
@@ -546,7 +560,7 @@
   function steps(p, d, rerender, nav) {
     const b = bucketEvents(d.timeline, d.phases);
     const wrap = h('div', { class: 'fp2-sec' });
-    wrap.append(h('div', { class: 'fp2-sec-h' }, 'Steps', h('span', { class: 'fp2-sp' }), b.created ? h('span', { class: 'dim' }, 'started ' + clock(b.created.ts)) : null));
+    wrap.append(h('div', { class: 'fp2-sec-h' }, 'Steps', h('span', { class: 'fp2-sp' }), b.created ? h('span', { class: 'dim' }, 'started ' + finishedWhen(b.created.ts)) : null));
     for (const ph of d.phases) {
       const complete = !!ph.total && ph.done >= ph.total;
       const done = complete ? (b.phase[ph.n] || []).filter(e => e.type === 'phase').pop() : null;
@@ -573,7 +587,7 @@
 
   function finishedRow(p) {
     return h('div', { class: 'fp2-fin' },
-      h('span', { class: 'fp2-fin-t' }, h('b', null, 'Finished'), p.finishedAt ? ` ${clock(p.finishedAt)}.` : null),
+      h('span', { class: 'fp2-fin-t' }, h('b', null, 'Finished'), p.finishedAt ? ` ${finishedWhen(p.finishedAt)}.` : null),
       h('button', { class: 'btn sm', onclick: () => confirmArchive(p) }, ico('archive', 15), 'Archive'));
   }
 
@@ -677,11 +691,12 @@
     ST.sig = '';
   }
 
-  function quietStrip(name, list, org, open) {
+  function quietStrip(name, list, org, open, offer) {
     const can = isLive(name);
     return h('div', { class: 'fp2-strip-b quiet fp2-np' + (can ? '' : ' off') },
       h('span', { class: 'fp2-nop' }, 'No plan'), h('span', { class: 'fp2-nop' }, '·'),
       h('button', { class: 'fp2-np-b', disabled: !can, title: can ? 'Ask Claude to make a plan' : null, onclick: () => openMake(name) }, 'Make a plan…'),
+      offer ? h('button', { class: 'fp2-np-b fp2-np-cont', disabled: !can, title: can ? 'Ask Claude to continue this plan' : null, onclick: () => sendOnce(name, continueMsg(offer.topic)) }, `${offer.topic} ${offer.done}/${offer.total} · Continue?`) : null,
       can ? null : h('span', { class: 'fp2-np-hint' }, NOT_LIVE),
       h('button', { class: 'fp2-np-arch', onclick: () => openArchived(name) }, 'Archived'),
       list.length ? h('button', { class: 'fp2-np-org', title: 'Plans in ' + org, onclick: toggle }, h('span', { class: 'fp2-nop' }, `${list.length} in ${org}`), h('span', { class: 'fp2-chev' + (open ? ' on' : '') }, ico('chevronDown', 15))) : null);
@@ -691,28 +706,31 @@
     renderQuestions();
     const main = $('.termmain');
     const stripEl = () => document.getElementById('fp2-strip') || document.getElementById('fp2-panel');
-    if (!enabled() || !main || !TERM.open || !TERM.active) { if (stripEl()) teardown(); return; }
+    if (!enabled() || !main || !TERM.open || !TERM.active) { PH.name = null; if (stripEl() || SH.close) teardown(); return; }
     const name = TERM.active;
     if (PH.name && PH.name !== name) PH.name = null;
     const own = planFor(ST.sums, name);
     const projects = S.projects || [];
     const projectId = sessionProject(name);
     const list = orgPlans(ST.sums, projects, own, projectId);
-    if (!own && !claudeOf(name)) { if (stripEl()) teardown(); return; }
+    if (!own && !claudeOf(name)) { PH.name = null; if (stripEl() || SH.close) teardown(); return; }
     const shown = list.find(x => x.id === VIEW[name]) || own || list[0] || null;
     const names = planNames(list, projects);
     const phone = isPhone();
+    if (phone && !list.length) PH.name = null;
     const open = list.length ? isOpen(name, !!own) : false;
     const org = own ? '' : orgLabel(projects, projectId);
+    const offer = own ? null : offerFor(ST.sums, name);
     const found = document.getElementById('fp2-strip');
-    const st = found || h('div', { id: 'fp2-strip', class: 'fp2-strip' });
-    if (!found) { const bar = $('#term-bar'); if (bar) bar.after(st); else main.prepend(st); force = true; }
-    main.style.setProperty('--fp2-top', (st.offsetTop + st.offsetHeight) + 'px');
+    if (phone && found) found.remove();
+    const st = phone ? null : found || h('div', { id: 'fp2-strip', class: 'fp2-strip' });
+    if (st && !found) { const bar = $('#term-bar'); if (bar) bar.after(st); else main.prepend(st); force = true; }
+    if (st) main.style.setProperty('--fp2-top', (st.offsetTop + st.offsetHeight) + 'px');
     const dm = shown && DET[shown.id] ? DET[shown.id].mtime : 0;
-    const sig = JSON.stringify([name, own, org, list, names, shown && shown.id, dm, shown && STALE.has(shown.id), open, phone, EXP, !own && isLive(name)]);
+    const sig = JSON.stringify([name, own, org, offer && [offer.topic, offer.done, offer.total], list, names, shown && shown.id, dm, shown && STALE.has(shown.id), open, phone, EXP, !own && isLive(name)]);
     if (sig === ST.sig && !force) return;
     ST.sig = sig;
-    st.replaceChildren(own ? strip(own, open) : quietStrip(name, list, org, open));
+    if (st) st.replaceChildren(own ? strip(own, open) : quietStrip(name, list, org, open, offer));
     main.classList.toggle('fp2-open', open && !phone);
     const old = document.getElementById('fp2-panel');
     if (!open) { remove('fp2-panel', 'fp2-scrim'); return; }
@@ -743,7 +761,7 @@
 
   function onState() {
     const on = enabled();
-    if (!on) { ST.was = false; if (document.getElementById('fp2-strip')) teardown(); return; }
+    if (!on) { ST.was = false; if (document.getElementById('fp2-strip') || document.getElementById('fp2-panel')) teardown(); return; }
     const key = ((S.runtime && S.runtime.sessions) || []).map(x => x.name + '@' + (x.cwd || '')).join('|');
     if (!ST.was || key !== ST.skey) { ST.was = true; ST.skey = key; load(); }
     sync();
@@ -763,6 +781,27 @@
   }
 
   function live() { load(); }
+
+  function sessMenu(name, sess, cl) {
+    if (!enabled() || !isPhone() || !cl) return null;
+    const own = planFor(ST.sums, name);
+    if (own) {
+      const n = own.waiting.length;
+      return { label: `Plan · ${own.topic} ${own.done}/${own.total}`, sub: n ? `${n} open question${n > 1 ? 's' : ''}` : '', icon: ico('checkSquare', 15), onclick: () => { if (PH.name !== name) toggle(); } };
+    }
+    const offer = offerFor(ST.sums, name);
+    const can = isLive(name);
+    const hint = can ? '' : NOT_LIVE;
+    const projects = S.projects || [];
+    const projectId = sessionProject(name);
+    const others = orgPlans(ST.sums, projects, null, projectId).length;
+    return [
+      { label: 'Make a plan…', sub: hint, icon: ico('plus', 15), disabled: !can, onclick: () => openMake(name) },
+      others ? { label: `${others} in ${orgLabel(projects, projectId)}…`, icon: ico('checkSquare', 15), onclick: () => { if (PH.name !== name) toggle(); } } : null,
+      offer ? { label: `Continue ${offer.topic}`, sub: hint, icon: ico('play', 15), disabled: !can, onclick: () => sendOnce(name, continueMsg(offer.topic)) } : null,
+      { label: 'Archived plans…', icon: ico('archive', 15), onclick: () => openArchived(name) },
+    ].filter(Boolean);
+  }
 
   function cardChips(proj) {
     if (!enabled()) return null;
@@ -792,5 +831,5 @@
   setInterval(() => { if (!document.hidden) load(); }, 60000);
   addEventListener('resize', () => sync());
 
-  FEAT.plan2 = { onState, termShown, termBarKey, termItem, plan: onPlan, live, cardChips, planFor, readOpen, ringMarkup, bucketEvents, orgPlans, planNames, answerMsg, updateMsg, makeMsg, openMake, actionsMenu, quietStrip, questionsRow, sheet, sendToSession, saveAnswer, phaseSheet, taskSheet, archivedOf };
+  FEAT.plan2 = { onState, termShown, termBarKey, termItem, plan: onPlan, live, cardChips, sessMenu, planFor, readOpen, ringMarkup, bucketEvents, orgPlans, planNames, answerMsg, updateMsg, makeMsg, continueMsg, leaveMsg, finishedWhen, openMake, actionsMenu, quietStrip, questionsRow, sheet, sendToSession, saveAnswer, phaseSheet, taskSheet, archivedOf };
 })();

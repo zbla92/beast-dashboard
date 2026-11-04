@@ -477,7 +477,7 @@ test('context: summary of the active plan, from a hook cwd', t => {
   e.run(['start', 'T2']);
   e.run(['fail', 'T3', '--gate', 'lint · 2 errors']);
   e.run(['ask', 'Re-index or copy?', '--blocks', 'T5']);
-  const r = e.run(['context'], { cwd: tmp(t), input: JSON.stringify({ cwd: e.repo, hook_event_name: 'SessionStart', source: 'clear' }) });
+  const r = e.run(['context', ...SESSION], { cwd: tmp(t), input: JSON.stringify({ cwd: e.repo, hook_event_name: 'SessionStart', source: 'clear' }) });
   assert.equal(r.code, 0);
   const lines = r.out.trimEnd().split('\n');
   assert.match(lines[0], /^Plan search-v2 "Search v2" \(demo-app\): 1\/5 tasks done, phase 1\/2 Index\. File: .*plan\.md$/);
@@ -497,7 +497,7 @@ test('context stays within the size budget with huge content', t => {
   fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('## Next\n', `## Next\n\n${long}\n`));
   for (const i of [0, 1, 2, 3]) e.run(['ask', `question ${i} ${'x'.repeat(300)}`]);
   e.run(['start', 'T1']);
-  const r = e.run(['context'], { input: '{}' });
+  const r = e.run(['context', ...SESSION], { input: '{}' });
   assert.equal(r.code, 0);
   assert.ok(r.out.length > 0 && r.out.length <= 1601, String(r.out.length));
   assert.match(r.out, /Next: word/);
@@ -618,20 +618,20 @@ test('a plan with status done is refused by every mutation', t => {
 test('context prints nothing when the plans setting is off, broken or missing', t => {
   const e = env(t);
   seed(e);
-  assert.match(e.run(['context'], { input: '{}' }).out, /^Plan search-v2/);
+  assert.match(e.run(['context', ...SESSION], { input: '{}' }).out, /^Plan search-v2/);
   e.setPlans(false);
-  assert.deepEqual(Object.values(e.run(['context'], { input: '{}' })), [0, '', '']);
+  assert.deepEqual(Object.values(e.run(['context', ...SESSION], { input: '{}' })), [0, '', '']);
   fs.writeFileSync(e.settings, '{broken');
-  assert.deepEqual(Object.values(e.run(['context'], { input: '{}' })), [0, '', '']);
+  assert.deepEqual(Object.values(e.run(['context', ...SESSION], { input: '{}' })), [0, '', '']);
   fs.rmSync(e.settings);
-  assert.deepEqual(Object.values(e.run(['context'], { input: '{}' })), [0, '', '']);
+  assert.deepEqual(Object.values(e.run(['context', ...SESSION], { input: '{}' })), [0, '', '']);
 });
 
 test('context Then: lists todo tasks after the current one', t => {
   const e = env(t);
   seed(e);
   e.run(['start', 'T3']);
-  const r = e.run(['context'], { input: '{}' });
+  const r = e.run(['context', ...SESSION], { input: '{}' });
   assert.match(r.out, /^Now: T3 Query endpoint/m);
   assert.match(r.out, /^Then: T4 Rate limits \(Haiku\), T5 Runbook\.$/m);
 });
@@ -668,22 +668,22 @@ test('context Answered: the last three answers since the last start, clipped', t
   e.run(['ask', 'Before start?']);
   e.run(['answer', 'q1', 'old answer']);
   e.run(['start', 'T1']);
-  assert.doesNotMatch(e.run(['context'], { input: '{}' }).out, /^Answered:/m);
+  assert.doesNotMatch(e.run(['context', ...SESSION], { input: '{}' }).out, /^Answered:/m);
   e.run(['ask', `Long ${'q'.repeat(100)}?`]);
   for (const n of [3, 4, 5]) e.run(['ask', `Question ${n}?`]);
   e.run(['answer', 'q2', 'a'.repeat(200)]);
   e.run(['answer', 'q3', 'three']);
-  const two = e.run(['context'], { input: '{}' }).out;
+  const two = e.run(['context', ...SESSION], { input: '{}' }).out;
   assert.match(two, new RegExp(`^Answered: q2 "Long ${'q'.repeat(74)}…" → ${'a'.repeat(159)}…; q3 "Question 3\\?" → three$`, 'm'));
   e.run(['answer', 'q4', 'four']);
   e.run(['answer', 'q5', 'five']);
-  const r = e.run(['context'], { input: '{}' });
+  const r = e.run(['context', ...SESSION], { input: '{}' });
   assert.equal(r.code, 0);
   assert.match(r.out, /^Answered: q3 "Question 3\?" → three; q4 "Question 4\?" → four; q5 "Question 5\?" → five$/m);
   assert.ok(r.out.length <= 1601);
   e.run(['done', 'T1']);
   e.run(['start', 'T2']);
-  assert.doesNotMatch(e.run(['context'], { input: '{}' }).out, /^Answered:/m);
+  assert.doesNotMatch(e.run(['context', ...SESSION], { input: '{}' }).out, /^Answered:/m);
 });
 
 const statusOf = (e, topic = 'search-v2') => pf.parse(e.planText(topic)).meta.status;
@@ -802,7 +802,7 @@ test('a finished plan stays live: resolved, claimable, mutable, in plan context,
   assert.match(e.run(['list']).out, /search-v2 {2}5\/5 {2}finished/);
   assert.equal(e.run(['use', 'search-v2', '--session', 'claude-other']).code, 0);
   assert.equal(e.run(['note', 'done and dusted']).code, 0);
-  assert.match(e.run(['context'], { input: '{}' }).out, /^Plan search-v2 "Search v2" \(demo-app\): 5\/5 tasks done/);
+  assert.match(e.run(['context', ...SESSION], { input: '{}' }).out, /^Plan search-v2 "Search v2" \(demo-app\): 5\/5 tasks done/);
   const j = JSON.parse(e.run(['show', '--json']).out);
   assert.equal(j.finished, true);
   assert.ok(pf.isIso(j.finishedAt));
@@ -869,7 +869,7 @@ fs.appendFileSync = () => { throw new Error('disk full'); };
 });
 
 const FINISHED_LINE = 'This plan is finished. Ask the user whether to archive it; do not archive without asking.';
-const contextOf = e => e.run(['context'], { input: JSON.stringify({ session_id: 's', cwd: e.repo, hook_event_name: 'SessionStart', source: 'startup' }) }).out;
+const contextOf = e => e.run(['context', ...SESSION], { input: JSON.stringify({ session_id: 's', cwd: e.repo, hook_event_name: 'SessionStart', source: 'startup' }) }).out;
 
 test('plan context tells Claude to ask before archiving a finished plan, and only then', t => {
   const e = env(t);
@@ -965,4 +965,200 @@ test('help lists finish and restore', t => {
   const out = env(t).run(['help']).out;
   assert.match(out, /^ {2}finish\b/m);
   assert.match(out, /^ {2}restore <folder>/m);
+});
+
+const NEW_SESSION = ['--session', 'claude-new'];
+const claimOf = (e, session = 'claude-new') => pf.readClaim(e.root, session);
+const openPlanLine = (topic, done = 0, total = 5) => `Open plan in this repo, not picked by this session: ${topic} "Search v2" ${done}/${total}. If the user wants to continue it: plan use ${topic}. Do not work on it otherwise.\n`;
+
+test('context with no claim: one unfinished plan gets the exact offer line, nothing else', t => {
+  const e = env(t);
+  seed(e);
+  e.run(['start', 'T1']);
+  assert.equal(e.run(['context'], { input: '{}' }).out, openPlanLine('search-v2'));
+  assert.equal(e.run(['context', ...NEW_SESSION], { input: '{}' }).out, openPlanLine('search-v2'));
+  assert.equal(claimOf(e), null);
+  assert.match(e.run(['context', ...SESSION], { input: '{}' }).out, /^Plan search-v2/);
+  assert.match(e.run(['context', '--plan', 'search-v2'], { input: '{}' }).out, /^Plan search-v2/);
+});
+
+test('context with no claim never offers a finished plan; a session that claimed it still gets the archive line', t => {
+  const e = env(t);
+  seed(e);
+  assert.equal(e.run(['finish']).code, 0);
+  assert.equal(e.run(['context'], { input: '{}' }).out, '');
+  assert.ok(contextOf(e).split('\n').includes(FINISHED_LINE));
+  seed(e, 'open-one');
+  assert.equal(e.run(['context'], { input: '{}' }).out, openPlanLine('open-one'));
+  seed(e, 'open-two');
+  const many = e.run(['context'], { input: '{}' }).out;
+  assert.match(many, /^Active plans for demo-app/);
+  assert.match(many, /^open-one 0\/5, next T1$/m);
+  assert.match(many, /^open-two 0\/5, next T1$/m);
+  assert.doesNotMatch(many, /search-v2/);
+  assert.match(many, /^Pick one with: plan use <topic>$/m);
+});
+
+test('context with no claim counts a plan with every task done as finished', t => {
+  const e = env(t);
+  seed(e);
+  fs.writeFileSync(path.join(e.planDir('search-v2'), 'plan.md'), e.planText('search-v2').replace(/^(\s*- )\[.\]/gm, '$1[x]'));
+  assert.equal(e.run(['context'], { input: '{}' }).out, '');
+});
+
+test('context outside a git repo leaves finished plans out of its list', t => {
+  const e = env(t);
+  seed(e);
+  seed(e, 'open-one');
+  assert.equal(e.run(['finish', '--plan', 'search-v2']).code, 0);
+  const r = e.run(['context'], { cwd: tmp(t), input: JSON.stringify({ cwd: path.dirname(e.repo) }) });
+  assert.match(r.out, /^demo-app\/open-one /m);
+  assert.doesNotMatch(r.out, /search-v2/);
+});
+
+for (const [name, args] of Object.entries({
+  start: ['start', 'T1'],
+  done: ['done', 'T1'],
+  fail: ['fail', 'T1', '--gate', 'lint'],
+  ask: ['ask', 'Which?'],
+  next: ['next', 'carry on'],
+  note: ['note', 'a note'],
+  finish: ['finish'],
+})) {
+  test(`${name} from a session with no claim claims the plan it acted on`, t => {
+    const e = env(t);
+    seed(e);
+    assert.equal(claimOf(e), null);
+    const r = e.run([...args, ...NEW_SESSION]);
+    assert.equal(r.code, 0, r.err);
+    assert.deepEqual([claimOf(e).repoDir, claimOf(e).topic], ['demo-app', 'search-v2']);
+  });
+}
+
+test('answer from a session with no claim claims the plan it acted on', t => {
+  const e = env(t);
+  seed(e);
+  e.run(['ask', 'Which?']);
+  assert.equal(claimOf(e), null);
+  assert.equal(e.run(['answer', 'q1', 'this one', ...NEW_SESSION]).code, 0);
+  assert.equal(claimOf(e).topic, 'search-v2');
+});
+
+test('read-only commands and refused commands do not claim', t => {
+  const e = env(t);
+  seed(e);
+  for (const args of [['show'], ['show', '--json'], ['list'], ['path'], ['validate']]) {
+    assert.equal(e.run([...args, ...NEW_SESSION]).code, 0, args.join(' '));
+    assert.equal(claimOf(e), null, args.join(' '));
+  }
+  assert.notEqual(e.run(['start', 'T99', ...NEW_SESSION]).code, 0);
+  assert.equal(e.run(['done', 'T1', '--plan', 'nope', ...NEW_SESSION]).code, 3);
+  assert.equal(e.run(['answer', 'q9', 'nope', ...NEW_SESSION]).code, 1);
+  assert.equal(claimOf(e), null);
+});
+
+test('a command on another plan keeps a live claim, and replaces one whose plan is gone', t => {
+  const e = env(t);
+  seed(e, 'a');
+  seed(e, 'b');
+  assert.equal(e.run(['use', 'a', ...NEW_SESSION]).code, 0);
+  assert.equal(e.run(['note', 'on b', '--plan', 'b', ...NEW_SESSION]).code, 0);
+  assert.equal(claimOf(e).topic, 'a');
+  assert.equal(e.run(['archive', '--plan', 'a']).code, 0);
+  assert.equal(e.run(['note', 'still on b', '--plan', 'b', ...NEW_SESSION]).code, 0);
+  assert.equal(claimOf(e).topic, 'b');
+});
+
+test('a chat moved to another repo claims that repo\'s only plan, and a live claim in the same repo stays', t => {
+  const e = env(t);
+  seed(e, 'a');
+  seed(e, 'b');
+  assert.equal(e.run(['use', 'a', ...NEW_SESSION]).code, 0);
+  const other = makeRepo(t, 'other-app');
+  assert.equal(e.run(['new', 'solo', '--title', 'Solo'], { cwd: other }).code, 0);
+  assert.equal(e.run(['note', 'moved', ...NEW_SESSION], { cwd: other }).code, 0);
+  assert.deepEqual([claimOf(e).repoDir, claimOf(e).topic], ['other-app', 'solo']);
+  assert.equal(e.run(['note', 'back', '--plan', 'a', ...NEW_SESSION]).code, 0);
+  assert.equal(claimOf(e).topic, 'solo');
+  assert.equal(e.run(['use', 'a', ...NEW_SESSION]).code, 0);
+  assert.equal(e.run(['note', 'again', '--repo', other, ...NEW_SESSION]).code, 0);
+  assert.equal(claimOf(e).topic, 'a');
+});
+
+test('use keeps its behaviour: --clear stays cleared until a command runs again, and no session writes no claim', t => {
+  const e = env(t);
+  seed(e);
+  assert.equal(e.run(['use', 'search-v2', ...NEW_SESSION]).code, 0);
+  assert.equal(e.run(['use', '--clear', ...NEW_SESSION]).code, 0);
+  assert.equal(claimOf(e), null);
+  assert.equal(e.run(['context', ...NEW_SESSION], { input: '{}' }).out, openPlanLine('search-v2'));
+  assert.equal(e.run(['note', 'no session']).code, 0);
+  assert.deepEqual(fs.readdirSync(path.join(e.root, '.claims')), ['claude-test.json']);
+  assert.equal(e.run(['note', 'again', ...NEW_SESSION]).code, 0);
+  assert.equal(claimOf(e).topic, 'search-v2');
+});
+
+test('a claim that cannot be written does not fail a command that already took effect', t => {
+  const e = env(t);
+  assert.equal(e.run(['new', 'search-v2', '--title', 'Search v2']).code, 0);
+  fs.writeFileSync(path.join(e.root, '.claims'), '');
+  assert.equal(e.run(['note', 'kept', ...NEW_SESSION]).code, 0);
+  assert.equal(e.events('search-v2').filter(x => x.type === 'note').length, 1);
+});
+
+const failingArchive = (t, hookCode) => {
+  const e = env(t);
+  seed(e);
+  e.run(['start', 'T1']);
+  const dir = e.planDir('search-v2');
+  const planBefore = e.planText('search-v2');
+  const eventsBefore = fs.readFileSync(path.join(dir, 'events.jsonl'), 'utf8');
+  const hook = path.join(tmp(t, 'bd-plancli-hook-'), 'fail.js');
+  fs.writeFileSync(hook, hookCode);
+  const r = e.run(['archive'], { env: { NODE_OPTIONS: `--require ${hook}` } });
+  assert.equal(r.code, 1);
+  assert.match(r.err, /disk full/);
+  assert.equal(e.planText('search-v2'), planBefore);
+  assert.equal(fs.readFileSync(path.join(dir, 'events.jsonl'), 'utf8'), eventsBefore);
+  assert.equal(statusOf(e), 'active');
+  assert.ok(!fs.existsSync(path.join(dir, '.lock')));
+  assert.equal(e.run(['note', 'still live']).code, 0);
+  const again = e.run(['archive']);
+  assert.equal(again.code, 0, again.err);
+  assert.ok(!fs.existsSync(dir));
+  assert.equal(pf.listPlans(e.root).filter(p => p.archived).length, 1);
+};
+
+test('archive puts plan.md and events.jsonl back when the move fails, and can be run again', t => {
+  failingArchive(t, `const fs = require('fs');
+const rename = fs.renameSync;
+fs.renameSync = (from, to) => {
+  if (String(to).includes('_archive')) throw new Error('disk full');
+  return rename(from, to);
+};
+`);
+});
+
+test('archive puts plan.md back when logging the event fails', t => {
+  failingArchive(t, `const fs = require('fs');
+fs.appendFileSync = () => { throw new Error('disk full'); };
+`);
+});
+
+test('archive leaves no events file behind when the plan had none and the move fails', t => {
+  const e = env(t);
+  seed(e);
+  const events = path.join(e.planDir('search-v2'), 'events.jsonl');
+  fs.rmSync(events);
+  const hook = path.join(tmp(t, 'bd-plancli-hook-'), 'fail.js');
+  fs.writeFileSync(hook, `const fs = require('fs');
+const rename = fs.renameSync;
+fs.renameSync = (from, to) => {
+  if (String(to).includes('_archive')) throw new Error('disk full');
+  return rename(from, to);
+};
+`);
+  assert.equal(e.run(['archive'], { env: { NODE_OPTIONS: `--require ${hook}` } }).code, 1);
+  assert.ok(!fs.existsSync(events));
+  assert.equal(statusOf(e), 'active');
 });
