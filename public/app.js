@@ -297,14 +297,23 @@ function fillLive(el, turn) {
 // would move into whichever rendered last (a closed drawer keeps it, and the chat loses its Allow / Deny)
 const ASKC = new WeakMap();   // box -> { rid, el }
 function askCard(box, name, req, done) {
-  const kept = ASKC.get(box); if (kept && kept.rid === req.rid) return kept.el;
+  const planText = req.input && typeof req.input.plan === 'string' ? req.input.plan.trim() : '';
+  const kept = ASKC.get(box); if (kept && kept.rid === req.rid && kept.planText === planText) return kept.el;
   let sending = false, card;
   const reply = async (decision, answers, message) => {
     if (sending) return; sending = true; card.classList.add('busy');
     try { await api('hl-answer', { session: name, rid: req.rid, decision, answers, message }); } catch (e) { toast(e.message, 'err'); sending = false; card.classList.remove('busy'); return; }
     done();
   };
-  if (req.kind !== 'question') {
+  if (req.kind === 'question' && !(req.questions || []).length) {
+    const isPlan = req.tool === 'ExitPlanMode';
+    const planBody = planText ? h('div', { class: 'ttext askplan' }) : null;
+    if (planBody) planBody.innerHTML = mdLite(planText);
+    card = h('div', { class: 'turn assistant cmenu ask' }, h('div', { class: 'who' }, isPlan ? 'Claude has a plan ready' : 'Claude wants to use ' + (req.tool || 'a tool')),
+      planBody || (isPlan ? null : h('div', { class: 'cmenu-q mono' }, req.what || req.tool || '')),
+      h('div', { class: 'askrow' }, h('button', { class: 'btn sm primary', onclick: () => reply('allow', {}) }, isPlan ? 'Approve and start' : 'Allow'),
+        h('button', { class: 'btn sm', onclick: () => reply('deny', null, isPlan ? 'The user wants to keep planning.' : 'The user denied this.') }, isPlan ? 'Keep planning' : 'Deny')));
+  } else if (req.kind !== 'question') {
     card = h('div', { class: 'turn assistant cmenu ask' }, h('div', { class: 'who' }, '⚠ Claude wants to use ' + (req.tool || 'a tool')), h('div', { class: 'cmenu-q mono' }, req.what || req.tool || ''),
       h('div', { class: 'askrow' }, h('button', { class: 'btn sm primary', onclick: () => reply('allow') }, 'Allow'), h('button', { class: 'btn sm', onclick: () => reply('deny', null, 'The user denied this.') }, 'Deny')));
   } else {
@@ -329,7 +338,7 @@ function askCard(box, name, req, done) {
     card = h('div', { class: 'turn assistant cmenu ask' }, h('div', { class: 'who' }, gl('⚠ Claude is asking')), ...blocks,
       h('div', { class: 'askrow' }, submit, h('button', { class: 'btn sm ghost', onclick: () => reply('deny', null, 'The user dismissed the question without answering.') }, 'Skip')));
   }
-  ASKC.set(box, { rid: req.rid, el: card });
+  ASKC.set(box, { rid: req.rid, planText, el: card });
   return card;
 }
 // Poll while a conversation is on screen (panel chat or session drawer): the transcript grows while Claude writes

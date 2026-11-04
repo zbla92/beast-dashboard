@@ -122,6 +122,25 @@ test('a permission denied with a message reaches claude as the tool error', asyn
   assert.ok(k.evs.some(e => e.ev === 'tool-done' && e.error));
 });
 
+test('a plan approval is a question without questions; approving and declining both reach claude', async t => {
+  const r = runner(t); const k = await client(t, r.sock);
+  k.c.write('{"op":"hello"}\n');
+  await k.until(e => e.ev === 'snapshot');
+  await k.op({ op: 'send', text: 'exitplan' });
+  const first = await k.until(e => e.ev === 'pending');
+  assert.strictEqual(first.req.kind, 'question'); assert.strictEqual(first.req.tool, 'ExitPlanMode');
+  assert.strictEqual(first.req.questions, undefined); assert.match(first.req.input.plan, /first step/);
+  assert.strictEqual((await k.op({ op: 'answer', rid: first.req.rid, decision: 'allow', answers: {} })).ev, 'ack');
+  await k.until(e => e.ev === 'result');
+  assert.match(k.text(), /plan approved/);
+  k.clear();
+  await k.op({ op: 'send', text: 'exitplan' });
+  const second = await k.until(e => e.ev === 'pending');
+  await k.op({ op: 'answer', rid: second.req.rid, decision: 'deny', message: 'The user wants to keep planning.' });
+  await k.until(e => e.ev === 'result');
+  assert.match(k.text(), /keep planning: The user wants to keep planning\./);
+});
+
 test('interrupting a pending question denies it and ends the turn', async t => {
   const r = runner(t); const k = await client(t, r.sock);
   await k.op({ op: 'send', text: 'ask' });

@@ -78,6 +78,12 @@ async function turn(text, uuid, content = text) {
     await say(r.behavior === 'allow' ? 'answer: ' + JSON.stringify(r.updatedInput.answers) : 'no answer: ' + r.message);
     return done();
   }
+  if (text === 'exitplan') {
+    const r = await ask({ tool_name: 'ExitPlanMode', display_name: 'ExitPlanMode', requires_user_interaction: true, tool_use_id: 'tp', input: { plan: process.env.FAKE_PLAN || '# Plan\n\n- first step\n- <script>window.PWNED = 1</script>', planFilePath: '/tmp/plan.md' } });
+    if (aborted) return;
+    await say(r.behavior === 'allow' ? 'plan approved' : 'keep planning: ' + r.message);
+    return done();
+  }
   if (text === 'perm') {
     const r = await ask({ tool_name: 'Write', display_name: 'Write', tool_use_id: 'tw', input: { file_path: '/tmp/x.txt', content: 'hi' }, permission_suggestions: [{ type: 'setMode', mode: 'acceptEdits', destination: 'session' }] });
     tool('tw', 'Write', { file_path: '/tmp/x.txt', content: 'hi' });

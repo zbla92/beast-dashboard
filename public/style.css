@@ -1494,5 +1494,6 @@ body.term-open .rail .navb.on .ico { color: inherit; opacity: .85; }
 .askopt.cur { border-color: color-mix(in srgb, var(--signal) 70%, transparent); background: color-mix(in srgb, var(--signal) 10%, transparent); }
 .askother { width: 100%; }
 .askrow { display: flex; gap: 8px; flex-wrap: wrap; }
+.turn.ask .askplan { max-height: 50vh; overflow: auto; }
 .turn.ask.busy { opacity: .6; pointer-events: none; }
 .turn .who .steer { display: inline-flex; align-items: center; gap: 3px; margin-left: 6px; font-size: 11px; color: var(--muted); }
