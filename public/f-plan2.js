@@ -1,5 +1,6 @@
 'use strict';
 (() => {
+  ICONS.archive = '<rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9M10 13h4"/>';
   const OPEN_KEY = 'bd.plan2.open';
   const readOpen = () => {
     try {
@@ -21,6 +22,7 @@
   const DRAFT = {};
   const SH = { close: null };
   const QS = { id: null, pick: null, sig: '', render: null, close: null };
+  const ARCH = { list: null, err: '', seq: 0, render: null };
   const TEXT_MAX = 2000;
   const RING_R = 11;
   const RING_C = 2 * Math.PI * RING_R;
@@ -29,6 +31,7 @@
   const isPhone = () => matchMedia('(max-width: 900px)').matches;
   const planFor = (sums, name) => sums.find(p => !p.archived && p.sessions.includes(name)) || null;
   const clock = iso => iso ? new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }) : '';
+  const dayMonth = ts => new Date(ts).toLocaleDateString([], { day: 'numeric', month: 'short' });
   const ringMarkup = (pct, size) => {
     const dash = (RING_C * Math.max(0, Math.min(100, pct)) / 100).toFixed(1);
     return `<svg viewBox="0 0 28 28" width="${size}" height="${size}"><circle class="t" cx="14" cy="14" r="${RING_R}"/><circle class="a" cx="14" cy="14" r="${RING_R}" stroke-dasharray="${dash} ${RING_C.toFixed(1)}" transform="rotate(-90 14 14)"/></svg>`;
@@ -48,6 +51,8 @@
     for (const p of list) count[p.topic] = (count[p.topic] || 0) + 1;
     return list.map(p => { if (count[p.topic] < 2) return p.topic; const pr = projectOf(projects, p.projectId); return pr ? pr.name : p.id.split('/')[0]; });
   };
+  const archivedOf = (all, projects, key) => all.filter(p => p.archived && (!key || planGroup(p, projects) === key)).sort((a, b) => String(b.archived).localeCompare(String(a.archived)));
+  const sessionProject = name => { const s = ((S.runtime && S.runtime.sessions) || []).find(x => x.name === name); return s ? s.project : null; };
   const orgLabel = (projects, projectId) => { const pr = projectOf(projects, projectId); return pr ? pr.org || pr.name : ''; };
   const isOpen = (name, hasOwn) => isPhone() ? PH.name === name : name in OPEN ? !!OPEN[name] : hasOwn;
 
@@ -72,7 +77,23 @@
     if (!enabled()) return;
     if (ev.removed) { delete DET[ev.id]; STALE.delete(ev.id); } else STALE.add(ev.id);
     clearTimeout(ST.timer);
-    ST.timer = setTimeout(load, 150);
+    ST.timer = setTimeout(() => { load(); if (EXP.menu || ARCH.render) loadArchived(); }, 150);
+  }
+
+  async function loadArchived() {
+    ARCH.seq += 1;
+    const seq = ARCH.seq;
+    try {
+      const d = await api('plans?v=2&archived=1');
+      if (seq !== ARCH.seq) return;
+      ARCH.list = d.plans || [];
+      ARCH.err = '';
+    } catch (e) {
+      if (seq !== ARCH.seq) return;
+      ARCH.err = e.message;
+    }
+    if (ARCH.render) ARCH.render();
+    if (EXP.menu && PV.rerender && document.getElementById('fp2-panel')) PV.rerender();
   }
 
   async function ensureDetail(p) {
@@ -126,8 +147,8 @@
   const makeMsg = note => withNote('Make a plan for this session with the plan CLI (plan new <topic> --title "<title>", then phases and task cards as in plan help, contracts first). Show me the plan and wait for my go before starting work.', note);
 
   const targetOf = p => p.sessions.includes(TERM.active) ? TERM.active : p.sessions[0] || null;
-  const isLive = name => { const cl = name ? claudeOf(name) : null; return !!cl && cl.state !== 'ended'; };
   const NOT_LIVE = 'No live session runs this plan';
+  const isLive = name => { const cl = name ? claudeOf(name) : null; return !!cl && cl.state !== 'ended'; };
   const sessLabel = name => { const s = ((S.runtime && S.runtime.sessions) || []).find(x => x.name === name); return s ? sessTitle(s) : name; };
 
   async function sendToSession(p, text) {
@@ -328,17 +349,69 @@
 
   const openMake = name => noteSheet({ key: 'make|' + name, title: 'Make a plan', topic: '', p: { sessions: [name] }, build: makeMsg, placeholder: 'What is this plan for? (optional)', intro: 'Claude drafts a plan for this session and waits for your go before starting.' });
 
-  const LIFECYCLE = {};
+  async function planOp(op, p) {
+    const key = op + '|' + p.id;
+    if (SENDING.has(key)) return null;
+    SENDING.add(key);
+    try { return (await api(op, { id: p.id })).id; } catch (e) { toast(e.message, 'err'); return null; } finally { SENDING.delete(key); }
+  }
+
+  const LIFECYCLE = {
+    async finish(p) {
+      if (!await planOp('plan-finish', p)) return;
+      toast(p.topic + ' marked finished', 'ok');
+      load();
+    },
+    async archive(p) {
+      if (!await planOp('plan-archive', p)) return;
+      for (const name of Object.keys(VIEW)) if (VIEW[name] === p.id) delete VIEW[name];
+      ARCH.list = null;
+      toast(p.topic + ' archived', 'ok');
+      load();
+    },
+    async restore(p) {
+      const id = await planOp('plan-restore', p);
+      if (!id) return;
+      VIEW[TERM.active] = id;
+      EXP.menu = false;
+      ARCH.list = null;
+      if (ARCH.render) SH.close();
+      toast(p.topic + ' restored', 'ok');
+      sync(true);
+      load();
+    },
+  };
+
+  const openTasks = p => {
+    const n = p.total - p.done;
+    return n > 0 ? `${n} task${n > 1 ? 's' : ''} still open` : '';
+  };
+
+  function confirmSheet({ title, text, action, run }) {
+    const close = sheet({ title, body: h('div', { class: 'fp2-sh-confirm' },
+      text ? h('div', { class: 'fp2-sh-intro' }, text) : null,
+      h('div', { class: 'fp2-sh-foot fp2-sh-btns' },
+        h('button', { class: 'btn', onclick: () => close() }, 'Cancel'),
+        h('button', { class: 'btn primary', onclick: () => { close(); run(); } }, action))) });
+    return close;
+  }
+
+  const confirmFinish = p => confirmSheet({ title: `Mark ${p.topic} as finished?`, text: openTasks(p) && openTasks(p) + '.', action: 'Mark finished', run: () => LIFECYCLE.finish(p) });
+
+  const confirmArchive = p => confirmSheet({ title: `Archive ${p.topic}?`, text: 'It disappears from the panel. You can restore it from the plan list.', action: 'Archive', run: () => LIFECYCLE.archive(p) });
 
   function actionsMenu(p, rerender) {
     const target = targetOf(p);
     const live = isLive(target);
+    const canMake = isLive(TERM.active);
     const item = (icon, label, small, on, dis) => h('div', { class: 'mi' + (dis ? ' dis' : ''), role: 'menuitem', onclick: () => { EXP.act = false; rerender(); on(); } }, ico(icon, 16), h('span', { class: 'fp2-mi-t' }, label, small ? h('small', null, small) : null));
-    const slots = 'finished' in p ? [['check', 'Mark finished', 'finish'], ['folder', 'Archive', 'archive']].filter(x => LIFECYCLE[x[2]]).map(x => item(x[0], x[1], '', () => LIFECYCLE[x[2]](p))) : [];
     const btn = h('button', { class: 'fp2-x fp2-act-b' + (EXP.act ? ' on' : ''), 'aria-label': 'plan actions', 'aria-expanded': EXP.act ? 'true' : 'false', onclick: () => { EXP.act = !EXP.act; rerender(); } }, ico('dots', 16));
     const menu = EXP.act ? h('div', { class: 'menu fp2-actm', role: 'menu' },
       item('pencil', 'Update plan…', live ? 'Tell Claude what to change' : NOT_LIVE, () => openUpdate(p), !live),
-      ...(slots.length ? [h('div', { class: 'sep' }), ...slots] : [])) : null;
+      item('plus', 'New plan…', canMake ? 'Ask Claude to make a plan' : NOT_LIVE, () => openMake(TERM.active), !canMake),
+      p.finished ? null : item('check', 'Mark finished', openTasks(p), () => confirmFinish(p)),
+      h('div', { class: 'sep' }),
+      item('archive', 'Archive', 'Hide it; restore any time from the plan list', () => confirmArchive(p))) : null;
     return h('span', { class: 'fp2-act' }, btn, menu);
   }
 
@@ -361,7 +434,7 @@
     return { task, phase, created: st.created };
   }
 
-  const EV_LABEL = { start: 'started', done: 'done', fail: 'failed', note: 'note', ask: 'asked', answer: 'answered' };
+  const EV_LABEL = { start: 'started', done: 'done', fail: 'failed', note: 'note', ask: 'asked', answer: 'answered', finish: 'finished', reopen: 'reopened', restore: 'restored' };
 
   const eventText = e => e.type === 'done' || e.type === 'fail' ? (e.gate && e.gate.text) || e.text : e.text;
 
@@ -496,6 +569,14 @@
     return wrap;
   }
 
+  const finishedBadge = small => h('span', { class: 'fp2-badge' + (small ? ' sm' : '') }, small ? null : ico('check', 12), 'Finished');
+
+  function finishedRow(p) {
+    return h('div', { class: 'fp2-fin' },
+      h('span', { class: 'fp2-fin-t' }, h('b', null, 'Finished'), p.finishedAt ? ` ${clock(p.finishedAt)}.` : null),
+      h('button', { class: 'btn sm', onclick: () => confirmArchive(p) }, ico('archive', 15), 'Archive'));
+  }
+
   function panelBody(p, rerender) {
     const d = DET[p.id] || p;
     const nav = detailNav(p);
@@ -506,6 +587,7 @@
       p.phase ? h('button', { class: 'fp2-phase', title: `P${p.phase.n} ${p.phase.name}`, onclick: () => nav.phase(p.phase.n) }, 'P', h('b', null, `${p.phase.n}/${p.phase.of}`), ' ', p.phase.name) : null,
       gateChip(p.lastGate, () => { if (p.lastGate.task) nav.task(p.lastGate.task); else sheet(gateSheet(p)); })));
     out.push(h('div', { class: 'fp2-bar' + (p.complete ? ' full' : '') }, h('i', { style: `width:${p.pct}%` })));
+    if (p.finished) out.push(finishedRow(p));
     if (p.waiting.length) out.push(questionsRow(p));
     if (d.phases) out.push(steps(p, d, rerender, nav));
     else out.push(h('div', { class: 'dim fp2-load' }, 'loading…'));
@@ -513,17 +595,47 @@
     return out;
   }
 
+  const archivedRow = p => h('div', { class: 'fp2-arow' },
+    h('span', { class: 'fp2-arow-t', title: planLabel(p) }, h('span', { class: 'fp2-cn' }, p.topic), ' ', h('span', { class: 'fp2-cc' }, `${p.done}/${p.total}`), h('small', null, 'archived ' + dayMonth(p.archived))),
+    h('button', { class: 'btn sm', onclick: () => LIFECYCLE.restore(p) }, ico('undo', 14), 'Restore'));
+
+  const archivedNote = empty => ARCH.err || (ARCH.list ? empty : 'loading…');
+
+  function archivedGroup(rows) {
+    const note = rows.length ? '' : archivedNote('No archived plans');
+    return [h('div', { class: 'mh' }, rows.length ? `Archived · ${rows.length}` : 'Archived'), note ? h('div', { class: 'dim fp2-anone' }, note) : null, rows.map(archivedRow)];
+  }
+
+  function openArchived(name) {
+    const body = h('div', { class: 'fp2-sh-arch' });
+    const render = () => {
+      const projects = S.projects || [];
+      const rows = archivedOf(ARCH.list || [], projects, groupKey(projectOf(projects, sessionProject(name))));
+      body.replaceChildren(...(rows.length ? rows.map(archivedRow) : [h('div', { class: 'dim fp2-anone' }, archivedNote('No archived plans.'))]));
+    };
+    render();
+    sheet({ title: 'Archived', body, onClose: () => { ARCH.render = null; } });
+    ARCH.render = render;
+    loadArchived();
+  }
+
   function switcher(list, names, shownId, ownId, rerender) {
-    if (list.length < 2) return null;
+    if (!list.length) return null;
+    const phone = isPhone();
     const pick = id => { VIEW[TERM.active] = id; EXP.menu = false; sync(true); };
     const inner = (p, i) => [p.id === ownId ? h('i', { class: 'fp2-own' }) : null, h('span', { class: 'fp2-cn' }, names[i]), h('span', { class: 'fp2-cc' }, `${p.done}/${p.total}`), p.waiting.length ? h('i', { class: 'fp2-wdot' }) : null];
-    const item = (p, i) => h('button', { class: 'fp2-chip' + (p.id === shownId ? ' on' : ''), title: planLabel(p) + (p.id === ownId ? ' — this session' : ''), onclick: () => pick(p.id) }, ...inner(p, i));
+    const item = (p, i, badge) => h('button', { class: 'fp2-chip' + (p.id === shownId ? ' on' : ''), title: planLabel(p) + (p.id === ownId ? ' — this session' : ''), onclick: () => pick(p.id) }, ...inner(p, i), badge && p.finished ? finishedBadge(true) : null);
+    const toggleMenu = () => { EXP.menu = !EXP.menu; if (EXP.menu) loadArchived(); rerender(); };
+    const rows = archivedOf(ARCH.list || [], S.projects || [], planGroup(list[0], S.projects || []));
     const cur = list.findIndex(p => p.id === shownId);
     const back = ownId && shownId !== ownId ? h('button', { class: 'fp2-link back', onclick: () => pick(ownId) }, '← this session’s plan') : null;
+    const archChip = phone ? null : h('span', { class: 'fp2-archw' },
+      h('button', { class: 'fp2-chip fp2-archc' + (EXP.menu ? ' on' : ''), 'aria-expanded': EXP.menu ? 'true' : 'false', onclick: toggleMenu }, ico('archive', 14), h('span', { class: 'fp2-cn' }, 'Archived'), rows.length ? h('span', { class: 'fp2-cc' }, rows.length) : null, ico('chevronDown', 14)),
+      EXP.menu ? h('div', { class: 'fp2-menu-l fp2-aml' }, archivedGroup(rows)) : null);
     const menu = h('div', { class: 'fp2-menu' + (EXP.menu ? ' open' : '') },
-      h('button', { class: 'fp2-menu-b', onclick: () => { EXP.menu = !EXP.menu; rerender(); } }, ...inner(list[cur], cur), h('span', { class: 'fp2-menu-n' }, `${list.length} plans`), ico('chevronDown', 14)),
-      EXP.menu ? h('div', { class: 'fp2-menu-l' }, list.map(item)) : null);
-    return h('div', { class: 'fp2-swi' }, h('div', { class: 'fp2-chips' }, list.map(item)), menu, back);
+      h('button', { class: 'fp2-menu-b', onclick: toggleMenu }, ...inner(list[cur], cur), h('span', { class: 'fp2-menu-n' }, `${list.length} plan${list.length > 1 ? 's' : ''}`), ico('chevronDown', 14)),
+      EXP.menu && phone ? h('div', { class: 'fp2-menu-l fp2-aml' }, h('div', { class: 'mh' }, 'This org'), list.map((p, i) => item(p, i, true)), h('div', { class: 'sep' }), archivedGroup(rows)) : null);
+    return h('div', { class: 'fp2-swi' }, h('div', { class: 'fp2-chips' }, list.map((p, i) => item(p, i)), archChip), menu, back);
   }
 
   function panel(phone) {
@@ -531,12 +643,14 @@
     const sw = h('div', { class: 'fp2-sw' });
     const topic = h('span', { class: 'fp2-ptopic' });
     const act = h('span', { class: 'fp2-act-h' });
+    const badge = h('span', { class: 'fp2-badge-h' });
     const rerender = () => {
       const top = body.scrollTop;
       const c = PV.ctx;
       const same = PV.shownId === c.shown.id;
       PV.shownId = c.shown.id;
       topic.textContent = c.shown.topic;
+      badge.replaceChildren(...(c.shown.finished ? [finishedBadge()] : []));
       act.replaceChildren(actionsMenu(c.shown, rerender));
       sw.replaceChildren(...[switcher(c.list, c.names, c.shown.id, c.own && c.own.id, rerender)].filter(Boolean));
       body.replaceChildren(...panelBody(c.shown, rerender));
@@ -549,7 +663,7 @@
     PV.rerender = rerender;
     return h('div', { id: 'fp2-panel', class: 'fp2-panel' + (phone ? ' sheet' : '') },
       phone ? h('div', { class: 'fp2-grab' }) : null,
-      h('div', { class: 'fp2-ph-top' }, h('b', null, 'Plan'), topic, h('span', { class: 'fp2-sp' }), act, h('button', { class: 'fp2-x', 'aria-label': 'close plan', onclick: toggle }, ico('x', 16))),
+      h('div', { class: 'fp2-ph-top' }, h('b', null, 'Plan'), topic, badge, h('span', { class: 'fp2-sp' }), act, h('button', { class: 'fp2-x', 'aria-label': 'close plan', onclick: toggle }, ico('x', 16))),
       sw, body);
   }
 
@@ -569,6 +683,7 @@
       h('span', { class: 'fp2-nop' }, 'No plan'), h('span', { class: 'fp2-nop' }, '·'),
       h('button', { class: 'fp2-np-b', disabled: !can, title: can ? 'Ask Claude to make a plan' : null, onclick: () => openMake(name) }, 'Make a plan…'),
       can ? null : h('span', { class: 'fp2-np-hint' }, NOT_LIVE),
+      h('button', { class: 'fp2-np-arch', onclick: () => openArchived(name) }, 'Archived'),
       list.length ? h('button', { class: 'fp2-np-org', title: 'Plans in ' + org, onclick: toggle }, h('span', { class: 'fp2-nop' }, `${list.length} in ${org}`), h('span', { class: 'fp2-chev' + (open ? ' on' : '') }, ico('chevronDown', 15))) : null);
   }
 
@@ -580,15 +695,15 @@
     const name = TERM.active;
     if (PH.name && PH.name !== name) PH.name = null;
     const own = planFor(ST.sums, name);
-    const sess = ((S.runtime && S.runtime.sessions) || []).find(x => x.name === name);
     const projects = S.projects || [];
-    const list = orgPlans(ST.sums, projects, own, sess && sess.project);
+    const projectId = sessionProject(name);
+    const list = orgPlans(ST.sums, projects, own, projectId);
     if (!own && !claudeOf(name)) { if (stripEl()) teardown(); return; }
     const shown = list.find(x => x.id === VIEW[name]) || own || list[0] || null;
     const names = planNames(list, projects);
     const phone = isPhone();
     const open = list.length ? isOpen(name, !!own) : false;
-    const org = own ? '' : orgLabel(projects, sess && sess.project);
+    const org = own ? '' : orgLabel(projects, projectId);
     const found = document.getElementById('fp2-strip');
     const st = found || h('div', { id: 'fp2-strip', class: 'fp2-strip' });
     if (!found) { const bar = $('#term-bar'); if (bar) bar.after(st); else main.prepend(st); force = true; }
@@ -665,13 +780,17 @@
   }
 
   document.addEventListener('click', ev => {
-    if (!EXP.act || (ev.target.closest && ev.target.closest('.fp2-act'))) return;
-    EXP.act = false;
+    const outside = sel => !(ev.target.closest && ev.target.closest(sel));
+    const act = EXP.act && outside('.fp2-act');
+    const menu = EXP.menu && outside('.fp2-swi');
+    if (!act && !menu) return;
+    if (act) EXP.act = false;
+    if (menu) EXP.menu = false;
     if (PV.rerender && document.getElementById('fp2-panel')) PV.rerender();
   }, true);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
   setInterval(() => { if (!document.hidden) load(); }, 60000);
   addEventListener('resize', () => sync());
 
-  FEAT.plan2 = { onState, termShown, termBarKey, termItem, plan: onPlan, live, cardChips, planFor, readOpen, ringMarkup, bucketEvents, orgPlans, planNames, answerMsg, updateMsg, makeMsg, openMake, actionsMenu, quietStrip, questionsRow, sheet, sendToSession, saveAnswer, phaseSheet, taskSheet };
+  FEAT.plan2 = { onState, termShown, termBarKey, termItem, plan: onPlan, live, cardChips, planFor, readOpen, ringMarkup, bucketEvents, orgPlans, planNames, answerMsg, updateMsg, makeMsg, openMake, actionsMenu, quietStrip, questionsRow, sheet, sendToSession, saveAnswer, phaseSheet, taskSheet, archivedOf };
 })();

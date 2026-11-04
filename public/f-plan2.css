@@ -174,6 +174,8 @@ body:not(.term-open) .fp2-scrim, body:not(.term-open) .fp2-panel.sheet { display
 .fp2-sh-pvl { display: block; margin-bottom: 2px; color: var(--dim); font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
 .fp2-sh-over { color: var(--red); }
 .fp2-sh-foot { display: flex; align-items: center; gap: 12px; }
+.fp2-sh-confirm { display: flex; flex-direction: column; gap: 14px; }
+.fp2-sh-btns { justify-content: flex-end; }
 .fp2-sh-hint { flex: 1; min-width: 0; font-size: 11.5px; color: var(--dim); line-height: 1.4; }
 .fp2-sh-hint b { color: var(--muted); }
 .fp2-sh-hint code { font-family: var(--mono); font-size: 11px; color: var(--muted); }
@@ -209,7 +211,7 @@ body:not(.term-open) .fp2-scrim, body:not(.term-open) .fp2-panel.sheet { display
 .fp2-act-h { display: inline-flex; }
 .fp2-act-b.on { background: var(--fill2); color: var(--text); }
 .fp2-actm { position: absolute; top: 52px; right: 12px; width: 290px; max-width: calc(100% - 24px); }
-.fp2-panel.sheet .fp2-actm { top: 64px; }
+.fp2-panel.sheet .fp2-actm { top: 64px; max-height: calc(100% - 72px); overflow-y: auto; }
 .fp2-mi-t { display: flex; flex-direction: column; font-weight: 500; }
 .fp2-mi-t small { font-size: 11.5px; font-weight: 400; color: var(--dim); }
 .fp2-np { flex-wrap: nowrap; min-height: 38px; padding-top: 0; padding-bottom: 0; gap: 7px; cursor: default; }
@@ -219,6 +221,33 @@ body:not(.term-open) .fp2-scrim, body:not(.term-open) .fp2-panel.sheet { display
 .fp2-np-b:disabled { color: var(--dim); cursor: default; }
 .fp2-np.off { flex-wrap: wrap; row-gap: 2px; padding-top: 6px; padding-bottom: 6px; }
 .fp2-np-hint { min-width: 0; font-size: 11.5px; color: var(--dim); }
+.fp2-np-arch { padding: 2px 4px; border: 0; border-radius: 6px; background: none; color: var(--muted); font: inherit; font-size: 12.5px; cursor: pointer; }
+.fp2-np-arch:hover { background: var(--fill); color: var(--text); }
 .fp2-np-org { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; min-width: 0; padding: 4px 0 4px 8px; border: 0; background: none; color: var(--muted); font: inherit; cursor: pointer; }
 .fp2-np-org .fp2-chev { margin-left: 0; }
 .fp2-note { min-height: 92px; }
+
+.fp2-badge-h { display: inline-flex; flex: none; }
+.fp2-badge-h:empty { display: none; }
+.fp2-badge { flex: none; display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--green) 14%, transparent); color: var(--green); font-size: 11.5px; font-weight: 600; line-height: 19px; }
+.fp2-badge.sm { margin-left: auto; padding: 0 7px; font-size: 10.5px; line-height: 17px; }
+.fp2-fin { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--green) 28%, transparent); border-radius: 10px; background: color-mix(in srgb, var(--green) 7%, transparent); }
+.fp2-fin .btn { flex: none; }
+.fp2-fin-t { flex: 1; min-width: 0; font-size: 12.5px; color: var(--muted); line-height: 1.4; }
+.fp2-fin-t b { color: var(--green); font-weight: 600; }
+.fp2-ev.finish b, .fp2-ev.restore b, .fp2-dev.finish b, .fp2-dev.restore b { color: var(--green); }
+.fp2-ev.reopen b, .fp2-dev.reopen b { color: var(--amber); }
+.fp2-swi { position: relative; }
+.fp2-menu.open { position: static; }
+.fp2-archw { display: inline-flex; min-width: 0; }
+.fp2-archc svg { flex: none; color: var(--dim); }
+.fp2-aml { top: calc(100% - 2px); left: 12px; right: 12px; min-width: 0; max-height: min(56dvh, 460px); overflow-y: auto; }
+.fp2-aml > * { flex: none; }
+.fp2-aml .mh { padding: 6px 8px 2px; font-size: 11.5px; font-weight: 600; color: var(--dim); }
+.fp2-aml .sep { height: 1px; margin: 4px; background: var(--line); }
+.fp2-aml .fp2-chip { width: 100%; }
+.fp2-anone { padding: 4px 8px 6px; font-size: 12px; }
+.fp2-arow { display: flex; align-items: center; gap: 10px; padding: 5px 4px 5px 10px; }
+.fp2-arow .btn { flex: none; }
+.fp2-arow-t { flex: 1; min-width: 0; font-size: 12px; color: var(--muted); }
+.fp2-arow-t small { display: block; font-size: 11px; color: var(--dim); }
