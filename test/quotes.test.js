@@ -152,25 +152,36 @@ test('cap: without a line break in range it cuts at the cap, never inside a surr
   assert.strictEqual(emoji, 'z'.repeat(3998) + '…');
 });
 
-test('pill position: above the first visible line on desktop, below the last one on phone, inside the viewport', () => {
+test('pill position: above the first visible line on desktop, inside the viewport', () => {
   const { Q } = boot();
   const view = { left: 0, top: 0, right: 1000, bottom: 800 }, box = { left: 100, top: 50, right: 1000, bottom: 700 };
   const rects = [{ left: 200, right: 400, top: 200, bottom: 220, width: 200 }, { left: 200, right: 600, top: 220, bottom: 240, width: 400 }];
-  assert.deepStrictEqual(plain(Q.pillPos(rects, view, box, 100, 32, false)), { left: 250, top: 160 });
-  const phone = plain(Q.pillPos(rects, view, box, 100, 40, true));
-  assert.deepStrictEqual(phone, { left: 350, top: 268 });
-  const edge = plain(Q.pillPos([{ left: 980, right: 1000, top: 52, bottom: 70, width: 20 }], view, box, 100, 32, false));
+  assert.deepStrictEqual(plain(Q.pillPos(rects, view, box, 100, 32)), { left: 250, top: 160 });
+  const edge = plain(Q.pillPos([{ left: 980, right: 1000, top: 52, bottom: 70, width: 20 }], view, box, 100, 32));
   assert.ok(edge.left + 100 <= 1000 && edge.top >= 50, JSON.stringify(edge));
-  const bottom = plain(Q.pillPos([{ left: 200, right: 300, top: 670, bottom: 690, width: 100 }], view, box, 100, 40, true));
-  assert.ok(bottom.top + 40 <= 700 && bottom.top < 670, JSON.stringify(bottom));
+});
+
+test('phone pill: stays above the composer, away from the native menu, and moves to the top when the selection ends low', () => {
+  const { Q } = boot();
+  const view = { left: 0, top: 0, right: 390, bottom: 844 }, box = { left: 0, top: 100, right: 390, bottom: 600 };
+  const line = (top, bottom) => [{ left: 20, right: 200, top, bottom, width: 180 }];
+  assert.deepStrictEqual(plain(Q.dockPos(line(200, 220), view, box, 110, 40)), { left: 140, top: 552 });
+  assert.deepStrictEqual(plain(Q.dockPos(line(500, 520), view, box, 110, 40)), { left: 140, top: 108 });
+  assert.deepStrictEqual(plain(Q.dockPos(line(200, 220), { ...view, bottom: 400 }, box, 110, 40)), { left: 140, top: 108 + 244 });
+  assert.strictEqual(Q.dockPos(line(20, 40), view, box, 110, 40), null);
+  assert.strictEqual(Q.dockPos(line(500, 520), { ...view, bottom: 400 }, box, 110, 40), null, 'the selected line is below the keyboard');
+  assert.strictEqual(Q.dockPos(line(110, 130), view, { ...box, bottom: 140 }, 110, 40), null, 'no room for the pill');
+  assert.strictEqual(plain(Q.dockPos(line(170, 520), view, box, 110, 40)).top, 552, 'a long selection takes the spot further from it');
+  const lowFirst = [{ left: 20, right: 200, top: 490, bottom: 510, width: 180 }, { left: 220, right: 300, top: 450, bottom: 470, width: 80 }];
+  assert.strictEqual(plain(Q.dockPos(lowFirst, view, box, 110, 40)).top, 108, 'the lowest line counts, not the last one');
 });
 
 test('pill position: null when every selected line has scrolled out of the chat', () => {
   const { Q } = boot();
   const view = { left: 0, top: 0, right: 1000, bottom: 800 }, box = { left: 0, top: 100, right: 1000, bottom: 700 };
-  assert.strictEqual(Q.pillPos([{ left: 0, right: 90, top: 20, bottom: 40, width: 90 }], view, box, 100, 32, false), null);
-  assert.strictEqual(Q.pillPos([{ left: 0, right: 90, top: 710, bottom: 730, width: 90 }], view, box, 100, 32, false), null);
-  assert.strictEqual(Q.pillPos([], view, box, 100, 32, false), null);
+  assert.strictEqual(Q.pillPos([{ left: 0, right: 90, top: 20, bottom: 40, width: 90 }], view, box, 100, 32), null);
+  assert.strictEqual(Q.pillPos([{ left: 0, right: 90, top: 710, bottom: 730, width: 90 }], view, box, 100, 32), null);
+  assert.strictEqual(Q.pillPos([], view, box, 100, 32), null);
 });
 
 const textOf = el => typeof el === 'string' ? el : (el.kids || []).map(textOf).join('');

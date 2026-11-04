@@ -1,6 +1,6 @@
 'use strict';
 FEAT.quotes = (() => {
-  const CAP = 4000, KEY = 'bd.quotes.', GAP = 8, BELOW_GAP = 28, SETTLE_MS = 120, CLICK_WAIT_MS = 300, LONG_QUOTE = 60;
+  const CAP = 4000, KEY = 'bd.quotes.', GAP = 8, DOCK_ROOM = 80, SETTLE_MS = 120, CLICK_WAIT_MS = 300, LONG_QUOTE = 60;
   const store = new Map();
   const ui = { cur: null, pressing: false, dragging: false, timer: 0, frame: 0, pill: null };
 
@@ -20,14 +20,24 @@ FEAT.quotes = (() => {
     } catch { return []; }
   };
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(v, hi));
-  const pillPos = (rects, view, box, w, ht, below) => {
-    const seen = rects.filter(r => r.width > 0 && r.bottom > box.top && r.top < box.bottom);
+  const seenLines = (rects, box) => rects.filter(r => r.width > 0 && r.bottom > box.top && r.top < box.bottom);
+  const pillPos = (rects, view, box, w, ht) => {
+    const seen = seenLines(rects, box);
     if (!seen.length) return null;
-    const line = below ? seen[seen.length - 1] : seen[0];
+    const line = seen[0];
     const minY = Math.max(box.top, view.top) + GAP, maxY = Math.min(box.bottom, view.bottom) - ht - GAP;
-    const under = line.bottom + (below ? BELOW_GAP : GAP), over = line.top - ht - GAP;
-    const y = below ? (under <= maxY ? under : over) : (over >= minY ? over : under);
-    return { left: clamp(line.left + line.width / 2 - w / 2, Math.max(box.left, view.left) + GAP, Math.min(box.right, view.right) - w - GAP), top: clamp(y, minY, maxY) };
+    const over = line.top - ht - GAP;
+    return { left: clamp(line.left + line.width / 2 - w / 2, Math.max(box.left, view.left) + GAP, Math.min(box.right, view.right) - w - GAP), top: clamp(over >= minY ? over : line.bottom + GAP, minY, maxY) };
+  };
+  const dockPos = (rects, view, box, w, ht) => {
+    const left = Math.max(box.left, view.left), right = Math.min(box.right, view.right);
+    const shownTop = Math.max(box.top, view.top), shownBottom = Math.min(box.bottom, view.bottom);
+    const high = shownTop + GAP, low = shownBottom - ht - GAP;
+    const seen = seenLines(rects, { top: shownTop, bottom: shownBottom });
+    if (low < high || right <= left || !seen.length) return null;
+    const start = Math.min(...seen.map(r => r.top)), end = Math.max(...seen.map(r => r.bottom));
+    const roomBelow = low - end, roomAbove = start - high - ht;
+    return { left: left + (right - left - w) / 2, top: roomBelow >= DOCK_ROOM || roomBelow >= roomAbove ? low : high };
   };
 
   const load = name => {
@@ -131,12 +141,13 @@ FEAT.quotes = (() => {
     if (!ui.cur || !ui.cur.range.startContainer.isConnected) { el.classList.add('hidden'); return; }
     el.classList.remove('hidden');
     const vv = window.visualViewport, view = vv ? { left: vv.offsetLeft, top: vv.offsetTop, right: vv.offsetLeft + vv.width, bottom: vv.offsetTop + vv.height } : { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
-    const pos = pillPos([...ui.cur.range.getClientRects()], view, ui.cur.sc.getBoundingClientRect(), el.offsetWidth, el.offsetHeight, IS_PHONE || TOUCH);
+    const pos = (TOUCH ? dockPos : pillPos)([...ui.cur.range.getClientRects()], view, ui.cur.sc.getBoundingClientRect(), el.offsetWidth, el.offsetHeight);
     if (!pos) { el.classList.add('hidden'); return; }
     el.style.left = pos.left + 'px'; el.style.top = pos.top + 'px';
   };
-  const schedule = () => { if (!ui.cur || ui.frame) return; ui.frame = requestAnimationFrame(() => { ui.frame = 0; position(); }); };
-  const refresh = () => { if (ui.pressing) return; ui.cur = ui.dragging ? null : selected(); position(); };
+  const schedule = () => { if (!ui.cur || ui.frame || ui.pressing) return; ui.frame = requestAnimationFrame(() => { ui.frame = 0; position(); }); };
+  const watchScroller = () => { ui.ro = ui.ro || new ResizeObserver(schedule); ui.ro.disconnect(); if (ui.cur) ui.ro.observe(ui.cur.sc); };
+  const refresh = () => { if (ui.pressing) return; ui.cur = ui.dragging ? null : selected(); watchScroller(); position(); };
 
   function commit() {
     clearTimeout(ui.timer);
@@ -179,5 +190,5 @@ FEAT.quotes = (() => {
     paint(name);
   });
 
-  return { capQuote, blockquote, compose, parse, pillPos, chipEl, load, has, message, add, setAsk, remove, take, restore, composerShown(box) { mount(box); schedule(); } };
+  return { capQuote, blockquote, compose, parse, pillPos, dockPos, chipEl, load, has, message, add, setAsk, remove, take, restore, composerShown(box) { mount(box); schedule(); } };
 })();
