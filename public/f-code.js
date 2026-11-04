@@ -617,6 +617,7 @@ FEAT.code = (() => {
   function toggleWs(v) {
     WS.on = v == null ? !WS.on : v;
     localStorage.setItem('bd.code.ws', WS.on ? '1' : '0');
+    if (WS.on) feat('rightOpen', 'files');
     P.reset();
     paintPanel();
     if (TERM.open) renderTermPanel(true);
@@ -660,7 +661,8 @@ FEAT.code = (() => {
     const cl = sessOf(name)?.claude; if (!cl) return null;
     queueMicrotask(paintPanel);
     const b = badge(name);
-    return h('button', { class: 'btn sm ghost cvfiles' + (WS.on && !phone() ? ' on' : ''), title: 'every repo of this session with its pending changes — side panel', onclick: () => phone() ? V.open({ session: name }) : toggleWs() },
+    const pressed = WS.on && !phone();
+    return h('button', { class: 'btn sm ghost cvfiles' + (pressed ? ' on' : ''), 'aria-pressed': pressed ? 'true' : 'false', title: 'every repo of this session with its pending changes — side panel', onclick: () => phone() ? V.open({ session: name }) : toggleWs() },
       ico('folder', 14), h('span', { class: 'desk' }, 'Files'), b ? h('span', { class: 'pill' + (b.files ? ' warn' : '') }, b.files ? `${plural(b.repos, 'repo')} · ${b.files}` : plural(b.repos, 'repo')) : null);
   }
 
@@ -692,5 +694,8 @@ FEAT.code = (() => {
     return true;
   }
 
-  return { open: V.open, back: V.back, onState, deepLink, termBar, termBarKey, toolOpen, openAbs, togglePanel: toggleWs, state: V.C, panel: P.C };
+  const rightOpen = which => { if (which !== 'files' && WS.on) toggleWs(false); };
+  const filesOn = () => WS.on && !phone();
+
+  return { open: V.open, back: V.back, onState, rightOpen, filesOn, deepLink, termBar, termBarKey, toolOpen, openAbs, togglePanel: toggleWs, state: V.C, panel: P.C };
 })();

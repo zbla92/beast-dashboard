@@ -580,12 +580,6 @@ function selectTab(key, name) { GROUP_SEL[key] = name; localStorage.setItem('bd.
 // "+" on a card / group: another instance or a worktree on that project (same menu as the ✦ Claude ▾ button)
 function plusClaude(ev, pid) { ev.stopPropagation(); const p = pid && byId()[pid]; if (!p) return toast('no project for this session', 'err'); claudeMenu(ev, p); }
 // branch / worktree tag: a worktree gets its own colour and the path on hover
-function whereTag(cl) {
-  if (!cl) return null;
-  if (cl.worktree) return h('span', { class: 'ag-tag wt', title: `git worktree · ${home(cl.worktree.path)}` + (cl.branch ? ` · branch ${cl.branch}` : '') }, '⎇ ', cl.worktree.name, cl.branch && cl.branch !== cl.worktree.name ? h('i', null, ' · ' + cl.branch) : null);
-  if (cl.branch) return h('span', { class: 'ag-tag br', title: 'branch ' + cl.branch }, '⎇ ', cl.branch);
-  return null;
-}
 const nice = n => n.startsWith('claude-') ? '✦ ' + n.replace(/^claude-/, '').replace(/-company$/, ' (' + acctL('company') + ')') : n.startsWith('bd_') ? '▶ ' + n.replace(/^bd_/, '').replace('__', ' · ') : n === 'shell' ? 'bash' : n.startsWith('sh-') ? '$ ' + n : n;
 function renderTermPanel(force) {
   const el = $('#termpanel'); const live = S.runtime.sessions.length; $('#term-count').textContent = live;
@@ -660,30 +654,21 @@ function renderTermPanel(force) {
   const mobName = act ? sessTitle(act) : (TERM.active || 'Sessions');
   barAdd(h('button', { class: 'btn sm mob icon', title: 'sessions', onclick: () => { TERM.showList = !TERM.showList; renderTermPanel(true); } }, ico('sidebar', 17)),
     h('button', { class: 'mob msess', title: 'switch session', onclick: () => { TERM.showList = true; renderTermPanel(true); } }, act ? avatar(act.project, 'sm') : null, h('span', { class: 'nm' }, mobName), accTag(), instOf(act || { name: TERM.active || '' }).n ? h('span', { class: 'grp' }, '#' + instOf(act).n) : null, h('span', { class: 'caret' }, '▾')), cl && IS_PHONE ? stateBadge(cl, true) : null);
-  const actProj = act && byId()[act.project]; const actGit = actProj && gitOf(actProj);
-  const actDirty = actGit && !actGit.error ? actGit.dirty + actGit.untracked : 0;
   const actName = act ? sessTitle(act) : TERM.active;
   const isChatS = cl && cl.mode === 'chat'; const logOn = isChatS && TERM.view[TERM.active] === 'term';
-  const muted = (S.settings.muted || []).includes(TERM.active);
-  const wantV = cl ? (cl.mode === 'chat' ? cl.wantVersion || S.claude?.installed : S.claude?.installed) : null;
-  const sub = cl && cl.title && cl.title !== actName ? h('span', { class: 'dim desk ttitle', title: cl.title }, cl.title) : !cl && act ? h('span', { class: 'dim mono desk ttitle', style: 'font-size:11.5px' }, home(act.cwd)) : null;
+  const updatePending = !!cl && (!!S.claude?.update || needsRestart(cl));
   if (TERM.active) barAdd(h('button', { class: 'btn sm ghost icon desk', title: 'back to the dashboard — every session keeps running  (Esc)', onclick: closeTermPanel }, ico('back', 15)),
     h('button', { class: 'btn sm ghost icon desk' + (TERM.focus ? ' on' : ''), title: TERM.focus ? 'show the rail again' : 'focus mode — hide the rail with every session (screen sharing)', onclick: () => setFocus(!TERM.focus) }, ico('sidebar', 15)),
     h('span', { class: 'tid desk' }, act ? avatar(act.project, 'sm') : null,
       h('span', { class: 'tname' + (cl ? ' can-rename' : ''), title: cl ? 'click to rename · ' + TERM.active : TERM.active, onclick: cl ? () => renameDialog(TERM.active) : null }, actName, instOf(act || { name: TERM.active }).n ? h('span', { class: 'grp' }, ' #' + instOf(act).n) : null),
       IS_PHONE ? null : accTag()),
-    cl && !IS_PHONE ? stateBadge(cl) : null, modelChip(cl), cl ? whereTag(cl) : null, sub,
+    cl && !IS_PHONE ? stateBadge(cl) : null,
     h('span', { class: 'sp' }),
     logOn ? h('button', { class: 'btn sm', title: 'you are looking at the runner log — back to the conversation', onclick: () => setMode('chat') }, ico('chat', 13), 'Back to chat') : null,
     cl && cl.state === 'limit' && act ? h('button', { class: 'btn sm primary', title: 'start the other account in this folder with a summary of where this one stopped', onclick: () => handoff({ name: TERM.active, account: cl.account, project: act.project }) }, gl('⇄ Hand off')) : null,
-    cl && S.claude?.update ? h('button', { class: 'btn sm dirtybtn desk', disabled: CLAUDE_UPGRADING, title: CLAUDE_UPGRADING ? 'mise upgrade claude is running…' : `Claude Code ${S.claude.update.version} is out — install it (mise upgrade claude), then restart this session (same conversation, --resume)`, onclick: () => updateClaude({ name: TERM.active, project: act?.project }) }, ico('refresh', 13), CLAUDE_UPGRADING ? 'installing…' : S.claude.update.version) :
-    cl && cl.version && wantV && cl.version !== wantV ? h('button', { class: 'btn sm dirtybtn desk', title: `running Claude Code ${cl.version} — restart on ${wantV} (same conversation)`, onclick: () => restartSession({ name: TERM.active, project: act?.project }) }, ico('refresh', 13), wantV) : null,
     ...feat('termBar', TERM.active),
-    actProj ? h('button', { class: 'btn sm ghost projbtn', title: 'project details — changes, files, logs, branches, docker', onclick: () => openDrawer(actProj.id, actDirty ? 'changes' : 'overview') }, ico('folder', 14), h('span', { class: 'desk' }, 'Project'), actDirty ? h('span', { class: 'pill warn' }, '± ' + actDirty) : null) : null,
-    ...(cl ? feat('chatBar', TERM.active) : []),
     cl ? ctxMeter(TERM.active, cl) : null,
-    muted ? h('button', { class: 'btn sm ghost icon desk tmuted', title: 'notifications muted — click to unmute', onclick: () => api('claude-mute', { session: TERM.active, muted: false }).then(() => toast('unmuted')).catch(e => toast(e.message, 'err')) }, ico('bellOff', 15)) : null,
-    h('button', { class: 'btn sm tmore', title: 'session options — new chat, compact, rename, move, kill…', onclick: ev => sessMenu(ev, TERM.active) }, ico('sliders', 15), h('span', { class: 'desk' }, 'Options'), ico('chevronDown', 13)),
+    h('button', { class: 'btn sm tmore', title: 'session options — model, folder, project, update, new chat, compact, rename, kill…', onclick: ev => sessMenu(ev, TERM.active) }, ico('sliders', 15), h('span', { class: 'desk' }, 'Options'), ico('chevronDown', 13), updatePending ? h('i', { class: 'tdot' }) : null),
     h('button', { class: 'btn sm ghost mob', title: 'back to dashboard (sessions keep running)', onclick: closeTermPanel }, ico('back', 15)));
   else barAdd(h('span', { class: 'dim' }, 'Pick a session.'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost mob', onclick: closeTermPanel }, ico('back', 15)));
 }
@@ -768,7 +753,6 @@ function modelName(id) {
   const name = m[1][0].toUpperCase() + m[1].slice(1); const ver = m[2] ? ' ' + m[2] + (m[3] ? '.' + m[3] : '') : '';
   return name + ver + (m[4] ? ' · ' + m[4].toUpperCase() : '');
 }
-const modelChip = cl => cl && cl.model ? h('span', { class: 'badge tag model', title: `model: ${cl.model}${cl.effort ? ' · effort ' + cl.effort : ''}` }, gl('◈ '), modelName(cl.model), cl.effort && cl.effort !== 'high' ? h('i', null, ' · ' + cl.effort) : null) : null;
 // plan limits (5 h session / 7 d / Fable) per account, as Claude Code's /usage shows them
 const inStr = ts => { const s = Math.max(0, (ts - Date.now()) / 1000); const mm = Math.round(s / 60); if (s < 60) return '<1m'; if (mm < 60) return mm + 'm'; if (mm < 1440) return Math.floor(mm / 60) + 'h ' + (mm % 60) + 'm'; return Math.floor(mm / 1440) + 'd ' + Math.floor(mm % 1440 / 60) + 'h'; };
 const whenStr = ts => { const d = new Date(ts); const hm = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); return Math.abs(ts - Date.now()) < 86400e3 && d.getDate() === new Date().getDate() ? hm : d.toLocaleDateString([], { weekday: 'short' }) + ' ' + hm; };
@@ -1026,17 +1010,35 @@ function modelPicker(name, cl) {
     h('button', { class: 'mpill', title: 'model: ' + (cl.model || 'default') + tip, onclick: modelMenu }, ico('chip', 14), h('span', { class: 'ml' }, modelName(cl.model) || 'Default'), ico('chevronDown', 11)),
     h('button', { class: 'mpill epill', title: 'effort: ' + (cl.effort || 'unknown') + tip, onclick: effortMenu }, ico('brain', 14), h('span', { class: 'ml' }, cl.effort || 'effort'), cl.effort ? effortBar(cl.effort) : null, ico('chevronDown', 11)));
 }
+const wantVersion = cl => cl.mode === 'chat' ? cl.wantVersion || S.claude?.installed : S.claude?.installed;
+const needsRestart = cl => !!(cl.version && wantVersion(cl) && cl.version !== wantVersion(cl));
+function sessInfoRow(label, sub, title) {
+  return { info: true, label, sub, title };
+}
 function sessMenu(ev, name) {
   const sess = S.runtime.sessions.find(s => s.name === name); const cl = sess && sess.claude; const chat = cl && cl.mode === 'chat';
   const idle = cl && ['idle', 'needs-you'].includes(cl.state); const logOn = chat && TERM.view[name] === 'term';
   const c = cl && cl.ctx; const muted = (S.settings.muted || []).includes(name);
   const mac = copyAttach(name);
+  const proj = sess && byId()[sess.project]; const git = proj && gitOf(proj);
+  const dirty = git && !git.error ? git.dirty + git.untracked : 0;
+  const upgrading = CLAUDE_UPGRADING; const upd = cl && S.claude?.update;
+  const wt = cl && cl.worktree; const where = !cl ? '' : wt ? '⎇ ' + wt.name + (cl.branch && cl.branch !== wt.name ? ' · ' + cl.branch : '') : cl.branch ? '⎇ ' + cl.branch : '';
+  const title = sessTitle(sess || { name });
   openMenu(ev, [
+    cl && cl.model ? sessInfoRow('Model', modelName(cl.model) + (cl.effort ? ' · ' + cl.effort : ''), `model: ${cl.model}${cl.effort ? ' · effort ' + cl.effort : ''}`) : null,
+    where ? sessInfoRow(wt ? 'Worktree' : 'Branch', where, wt ? `git worktree · ${home(wt.path)}` + (cl.branch ? ` · branch ${cl.branch}` : '') : 'branch ' + cl.branch) : null,
+    cl && cl.title && cl.title !== title ? sessInfoRow('Title', cl.title, cl.title) : null,
+    !cl && sess ? sessInfoRow('Folder', home(sess.cwd), sess.cwd) : null,
+    'sep',
     cl ? { label: 'New chat here', sub: [sess.project && byId()[sess.project]?.name, acct(cl.account)].filter(Boolean).join(' · '), icon: ico('plus', 15), onclick: () => newChatHere(name) } : null,
     cl ? { label: 'Compact context', sub: c ? fmtTok(c.used) + ' · ' + ctxPct(c) + '%' : '', icon: ico('compact', 15), disabled: !canCompact(cl), title: idle ? 'summarise the conversation and continue with a smaller context' : 'only when Claude is idle', onclick: () => compactSession(name) } : null,
     cl ? { label: 'Rename…', icon: ico('pencil', 15), onclick: () => renameDialog(name) } : null,
     chat && FEAT.session?.move ? { label: 'Move to folder…', icon: ico('folder', 15), disabled: !idle, title: 'same conversation, Claude continues in another project or folder (only when idle)', onclick: () => FEAT.session.move(name) } : null,
-    cl && cl.hooked ? { label: muted ? 'Unmute notifications' : 'Mute notifications', icon: ico(muted ? 'bell' : 'bellOff', 15), onclick: () => api('claude-mute', { session: name, muted: !muted }).then(r => toast(r.muted.includes(name) ? 'muted' : 'unmuted')).catch(e => toast(e.message, 'err')) } : null,
+    proj ? { label: 'Project details…', sub: dirty ? '± ' + dirty + ' changes' : '', icon: ico('folder', 15), title: 'project details — changes, files, logs, branches, docker', onclick: () => openDrawer(proj.id, dirty ? 'changes' : 'overview') } : null,
+    cl && (cl.hooked || muted) ? { label: muted ? 'Unmute notifications' : 'Mute notifications', sub: muted ? 'muted now' : '', icon: ico(muted ? 'bell' : 'bellOff', 15), onclick: () => api('claude-mute', { session: name, muted: !muted }).then(r => toast(r.muted.includes(name) ? 'muted' : 'unmuted')).catch(e => toast(e.message, 'err')) } : null,
+    upd ? { label: upgrading ? 'Installing update…' : 'Update Claude Code', sub: upgrading ? '' : upd.version, icon: ico('refresh', 15), disabled: upgrading, title: upgrading ? 'mise upgrade claude is running…' : `Claude Code ${upd.version} is out — install it (mise upgrade claude), then restart this session (same conversation, --resume)`, onclick: () => updateClaude({ name, project: sess?.project }) } :
+    cl && needsRestart(cl) ? { label: 'Restart on new version', sub: wantVersion(cl), icon: ico('refresh', 15), title: `running Claude Code ${cl.version} — restart on ${wantVersion(cl)} (same conversation)`, onclick: () => restartSession({ name, project: sess?.project }) } : null,
     ...feat('sessMenu', name, sess, cl),
     'sep',
     chat ? { label: logOn ? 'Back to chat' : 'Runner log', icon: ico(logOn ? 'chat' : 'log', 15), onclick: () => setMode(logOn ? 'chat' : 'term') } : null,
@@ -1351,6 +1353,7 @@ function openMenu(ev, items) {
     if (it === 'sep') { m.append(h('div', { class: 'sep' })); continue; }
     if (it.header) { m.append(h('div', { class: 'mh' }, it.header)); continue; }
     if (it.el) { m.append(it.el); continue; }
+    if (it.info) { m.append(h('div', { class: 'mi info', title: it.title }, h('span', { class: 'ico' }), h('span', { class: 'k' }, it.label), h('span', { class: 'c' }, it.sub))); continue; }
     m.append(h('div', { class: 'mi' + (it.cur ? ' cur' : '') + (it.disabled ? ' dis' : '') + (it.danger ? ' danger' : ''), title: it.title, onclick: () => { closeMenu(); it.onclick?.(); } }, h('span', { class: 'ico' }, gico(it.icon || '')), h('span', { class: 'k' }, it.label), it.sub ? h('span', { class: 'c' }, it.sub) : null));
   }
   const r = ev.currentTarget.getBoundingClientRect(), pad = 8;

@@ -49,6 +49,14 @@
     return el;
   }
 
+  function sessMenu(name, sess, cl) {
+    if (!cl) return null;
+    const count = () => { const ag = DATA.get(name)?.j?.agents; return !ag ? '' : !ag.length ? 'none yet' : chipLabel(ag).t.slice(2); };
+    const sub = h('span', { class: 'c' }, count());
+    fetchAgents(name).then(() => { sub.textContent = count(); });
+    return { el: h('div', { class: 'mi', title: 'subagents of this session, with their cost', onclick: () => { closeMenu(); sheet(name); } }, h('span', { class: 'ico' }, ico('diamond', 15)), h('span', { class: 'k' }, 'Subagents'), sub) };
+  }
+
   // ---- the sheet ------------------------------------------------------------------------------------------
   function sheet(name, agentId) {
     const m = $('#modal'); m.classList.remove('hidden');
@@ -199,5 +207,5 @@
     return true;
   }
 
-  FEAT.subagents = { chatBar, homeTiles, deepLink };
+  FEAT.subagents = { chatBar, sessMenu, homeTiles, deepLink };
 })();

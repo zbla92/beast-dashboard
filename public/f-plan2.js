@@ -116,18 +116,6 @@
 
   const planLabel = p => p.title || p.topic;
 
-  function strip(p, open) {
-    const meta = [];
-    if (p.phase) meta.push(h('span', { class: 'fp2-meta' }, 'Phase ', h('b', null, `${p.phase.n}/${p.phase.of}`)));
-    meta.push(h('span', { class: 'fp2-meta' }, h('b', null, `${p.done}/${p.total}`)));
-    const focus = p.now ? ['now: ', p.now.id, p.now.title] : p.next && !p.finished ? ['next: ', p.next.id, p.next.title] : p.complete ? ['all tasks done'] : null;
-    return h('button', { class: 'fp2-strip-b', title: 'Plan — ' + planLabel(p), onclick: toggle },
-      ring(p, 26), h('span', { class: 'fp2-name' }, p.topic), ...meta,
-      p.waiting.length ? h('span', { class: 'fp2-wait' }, h('i'), `${p.waiting.length} waiting on you`) : null,
-      focus ? h('span', { class: 'fp2-now' }, focus[0], focus[1] ? h('b', null, focus[1]) : null, focus[2] ? ' ' + focus[2] : null) : null,
-      h('span', { class: 'fp2-chev' + (open ? ' on' : '') }, ico('chevronDown', 15)));
-  }
-
   const gateChip = (g, onOpen) => g ? h('button', { class: 'fp2-gate ' + (g.ok ? 'ok' : 'bad'), title: ['last gate', g.task, g.text, g.at ? clock(g.at) : ''].filter(Boolean).join(' · '), onclick: onOpen }, `${g.ok ? '✓' : '✗'} ${g.text || 'gate'}`) : null;
   const modelChip = m => m ? h('span', { class: 'fp2-model' }, m) : null;
   const spin = () => h('span', { class: 'fp2-spin' });
@@ -653,6 +641,7 @@
 
   function panelChanged() {
     sync(true);
+    if (TERM.open) renderTermPanel();
     window.dispatchEvent(new Event('resize'));
   }
 
@@ -663,6 +652,7 @@
     APV.name = name;
     APV.plan = p;
     APV.restored = null;
+    if (!isPhone()) feat('rightOpen', 'plan');
     panelChanged();
   }
 
@@ -773,28 +763,37 @@
 
   function teardown() {
     if (SH.close) SH.close();
-    remove('fp2-strip', 'fp2-panel', 'fp2-scrim');
+    remove('fp2-panel', 'fp2-scrim');
     const main = $('.termmain');
     if (main) main.classList.remove('fp2-open');
     ST.sig = '';
   }
 
-  function quietStrip(name, list, org, open, offer) {
-    const can = isLive(name);
-    return h('div', { class: 'fp2-strip-b quiet fp2-np' + (can ? '' : ' off') },
-      h('span', { class: 'fp2-nop' }, 'No plan'), h('span', { class: 'fp2-nop' }, '·'),
-      h('button', { class: 'fp2-np-b', disabled: !can, title: can ? 'Ask Claude to make a plan' : null, onclick: () => openMake(name) }, 'Make a plan…'),
-      offer ? h('button', { class: 'fp2-np-b fp2-np-cont', disabled: !can, title: can ? 'Ask Claude to continue this plan' : null, onclick: () => sendOnce(name, continueMsg(offer.topic)) }, `${offer.topic} ${offer.done}/${offer.total} · Continue?`) : null,
-      can ? null : h('span', { class: 'fp2-np-hint' }, NOT_LIVE),
-      h('button', { class: 'fp2-np-arch', onclick: () => openArchived(name) }, 'Archived'),
-      list.length ? h('button', { class: 'fp2-np-org', title: 'Plans in ' + org, onclick: toggle }, h('span', { class: 'fp2-nop' }, `${list.length} in ${org}`), h('span', { class: 'fp2-chev' + (open ? ' on' : '') }, ico('chevronDown', 15))) : null);
+  const panelOpen = (name, own, list, phone) => {
+    if (APV.plan) return true;
+    if (!phone && filesOn()) return false;
+    return list.length ? isOpen(name, !!own) : false;
+  };
+
+  function termBar(name) {
+    if (!enabled() || isPhone()) return null;
+    const own = planFor(ST.sums, name);
+    if (!own && !claudeOf(name)) return null;
+    const list = orgPlans(ST.sums, S.projects || [], own, sessionProject(name));
+    if (!own && !list.length) return null;
+    const open = panelOpen(name, own, list, false);
+    const n = own ? own.waiting.length : 0;
+    const title = own ? `Plan — ${planLabel(own)} · ${own.done}/${own.total}${n ? ` · ${n} waiting on you` : ''}` : `Plans in ${orgLabel(S.projects || [], sessionProject(name))} — ${list.length}`;
+    return h('button', { class: 'btn sm ghost fp2-btn' + (open ? ' on' : ''), title, 'aria-pressed': open ? 'true' : 'false', onclick: toggle },
+      own ? ring(own, 18) : ico('checkSquare', 14), h('span', { class: 'desk' }, 'Plan'),
+      h('span', { class: 'fp2-cnt' }, own ? `${own.done}/${own.total}` : String(list.length)));
   }
 
   function sync(force) {
     renderQuestions();
     const main = $('.termmain');
-    const stripEl = () => document.getElementById('fp2-strip') || document.getElementById('fp2-panel');
-    if (!enabled() || !main || !TERM.open || !TERM.active) { PH.name = null; clearPreview(); if (stripEl() || SH.close) teardown(); return; }
+    const panelEl = () => document.getElementById('fp2-panel');
+    if (!enabled() || !main || !TERM.open || !TERM.active) { PH.name = null; clearPreview(); if (panelEl() || SH.close) teardown(); return; }
     const name = TERM.active;
     if (PH.name && PH.name !== name) PH.name = null;
     if (APV.name !== name) clearPreview();
@@ -802,12 +801,12 @@
     const projects = S.projects || [];
     const projectId = sessionProject(name);
     const list = orgPlans(ST.sums, projects, own, projectId);
-    if (!own && !claudeOf(name)) { PH.name = null; clearPreview(); if (stripEl() || SH.close) teardown(); return; }
+    if (!own && !claudeOf(name)) { PH.name = null; clearPreview(); if (panelEl() || SH.close) teardown(); return; }
     if (APV.restored && ST.sums.some(x => x.id === APV.restored)) {
       VIEW[name] = APV.restored;
       if (list.some(x => x.id === APV.restored)) {
         if (isPhone()) PH.name = name;
-        else { OPEN[name] = true; persistOpen(); }
+        else { OPEN[name] = true; persistOpen(); feat('rightOpen', 'plan'); }
       }
       clearPreview();
     }
@@ -816,20 +815,16 @@
     const phone = isPhone();
     if (phone && !list.length) PH.name = null;
     const preview = APV.plan;
-    const open = !!preview || (list.length ? isOpen(name, !!own) : false);
-    const org = own ? '' : orgLabel(projects, projectId);
-    const offer = own ? null : offerFor(ST.sums, name);
-    const found = document.getElementById('fp2-strip');
-    if (phone && found) found.remove();
-    const st = phone ? null : found || h('div', { id: 'fp2-strip', class: 'fp2-strip' });
-    if (st && !found) { const bar = $('#term-bar'); if (bar) bar.after(st); else main.prepend(st); force = true; }
-    if (st) main.style.setProperty('--fp2-top', (st.offsetTop + st.offsetHeight) + 'px');
+    const filesWin = !phone && !preview && filesOn();
+    if (filesWin && OPEN[name]) { OPEN[name] = false; persistOpen(); }
+    const open = panelOpen(name, own, list, phone);
+    const bar = $('#term-bar');
+    if (bar && !phone) main.style.setProperty('--fp2-top', (bar.offsetTop + bar.offsetHeight) + 'px');
     const current = preview || shown;
     const dm = current && DET[current.id] ? DET[current.id].mtime : 0;
-    const sig = JSON.stringify([name, own, org, offer && [offer.topic, offer.done, offer.total], list, names, shown && shown.id, preview && preview.id, APV.restored, dm, current && STALE.has(current.id), open, phone, EXP, !own && isLive(name), current && isLive(targetOf(current))]);
+    const sig = JSON.stringify([name, own, list, names, shown && shown.id, preview && preview.id, APV.restored, dm, current && STALE.has(current.id), open, phone, EXP, current && isLive(targetOf(current))]);
     if (sig === ST.sig && !force) return;
     ST.sig = sig;
-    if (st) st.replaceChildren(own ? strip(own, open) : quietStrip(name, list, org, open, offer));
     main.classList.toggle('fp2-open', open && !phone);
     const old = document.getElementById('fp2-panel');
     if (!open) { remove('fp2-panel', 'fp2-scrim'); return; }
@@ -857,13 +852,28 @@
     else {
       OPEN[name] = !isOpen(name, !!own);
       persistOpen();
+      if (OPEN[name]) feat('rightOpen', 'plan');
     }
     panelChanged();
   }
 
+  const filesOn = () => !!(FEAT.code && FEAT.code.filesOn && FEAT.code.filesOn());
+
+  function rightOpen(which) {
+    const name = TERM.active;
+    if (which === 'plan' || !name || isPhone() || !enabled()) return;
+    const hadPreview = !!APV.plan;
+    clearPreview();
+    if (hadPreview || isOpen(name, !!planFor(ST.sums, name))) {
+      OPEN[name] = false;
+      persistOpen();
+      panelChanged();
+    }
+  }
+
   function onState() {
     const on = enabled();
-    if (!on) { ST.was = false; if (document.getElementById('fp2-strip') || document.getElementById('fp2-panel')) teardown(); return; }
+    if (!on) { ST.was = false; if (document.getElementById('fp2-panel')) teardown(); return; }
     const key = ((S.runtime && S.runtime.sessions) || []).map(x => x.name + '@' + (x.cwd || '')).join('|');
     if (!ST.was || key !== ST.skey) { ST.was = true; ST.skey = key; load(); }
     sync();
@@ -873,7 +883,10 @@
 
   function termBarKey() {
     if (!enabled()) return null;
-    return ST.sums.map(p => [p.id, p.pct, p.waiting.length, p.sessions.join(',')].join(':')).join('|');
+    const sums = ST.sums.map(p => [p.id, p.pct, p.done, p.total, p.waiting.length, p.sessions.join(',')].join(':')).join('|');
+    const name = TERM.active;
+    const own = name ? planFor(ST.sums, name) : null;
+    return [sums, name && !isPhone() && panelOpen(name, own, name ? orgPlans(ST.sums, S.projects || [], own, sessionProject(name)) : [], false)].join('#');
   }
 
   function termItem(name) {
@@ -885,9 +898,10 @@
   function live() { load(); }
 
   function sessMenu(name, sess, cl) {
-    if (!enabled() || !isPhone() || !cl) return null;
+    if (!enabled() || !cl) return null;
     const own = planFor(ST.sums, name);
     if (own) {
+      if (!isPhone()) return null;
       const n = own.waiting.length;
       return { label: `Plan · ${own.topic} ${own.done}/${own.total}`, sub: n ? `${n} open question${n > 1 ? 's' : ''}` : '', icon: ico('checkSquare', 15), onclick: () => { if (PH.name !== name) toggle(); } };
     }
@@ -896,10 +910,10 @@
     const hint = can ? '' : NOT_LIVE;
     const projects = S.projects || [];
     const projectId = sessionProject(name);
-    const others = orgPlans(ST.sums, projects, null, projectId).length;
+    const others = orgPlans(ST.sums, projects, null, projectId);
     return [
       { label: 'Make a plan…', sub: hint, icon: ico('plus', 15), disabled: !can, onclick: () => openMake(name) },
-      others ? { label: `${others} in ${orgLabel(projects, projectId)}…`, icon: ico('checkSquare', 15), onclick: () => { if (PH.name !== name) toggle(); } } : null,
+      others.length ? { label: `${others.length} in ${orgLabel(projects, projectId)}…`, icon: ico('checkSquare', 15), onclick: () => { if (!panelOpen(name, null, others, isPhone())) toggle(); } } : null,
       offer ? { label: `Continue ${offer.topic}`, sub: hint, icon: ico('play', 15), disabled: !can, onclick: () => sendOnce(name, continueMsg(offer.topic)) } : null,
       { label: 'Archived plans…', icon: ico('archive', 15), onclick: () => openArchived(name) },
     ].filter(Boolean);
@@ -933,5 +947,5 @@
   setInterval(() => { if (!document.hidden) load(); }, 60000);
   addEventListener('resize', () => sync());
 
-  FEAT.plan2 = { onState, termShown, termBarKey, termItem, plan: onPlan, live, cardChips, sessMenu, planFor, readOpen, ringMarkup, bucketEvents, orgPlans, planNames, answerMsg, updateMsg, makeMsg, continueMsg, leaveMsg, finishedWhen, openMake, actionsMenu, quietStrip, questionsRow, sheet, sendToSession, saveAnswer, phaseSheet, taskSheet, archivedOf };
+  FEAT.plan2 = { rightOpen, onState, termShown, termBar, termBarKey, termItem, plan: onPlan, live, cardChips, sessMenu, planFor, readOpen, ringMarkup, bucketEvents, orgPlans, planNames, answerMsg, updateMsg, makeMsg, continueMsg, leaveMsg, finishedWhen, openMake, actionsMenu, questionsRow, sheet, sendToSession, saveAnswer, phaseSheet, taskSheet, archivedOf };
 })();
