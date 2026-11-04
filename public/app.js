@@ -903,7 +903,28 @@ function renderStats() {
 }
 // rail footer (desktop): the machine at a glance on every view, click for the 24 h history. Built once, then only
 // the numbers change (a rebuilt button would swallow a click that spans a stats tick).
+const RAIL_USAGE = { key: null, acct: localStorage.getItem('bd.usageAcct') };
+function renderRailUsage() {
+  const el = $('#rail-usage'); if (!el) return;
+  const LM = S.claude?.limits || {}; const accts = ['personal', 'company'].filter(a => LM[a]);
+  const a = accts.includes(RAIL_USAGE.acct) ? RAIL_USAGE.acct : accts[0]; const L = a ? LM[a] : null;
+  const key = JSON.stringify([a, Math.floor(Date.now() / 60000), accts.map(x => [x, LM[x].session, LM[x].weekly, LM[x].stale, LM[x].error])]);
+  if (key === RAIL_USAGE.key) return; RAIL_USAGE.key = key;
+  if (!L) { el.replaceChildren(); return; }
+  const worst = x => { const c = [LM[x].session, LM[x].weekly].map(limCls); return c.includes('hot') ? 'hot' : c.includes('warn') ? 'warn' : ''; };
+  const pick = x => () => { RAIL_USAGE.acct = x; localStorage.setItem('bd.usageAcct', x); renderRailUsage(); };
+  const line = (label, w, what) => w ? h('div', { class: 'ru-row ' + limCls(w), title: what + (w.resetsAt ? ' · resets ' + resetStr(w.resetsAt) : w.reset ? ' · ' + RESET_NOTE : '') },
+    h('div', { class: 'ru-l' }, h('b', null, label), h('span', { class: 'ru-rs' }, w.resetsAt ? 'Resets ' + inStr(w.resetsAt) : w.reset ? 'Reset' : ''), h('span', { class: 'ru-p' }, w.pct == null ? '–' : w.pct + '%')),
+    h('i', { class: 'ru-bar' }, h('b', { style: `width:${Math.min(100, w.pct || 0)}%` }))) : null;
+  el.classList.toggle('stale', !!L.stale);
+  el.replaceChildren(...[
+    accts.length > 1 ? h('div', { class: 'seg ru-acct' }, accts.map(x => h('button', { class: 'segb ' + worst(x) + (x === a ? ' on' : ''), onclick: pick(x) }, acct(x)))) : null,
+    L.error && !L.session ? h('div', { class: 'ru-none', title: L.error }, 'Usage unavailable') : null,
+    line('Session', L.session, '5-hour session'), line('Weekly', L.weekly, '7-day window, all models'),
+  ].filter(Boolean));
+}
 function renderRailFoot() {
+  renderRailUsage();
   const s = S.stats; const rf = $('#rail-foot'); if (!s || !rf) return;
   const bt = s.battery;
   const rows = [['cpu', 'CPU', s.cpu.pct, s.cpu.temp], ['mem', 'RAM', s.mem.used / s.mem.total * 100, null], s.gpu ? ['gpu', 'GPU', s.gpu.util, s.gpu.temp] : null, bt ? ['bat', 'BAT', bt.pct, null] : null].filter(Boolean);
@@ -2792,15 +2813,17 @@ function renderRail() {
     const st = cl.state || 'unknown';
     if (st === 'working') return cl.lastTool || 'working…';
     if (st === 'background') return 'background agents';
-    return (STATE_SHORT[st] || st) + (cl.since && st !== 'unknown' ? ' · ' + ago(cl.since) : '');
+    return ['permission', 'needs-you', 'error', 'limit'].includes(st) ? STATE_SHORT[st] : '';
   };
   const row = (it, kind, tuck) => {
     const cl = it.claude; const st = cl ? cl.state || 'unknown' : kind; const i = kind === 'claude' ? instOf(it) : null;
     const nm = kind === 'claude' ? (isNewChat(it.name) ? chatTitle(cl) : cl?.label || (tuck ? (i.wt ? it.project : '#' + (i.n || 1)) : it.name.startsWith('sh-') ? it.name : it.project)) : kind === 'dev' ? it.project : it.name;
+    const subline = sub(it); const age = cl?.since && st !== 'unknown' ? ago(cl.since).replace(/\.\d+/, '') : '';
     return h('button', { class: 'rrow k-' + kind + ' st-' + st + (tuck ? ' sub' : '') + (act === it.name ? ' on' : '') + (cl?.needsYou ? ' need' : '') + (cl?.settled ? ' settled' : ''), title: it.name + (cl ? ' · ' + (STATE_LABEL[st] || st) : '') + (cl?.settled ? ' · ' + (cl.settled.until ? 'snoozed' : 'settled') : ''), onclick: () => openTerm(it.name) },
       kind === 'claude' && !tuck ? h('span', { class: 'rav' }, avatar(it.pid, 'sm'), h('i', { class: 'rdot' })) : h('i', { class: 'rdot' }),
-      h('span', { class: 'rtx' }, h('span', { class: 'rnm' }, h('b', null, nm), i && i.n && !(tuck && !cl?.label && !i.wt) ? h('em', null, '#' + i.n) : null, i && i.wt ? h('em', { class: 'wt' }, '⎇ ' + i.wt.name) : null),
-        h('span', { class: 'rln2' }, h('span', { class: 'rsub' + (st === 'working' ? ' mono' : '') }, sub(it)), kind === 'claude' && multiAcct() ? h('span', { class: 'racc ' + it.account, title: 'Claude Code account: ' + acct(it.account) }, acct(it.account)) : null)),
+      h('span', { class: 'rtx' }, h('span', { class: 'rnm' }, h('b', null, nm), i && i.n && !(tuck && !cl?.label && !i.wt) ? h('em', null, '#' + i.n) : null, i && i.wt ? h('em', { class: 'wt' }, '⎇ ' + i.wt.name) : null, kind === 'claude' && multiAcct() && it.account !== 'personal' ? h('em', { class: 'racc ' + it.account, title: 'Claude Code account: ' + acct(it.account) }, acct(it.account).slice(0, 1)) : null),
+        subline ? h('span', { class: 'rln2' }, h('span', { class: 'rsub' + (st === 'working' ? ' mono' : '') }, subline)) : null),
+      age ? h('span', { class: 'rage', title: 'since ' + new Date(cl.since).toLocaleTimeString() }, age) : null,
       ...feat('termItem', it.name),
       cl ? h('span', { class: 'redit', role: 'button', title: 'rename this session', onclick: ev => { ev.stopPropagation(); renameDialog(it.name); } }, ico('pencil', 13)) : null);
   };
@@ -2808,10 +2831,11 @@ function renderRail() {
   for (const og of orgGroups(S3.claude)) {
     const rows = [];
     for (const g of claudeGroups(og.items)) {
-      if (g.items.length === 1) { rows.push(row(g.items[0], 'claude')); continue; }
-      rows.push(h('div', { class: 'rgrp-p' }, h('div', { class: 'rproj', title: g.items.length + ' Claude sessions on ' + g.project }, avatar(g.pid, 'sm'), h('b', null, g.project), h('em', null, '×' + g.items.length)), ...g.items.map(it => row(it, 'claude', true))));
+      const one = g.items.length === 1 ? g.items[0] : null;
+      if (one && !(g.pid && (one.claude?.label || isNewChat(one.name)))) { rows.push(row(one, 'claude')); continue; }
+      rows.push(h('div', { class: 'rgrp-p' }, h('div', { class: 'rproj', title: g.items.length + ' Claude session' + (one ? '' : 's') + ' on ' + g.project }, avatar(g.pid, 'sm'), h('b', null, g.project), one ? null : h('em', null, '×' + g.items.length)), ...g.items.map(it => row(it, 'claude', true))));
     }
-    if (og.items.length < 2 || !og.org) { out.push(...rows); continue; }
+    if (!og.org) { out.push(...rows); continue; }
     out.push(h('div', { class: 'rgrp-o', style: `--org:${orgColor(og.org)}` }, h('div', { class: 'rorg' }, h('i', null), og.org, h('em', null, og.items.length)), ...rows));
   }
   if (S3.dev.length) out.push(h('div', { class: 'rsec' }, 'Dev servers'), ...S3.dev.map(it => row(it, 'dev')));
@@ -2892,6 +2916,7 @@ for (const b of document.querySelectorAll('#tabbar .tb')) b.onclick = () => {
 };
 $('#btn-shell').onclick = () => { if (TERM.open) return closeTermPanel(); TERM.open = true; if (!TERM.active) { const c = S.runtime.sessions.find(x => x.name.startsWith('claude-')) || S.runtime.sessions[0]; if (c) { ensureFrame(c.name); TERM.active = c.name; } } renderTermPanel(); navTo(); };
 $('#btn-settings').onclick = settingsModal;
+$('#btn-settings-rail').onclick = settingsModal;
 // ---------- downloads (~/Downloads on the server) ----------
 // Claude drops finished reports/files there. Same explorer as a project's Files tab (tree + preview), plus
 // checkboxes: download one file, or several files / folders as one .zip; delete. Newest first.

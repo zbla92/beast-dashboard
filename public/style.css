@@ -2,30 +2,37 @@
    Warm means you, cool means the machine: amber/orange = waiting on you, cyan/indigo/mint = the machine at work.
    Token names are kept from v1 so feature CSS (f-*.css) and inline styles in app.js keep working. */
 :root {
-  --bg: #18181a; --bg2: #1c1c1f; --panel: #202023; --panel2: #27272b; --panel3: #303035;
-  --line: rgba(255,255,255,.07); --line2: rgba(255,255,255,.12);
+  --bg: #0a0d14; --bg2: #0f131c; --panel: rgba(255,255,255,.06); --panel2: rgba(255,255,255,.1); --panel3: rgba(255,255,255,.15);
+  --line: rgba(255,255,255,.09); --line2: rgba(255,255,255,.15);
   --border: var(--line); --border2: var(--line2); --hair: var(--line);
-  --fill: rgba(255,255,255,.04); --fill2: rgba(255,255,255,.075);
-  --text: #ececee; --muted: #a3a3a9; --dim: #82828a;
-  --accent: #8ea2d8; --accent2: #a5b4e0;
-  --primary: #ececee; --primary-hover: #ffffff; --on-primary: #18181a;
-  --green: #4fb286; --amber: #d9a05b; --red: #e5695f; --cyan: #6aa9c9;
+  --fill: rgba(255,255,255,.05); --fill2: rgba(255,255,255,.09);
+  --text: #f4f6fa; --muted: #c0c7d4; --dim: #a4adbd;
+  --accent: #8ebcff; --accent2: #b0d0ff;
+  --primary: #f4f6fa; --primary-hover: #ffffff; --on-primary: #0a0d14;
+  --green: #62d394; --amber: #f2ad57; --red: #ff7468; --cyan: #74c9f2;
   --signal: var(--amber); --on-signal: #1d1406;
-  --perm: #cf8a52; --on-perm: #1d1006; --orange: var(--perm);
-  --pink: #c98f9f; --indigo: #8f9ac0; --blue: #7f9bc4; --purple: #a597c7;
+  --perm: #f2925a; --on-perm: #1d1006; --orange: var(--perm);
+  --pink: #e39ab2; --indigo: #9eaaf0; --blue: #84b0f7; --purple: #bda8f2;
   /* Org accents. An org is the first folder under devRoot; app.js hashes its name onto this list. */
-  --org-1: #7f94bd; --org-2: #9d8fc0; --org-3: #bf9a73; --org-4: #7fae93; --org-5: #b98a9a; --org-6: #b8a06b; --org-default: #8e8e95;
+  --org-1: #84a4e0; --org-2: #a99be0; --org-3: #d6a877; --org-4: #7fc4a0; --org-5: #d394aa; --org-6: #cdb270; --org-default: #9aa2b2;
   /* agent states */
   --st-need: var(--signal); --st-perm: var(--perm); --st-err: var(--red); --st-limit: var(--purple);
-  --st-work: var(--cyan); --st-bg: var(--indigo); --st-idle: #62626a;
-  --sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-  --r-sm: 6px; --r: 10px; --r-lg: 14px;
+  --st-work: var(--cyan); --st-bg: var(--indigo); --st-idle: #7f8799;
+  --sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Segoe UI', Roboto, sans-serif;
+  --mono: ui-monospace, 'SF Mono', Menlo, 'JetBrains Mono', monospace;
+  --r-sm: 8px; --r: 12px; --r-lg: 18px; --r-xl: 22px; --r-2xl: 28px; --r-pill: 999px;
+  --glass-1: rgba(13,17,27,.56); --glass-2: rgba(16,20,31,.66); --glass-3: rgba(20,25,37,.78); --glass-solid: #151a26;
+  --blur-1: blur(30px) saturate(150%); --blur-2: blur(40px) saturate(170%); --blur-3: blur(60px) saturate(180%);
+  --edge: rgba(255,255,255,.24); --edge-soft: rgba(255,255,255,.09);
+  --hl: inset 0 1px 0 var(--edge); --hl-soft: inset 0 1px 0 var(--edge-soft);
+  --shadow-pane: 0 30px 80px -16px rgba(0,0,0,.7), 0 4px 14px rgba(0,0,0,.35);
+  --shadow-float: 0 24px 60px -12px rgba(0,0,0,.72), 0 2px 8px rgba(0,0,0,.3);
+  --glass-gap: 12px;
   --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px; --sp-6: 32px;
   --fs-2xs: 10.5px; --fs-xs: 11.5px; --fs-sm: 12.5px; --fs-md: 13.5px; --fs-lg: 16px; --fs-xl: 18px; --fs-2xl: 24px;
-  --shadow: 0 12px 32px -8px rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.2);
-  --scrim: rgba(0,0,0,.6); --code-bg: #131315; --scroll: #3a3a40;
-  --rail-w: 248px; --top-h: 60px; --tab-h: 58px;
+  --shadow: 0 16px 40px -10px rgba(0,0,0,.6), 0 2px 6px rgba(0,0,0,.25);
+  --scrim: rgba(3,5,10,.5); --code-bg: #0b0e15; --scroll: rgba(255,255,255,.22);
+  --rail-w: 272px; --top-h: 60px; --tab-h: 58px;
   --ease: cubic-bezier(.2,.8,.2,1);
   color-scheme: dark;
 }

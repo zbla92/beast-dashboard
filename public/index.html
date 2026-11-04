@@ -21,7 +21,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="apple-mobile-web-app-title" content="Beast">
-<meta name="theme-color" content="#18181a">
+<meta name="theme-color" content="#0a0d14">
 <link rel="apple-touch-icon" href="/icon-180.png">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
@@ -50,6 +50,7 @@
 <link rel="stylesheet" href="/f-pin.css">
 <link rel="stylesheet" href="/f-conn.css">
 <link rel="stylesheet" href="/f-chats.css">
+<link rel="stylesheet" href="/f-glass.css">
 </head>
 <body>
 <!-- Layout: desktop = rail (nav + every live session) | main column; phone = slim header,
@@ -71,7 +72,8 @@
     <button class="rail-add" id="btn-newterm" title="New session — new chat or resume a past conversation" aria-label="New session"><svg class="ico" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
   </div>
   <div class="rail-list" id="rail-list"></div>
-  <div class="rail-foot" id="rail-foot"></div>
+  <div class="rail-card"><div class="rail-usage" id="rail-usage"></div><div class="rail-foot" id="rail-foot"></div></div>
+  <button class="btn ghost icon rail-gear" id="btn-settings-rail" title="Settings · tunnels · rescan" aria-label="Settings"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="ico" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
 </aside>
 
 <div class="maincol">
