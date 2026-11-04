@@ -9,7 +9,7 @@
     } catch { return {}; }
   };
   const OPEN = readOpen();
-  const EXP = { phases: {}, menu: false, act: false };
+  const EXP = { phases: {}, tasks: {}, menu: false, act: false };
   const APV = { name: null, plan: null, restored: null };
   const TICKING = new Set();
   const PV = { phone: false, ctx: null, rerender: null, seen: null };
@@ -538,12 +538,13 @@
 
   const taskIcon = s => h('span', { class: 'fp2-si ' + s }, s === 'done' ? ico('check', 12) : s === 'failed' ? '!' : s === 'blocked' ? '?' : s === 'doing' ? spin() : null);
 
-  function tickBox(p, t, cur) {
+  const hintIcon = () => h('span', { class: 'fp2-si todo' }, h('span', { class: 'fp2-hint' }, ico('check', 12)));
+
+  function tickBox(p, t) {
     const pending = TICKING.has(p.id + '|' + t.id);
     const ticked = pending ? t.status !== 'done' : t.status === 'done';
-    const mark = ticked ? '✓' : t.status === 'failed' ? '!' : t.status === 'blocked' ? '?' : '';
-    return h('button', { class: 'fp2-tick' + (pending ? ' busy' : ''), role: 'checkbox', 'aria-checked': String(ticked), 'aria-label': `${ticked ? 'untick' : 'tick'} ${t.id}`, disabled: pending, onclick: () => pressTick(p, t) },
-      h('span', { class: 'fp2-ck' + (ticked ? ' y' : ' ' + t.status) + (cur ? ' n' : '') }, mark));
+    const icon = ticked ? taskIcon('done') : t.status === 'done' || t.status === 'todo' ? hintIcon() : taskIcon(t.status);
+    return h('button', { class: 'fp2-tick' + (pending ? ' busy' : ''), role: 'checkbox', 'aria-checked': String(ticked), 'aria-label': `${ticked ? 'mark not done' : 'mark done'} ${t.id}`, title: ticked ? 'Mark as not done' : 'Mark as done', disabled: pending, onclick: () => pressTick(p, t) }, icon);
   }
 
   async function pressTick(p, t) {
@@ -560,19 +561,23 @@
     sync(true);
   }
 
-  function taskRow(p, t, evs, nav, readOnly) {
+  function taskRow(p, t, evs, rerender, nav, readOnly) {
+    const key = p.id + '|' + t.id;
+    const open = !!EXP.tasks[key];
     const cur = !readOnly && currentId(p) === t.id;
     const isNow = !readOnly && !!p.now && p.now.id === t.id;
     const isNext = !readOnly && !p.finished && !isNow && !!p.next && p.next.id === t.id;
     const steps = isNow ? p.now.steps || [] : [];
-    const shown = readOnly || t.status === 'done' ? [] : evs;
-    return h('div', { class: 'fp2-task ' + t.status + (cur ? ' cur' : '') },
+    const shown = readOnly ? [] : t.status === 'done' ? open ? evs.filter(e => e.type !== 'start') : [] : evs;
+    return h('div', { class: 'fp2-task ' + t.status + (open ? ' open' : '') + (cur ? ' cur' : '') },
       h('div', { class: 'fp2-task-h' },
-        readOnly ? h('span', { class: 'fp2-ck ro' + (t.status === 'done' ? ' y' : '') }, t.status === 'done' ? '✓' : '') : tickBox(p, t, cur),
-        h('button', { class: 'fp2-task-t', onclick: () => nav.task(t.id) }, h('span', { class: 'fp2-id' }, t.id), h('span', { class: 'fp2-task-x' }, t.title, isNow ? h('span', { class: 'fp2-nx' }, ' · now') : isNext ? h('span', { class: 'fp2-nx' }, ' · next') : null))),
+        readOnly ? taskIcon(t.status) : tickBox(p, t),
+        h('button', { class: 'fp2-task-tg', 'aria-expanded': String(open), 'aria-label': `${open ? 'hide' : 'show'} ${t.id} card`, onclick: () => { EXP.tasks[key] = !open; rerender(); } }, h('span', { class: 'fp2-id' }, t.id)),
+        h('button', { class: 'fp2-task-t', onclick: () => nav.task(t.id) }, t.title), isNext ? h('span', { class: 'fp2-nx' }, 'next') : null, modelChip(t.model)),
       isNext && p.nextNote ? h('div', { class: 'fp2-qd' }, p.nextNote) : null,
       steps.length ? h('div', { class: 'fp2-steps' }, steps.map(s => h('div', { class: 'fp2-step ' + s.s }, s.s === 'completed' ? ico('check', 13) : s.s === 'in_progress' ? spin() : h('i', { class: 'fp2-pt' }), h('span', null, s.c)))) : null,
-      shown.length ? h('div', { class: 'fp2-evs' }, shown.map(e => eventLine(e, () => nav.task(t.id)))) : null);
+      shown.length ? h('div', { class: 'fp2-evs' }, shown.map(e => eventLine(e, () => nav.task(t.id)))) : null,
+      open ? h('div', { class: 'fp2-task-b' }, t.body ? h('div', { class: 'fp2-body-t' }, t.body) : h('div', { class: 'dim' }, 'No task card.')) : null);
   }
 
   const currentId = p => (p.now && p.now.id) || (!p.finished && p.next && p.next.id) || null;
@@ -581,23 +586,26 @@
     const b = bucketEvents(d.timeline, d.phases);
     const current = currentId(p);
     const wrap = h('div', { class: 'fp2-sec' });
-    d.phases.forEach((ph, i) => {
+    wrap.append(h('div', { class: 'fp2-sec-h' }, 'Steps', h('span', { class: 'fp2-sp' }), b.created ? h('span', { class: 'dim' }, 'started ' + finishedWhen(b.created.ts)) : null));
+    for (const ph of d.phases) {
       const complete = !!ph.total && ph.done >= ph.total;
+      const done = complete ? (b.phase[ph.n] || []).filter(e => e.type === 'phase').pop() : null;
       const key = p.id + '|' + ph.n;
-      const openByDefault = current ? ph.tasks.some(t => t.id === current) : i === d.phases.length - 1;
-      const folded = !readOnly && complete && !(key in EXP.phases ? EXP.phases[key] : openByDefault);
-      const count = h('span', { class: 'fp2-ph-n' }, `${ph.done}/${ph.total}`);
-      const title = h('button', { class: 'fp2-pn', title: `Phase ${ph.n} · ${ph.name}`, onclick: () => nav.phase(ph.n) }, `Phase ${ph.n} · ${ph.name}`);
+      const folded = !readOnly && complete && !ph.tasks.some(t => t.id === current) && !EXP.phases[key];
+      const count = h('span', { class: 'dim' }, `${ph.done}/${ph.total}${done ? ' · done ' + clock(done.ts) : ''}`);
+      const title = h('button', { class: 'fp2-pn', title: `P${ph.n} ${ph.name}`, onclick: () => nav.phase(ph.n) }, h('span', null, 'P' + ph.n), ' ', h('b', null, ph.name));
+      const fold = () => { EXP.phases[key] = folded; rerender(); };
+      const foldLabel = `${folded ? 'show' : 'hide'} phase ${ph.n} tasks`;
       const head = complete && !readOnly
-        ? h('div', { class: 'fp2-ph-h fold' }, title,
-          h('button', { class: 'fp2-ph-tg', 'aria-label': `${folded ? 'show' : 'hide'} phase ${ph.n} tasks`, onclick: () => { EXP.phases[key] = folded; rerender(); } }, count, h('span', { class: 'fp2-chev' + (folded ? '' : ' on') }, ico('chevronDown', 14))))
+        ? h('div', { class: 'fp2-ph-h fold' },
+          h('button', { class: 'fp2-ph-tg', 'aria-label': foldLabel, onclick: fold }, taskIcon('done')), title,
+          h('button', { class: 'fp2-ph-tg', 'aria-label': foldLabel, onclick: fold }, count, h('span', { class: 'fp2-chev' + (folded ? '' : ' on') }, ico('chevronDown', 14))))
         : h('div', { class: 'fp2-ph-h' }, title, count);
       const evs = readOnly ? [] : (b.phase[ph.n] || []).filter(e => e.type !== 'phase');
       wrap.append(h('div', { class: 'fp2-ph' + (folded ? ' folded' : '') }, head,
         !folded && evs.length ? h('div', { class: 'fp2-evs ph' }, evs.map(e => eventLine(e, () => nav.phase(ph.n)))) : null,
-        folded ? null : ph.tasks.map(t => taskRow(p, t, b.task[t.id] || [], nav, readOnly))));
-    });
-    if (b.created) wrap.append(h('div', { class: 'dim fp2-started' }, 'started ' + finishedWhen(b.created.ts)));
+        folded ? null : ph.tasks.map(t => taskRow(p, t, b.task[t.id] || [], rerender, nav, readOnly))));
+    }
     return wrap;
   }
 

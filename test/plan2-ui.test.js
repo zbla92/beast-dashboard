@@ -1262,7 +1262,7 @@ test('picking another plan closes the list and offers the way back to this sessi
 
 const stepDetail = () => JSON.parse(JSON.stringify(TWO));
 const ticks = t => t.byClass('fp2-tick');
-const markOf = (t, i) => find(ticks(t)[i], n => n.attrs.class && n.attrs.class.startsWith('fp2-ck'))[0];
+const markOf = (t, i) => find(ticks(t)[i], n => n.attrs.class && n.attrs.class.startsWith('fp2-si'))[0];
 
 test('a tick posts plan-step with done true, an untick with done false, with no confirm', async () => {
   const t = await lifeBoot({ detail: stepDetail(), post: okPost, sums: [plan('web/one', 'web', { sessions: ['claude-a'], next: NEXT2 })] });
@@ -1292,7 +1292,7 @@ test('a pressed box shows its new state and takes no second press until the repl
   assert.strictEqual(ticks(t)[1].attrs.disabled, true);
   assert.strictEqual(ticks(t)[1].attrs['aria-checked'], 'true');
   assert.ok(ticks(t)[1].attrs.class.includes('busy'));
-  assert.ok(markOf(t, 1).attrs.class.split(' ').includes('y'));
+  assert.ok(markOf(t, 1).attrs.class.split(' ').includes('done'));
   await box.attrs.onclick();
   assert.strictEqual(t.paths().filter(x => x === 'plan-step').length, 1);
   gate.release();
@@ -1311,14 +1311,13 @@ test('a refused tick shows the error as it is and the box goes back', async () =
   assert.strictEqual(ticks(t)[1].attrs['aria-checked'], 'false');
   assert.ok(!ticks(t)[1].attrs.disabled);
   assert.ok(!ticks(t)[1].attrs.class.includes('busy'));
-  assert.ok(!markOf(t, 1).attrs.class.split(' ').includes('y'));
+  assert.ok(!markOf(t, 1).attrs.class.split(' ').includes('done'));
 });
 
 test('the current task is highlighted and its text opens the task sheet', async () => {
   const t = await lifeBoot({ detail: stepDetail(), sums: [plan('web/one', 'web', { sessions: ['claude-a'], next: NEXT2 })] });
   assert.strictEqual(t.byClass('cur').length, 1);
   assert.ok(t.dom.text(t.byClass('cur')[0]).startsWith('T2'));
-  assert.ok(markOf(t, 1).attrs.class.split(' ').includes('n'));
   await t.byClass('fp2-task-t')[1].attrs.onclick();
   await tick();
   assert.strictEqual(t.dom.text(find(t.dialog(), n => n.attrs.class === 'fp2-sh-top')[0]).startsWith('Task T2'), true);
@@ -1336,9 +1335,19 @@ const FOLD = { phases: [
 
 test('a finished phase folds unless it holds the current task, and its chevron opens it', async () => {
   const t = await lifeBoot({ detail: FOLD, sums: [plan('web/one', 'web', { sessions: ['claude-a'], next: NEXT2 })] });
-  assert.deepStrictEqual(t.byClass('fp2-task-t').map(n => t.dom.text(n)), ['T2Two · next']);
+  assert.deepStrictEqual(t.byClass('fp2-task-t').map(n => t.dom.text(n)), ['Two']);
   t.byClass('fp2-ph-tg')[0].attrs.onclick();
-  assert.deepStrictEqual(t.byClass('fp2-task-t').map(n => t.dom.text(n)), ['T1One', 'T2Two · next']);
+  assert.deepStrictEqual(t.byClass('fp2-task-t').map(n => t.dom.text(n)), ['One', 'Two']);
+});
+
+test('the step id opens its card and the round mark only flags the step', async () => {
+  const t = await lifeBoot({ detail: stepDetail(), sums: [plan('web/one', 'web', { sessions: ['claude-a'] })] });
+  assert.strictEqual(t.byClass('fp2-task-b').length, 0);
+  t.byClass('fp2-task-tg')[1].attrs.onclick();
+  assert.strictEqual(t.byClass('fp2-task-b').length, 1);
+  assert.strictEqual(t.paths().filter(x => x === 'plan-step').length, 0);
+  await ticks(t)[1].attrs.onclick();
+  assert.strictEqual(t.paths().filter(x => x === 'plan-step').length, 1);
 });
 
 const previewAt = '2026-10-12T09:00:00.000Z';
@@ -1352,8 +1361,8 @@ const expectReadOnly = (t, date) => {
   assert.strictEqual(ticks(t).length, 0);
   assert.strictEqual(t.byClass('fp2-edit').length, 0);
   assert.strictEqual(t.byClass('fp2-act-b').length, 0);
-  assert.strictEqual(t.byClass('ro').length, 2);
-  assert.strictEqual(t.byClass('y').length, 1);
+  assert.strictEqual(t.byClass('fp2-si').length, 2);
+  assert.strictEqual(t.byClass('fp2-si').filter(n => n.attrs.class.includes('done')).length, 1);
   assert.strictEqual(t.byClass('fp2-tick').length, 0);
   assert.strictEqual(t.dom.text(t.footButton()), '↶ Restore this plan');
   assert.ok(t.paths().includes('plan/web/_archive/2026-10-12-old-web'));
