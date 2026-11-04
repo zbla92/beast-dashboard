@@ -1019,7 +1019,7 @@ body.term-open { overflow: hidden; }
 /* session list (phone overlay) */
 .termside { flex-direction: column; min-height: 0; background: var(--bg2); }
 .termside-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px 10px; border-bottom: 1px solid var(--line); }
-.termside-head .back { color: var(--accent); font-weight: 600; gap: 2px; padding-left: 6px; }
+.termside-title { font-size: var(--fs-lg); font-weight: 600; }
 .termside-head .sp { flex: 1; }
 #term-list { flex: 1; overflow: auto; padding: 6px 10px 12px; }
 .tsec { display: flex; gap: 7px; padding: 14px 6px 6px; font-size: var(--fs-sm); font-weight: 600; color: var(--muted); }
@@ -1311,7 +1311,8 @@ body.recording .ckeys > :not(.mic) { pointer-events: none; opacity: .4; }
   .tb.on { color: var(--text); } .tb.on svg { color: var(--accent); }
   .tbn { position: absolute; top: 5px; left: calc(50% + 6px); min-width: 17px; height: 17px; padding: 0 5px; border-radius: 999px; background: var(--panel3); color: var(--muted); font-style: normal; font-size: var(--fs-2xs); font-weight: 600; line-height: 17px; text-align: center; }
   .tbn.need { background: var(--signal); color: var(--on-signal); }
-  body.term-open .tabbar { display: none; }
+  body.term-open:not(.sess-list):not(.ibx-open) .tabbar { display: none; }
+  body.sess-list .tabbar { z-index: 46; }
   .toasts { left: 12px; right: 12px; bottom: calc(var(--tab-h) + env(safe-area-inset-bottom) + 12px); align-items: stretch; }
   .toast { max-width: none; }
   body.term-open .toasts { bottom: calc(76px + env(safe-area-inset-bottom)); }
@@ -1420,7 +1421,7 @@ body.recording .ckeys > :not(.mic) { pointer-events: none; opacity: .4; }
 
   /* sessions panel: full screen, list as an overlay, chat in a narrow column */
   .termpanel { left: 0; grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
-  .termpanel.showlist .termside { display: flex !important; position: fixed; inset: 0; z-index: 3; }
+  .termpanel.showlist .termside { display: flex !important; position: fixed; inset: 0 0 calc(var(--tab-h) + env(safe-area-inset-bottom)) 0; z-index: 3; }
   .termpanel.showlist .termmain { visibility: hidden; }
   .termmain { grid-row: 1 / span 2; }
   .termbar { min-height: 52px; padding: 6px 8px; gap: 6px; flex-wrap: nowrap; overflow: hidden; }

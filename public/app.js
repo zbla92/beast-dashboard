@@ -470,6 +470,7 @@ function syncKeyboard() {
   Object.assign(KB, nextKb(KB, seen, VV.width * VV.scale, !!active?.matches?.('input, textarea, [contenteditable], iframe')));
   const typing = !!active?.closest?.('#term-chat:not(.hidden) :is(.cbox2, .qchips, .askother)');
   document.body.classList.toggle('kb-open', keyboardUp(KB.base, seen, TERM.open && typing));
+  document.body.classList.toggle('ibx-kb', keyboardUp(KB.base, seen, !!active?.matches?.('.box.ibx :is(textarea, input)')));
 }
 function fitTermPanel() {
   fitLayer($('#termpanel'), TERM.open); fitLayer($('#drawer'), !!UI.drawer);
@@ -610,11 +611,12 @@ function renderTermPanel(force) {
   const el = $('#termpanel'); const live = S.runtime.sessions.length; $('#term-count').textContent = live;
   if (TERM.open && !document.body.classList.contains('term-open')) TERM.pageY = window.scrollY;   // body goes position:fixed -> remember where the page was
   el.classList.toggle('hidden', !TERM.open); document.body.classList.toggle('term-open', TERM.open);
+  document.body.classList.toggle('sess-list', TERM.open && TERM.showList); markTab();
   if (!TERM.open) { fitTermPanel(); releaseHiddenFrame(); return; }
   trackVV(300);
   el.classList.toggle('showlist', TERM.showList); el.classList.toggle('focus', TERM.focus); document.body.classList.toggle('focus', !!TERM.focus);
   if (!$('#term-list')) {
-    el.append(h('aside', { class: 'termside' }, h('div', { class: 'termside-head' }, h('button', { class: 'btn sm ghost back', title: 'back to dashboard — all sessions keep running (Esc)', onclick: closeTermPanel }, ico('back'), 'Dashboard'), h('span', { class: 'sp' }), h('button', { class: 'btn sm', title: 'new session — new chat (the project is guessed) or resume a past conversation', onclick: () => newSessionModal() }, ico('plus', 13), 'Session'), h('button', { class: 'btn sm ghost icon desk', title: 'focus mode — hide the session list (for screen sharing)', onclick: () => setFocus(true) }, ico('sidebar', 15))), h('div', { id: 'term-list' })),
+    el.append(h('aside', { class: 'termside' }, h('div', { class: 'termside-head' }, h('span', { class: 'termside-title' }, 'Sessions'), h('span', { class: 'sp' }), h('button', { class: 'btn sm', title: 'new session — new chat (the project is guessed) or resume a past conversation', onclick: () => newSessionModal() }, ico('plus', 13), 'Session')), h('div', { id: 'term-list' })),
       h('section', { class: 'termmain' }, h('div', { class: 'termbar', id: 'term-bar' }), h('div', { class: 'termframes', id: 'term-frames' }, h('div', { class: 'chatpane hidden', id: 'term-chat' }))));
   }
   const S3 = termSessions(); const known = new Set(S.runtime.sessions.map(s => s.name));
@@ -2758,7 +2760,7 @@ function render() {
   if (UI.menuOpen) return; // don't yank menus from under the cursor
   $('#view-home').classList.toggle('hidden', UI.view !== 'home'); $('#view-projects').classList.toggle('hidden', UI.view !== 'projects'); $('#view-tasks').classList.toggle('hidden', UI.view !== 'tasks'); $('#view-code').classList.toggle('hidden', UI.view !== 'code');
   for (const b of document.querySelectorAll('#nav .navb')) b.classList.toggle('on', b.dataset.view === UI.view);
-  for (const b of document.querySelectorAll('#tabbar .tb')) b.classList.toggle('on', b.dataset.view === UI.view);
+  markTab();
   document.body.classList.toggle('view-projects', UI.view === 'projects'); document.body.dataset.view = UI.view;
   const vt = $('#vtitle'); if (vt) vt.textContent = ({ home: 'Home', projects: 'Projects', tasks: 'Tasks', code: 'Code' })[UI.view] || '';
   renderHeader(); renderBanner(); renderTunnels(); renderRail();
@@ -2878,9 +2880,14 @@ for (const b of document.querySelectorAll('#nav .navb')) b.onclick = () => { if 
 if ($('#btn-inbox')) $('#btn-inbox').onclick = () => FEAT.inbox?.open?.();
 if ($('#btn-newterm')) $('#btn-newterm').onclick = () => newSessionModal();
 if ($('#btn-downloads-m')) $('#btn-downloads-m').onclick = () => downloadsModal();
+function markTab() {
+  const layer = document.body.classList.contains('ibx-open') ? 'inbox' : TERM.open && TERM.showList ? 'sessions' : null;
+  for (const b of document.querySelectorAll('#tabbar .tb')) b.classList.toggle('on', layer ? b.dataset.act === layer : b.dataset.view === UI.view);
+}
 for (const b of document.querySelectorAll('#tabbar .tb')) b.onclick = () => {
-  if (b.dataset.view) { if (UI.view === b.dataset.view) window.scrollTo({ top: 0, behavior: 'smooth' }); goView(b.dataset.view); return; }
-  if (b.dataset.act === 'inbox') FEAT.inbox?.open?.();
+  if (b.dataset.act === 'inbox') { FEAT.inbox?.open?.(); return; }
+  FEAT.inbox?.close?.();
+  if (b.dataset.view) { if (TERM.open) closeTermPanel(false); else if (UI.view === b.dataset.view) window.scrollTo({ top: 0, behavior: 'smooth' }); goView(b.dataset.view); return; }
   if (b.dataset.act === 'sessions') { TERM.open = true; TERM.showList = true; renderTermPanel(true); navTo(); }
 };
 $('#btn-shell').onclick = () => { if (TERM.open) return closeTermPanel(); TERM.open = true; if (!TERM.active) { const c = S.runtime.sessions.find(x => x.name.startsWith('claude-')) || S.runtime.sessions[0]; if (c) { ensureFrame(c.name); TERM.active = c.name; } } renderTermPanel(); navTo(); };

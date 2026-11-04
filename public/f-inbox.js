@@ -21,7 +21,9 @@
 
   // does the inbox still own #modal? (another dialog may have replaced its content, or the modal got hidden)
   const owns = () => { const m = $('#modal'); return !!(IBX.modal && m && m.firstChild === IBX.modal && !m.classList.contains('hidden')); };
+  const markOpen = on => { document.body.classList.toggle('ibx-open', on); markTab(); };
   function release() {
+    markOpen(false);
     IBX.open = false; IBX.rows.clear(); IBX.modal = null; IBX.list = null;
     if (IBX.esc) { document.removeEventListener('keydown', IBX.esc, true); IBX.esc = null; }
     if (IBX.mo) { IBX.mo.disconnect(); IBX.mo = null; }
@@ -126,12 +128,12 @@
 
   function openInbox() {
     if (alive()) { render(); return; }
-    const m = $('#modal'); m.classList.remove('hidden'); IBX.open = true;
+    const m = $('#modal'); m.classList.remove('hidden'); IBX.open = true; markOpen(true);
     IBX.esc = e => { if (!alive()) return; if (e.key === 'Escape' && !document.body.classList.contains('recording')) { e.preventDefault(); e.stopPropagation(); close(); } };
     document.addEventListener('keydown', IBX.esc, true);
     IBX.list = h('div', { class: 'ibx-list' });
     IBX.count = h('span', { class: 'dim', style: 'font-size:13px' });
-    const box = h('div', { class: 'box ibx' },
+    const box = h('div', { class: 'box ibx', onmousedown: e => { if (e.target.closest('button')) e.preventDefault(); } },
       h('div', { class: 'sh' }, h('h3', null, 'Inbox'), IBX.count, h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', onclick: close }, ico('x', 15))),
       h('div', { class: 'ibx-body' }, IBX.list, h('div', { class: 'ibx-empty hidden' }, 'Nothing is waiting for you.')));
     IBX.modal = box; m.replaceChildren(box); m.onclick = e => { if (e.target === m && owns()) close(); };
@@ -141,6 +143,7 @@
 
   FEAT.inbox = {
     open: openInbox,
+    close,
     count: () => waiting().length,   // app.js: tab title, Inbox badge, phone tab bar
     // Home hero (app.js puts data-slot="hero" tiles above the agents): who waits for you, one line each; a row opens
     // that session, the button opens the Inbox with a reply box per session. Same node every time — only its rows change.

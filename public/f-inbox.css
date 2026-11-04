@@ -55,6 +55,12 @@
 .ibx-row.st-permission:not(.ibx-tell) .ibx-reply, .ibx-row.st-permission:not(.ibx-tell) .ibx-acts .mic, .ibx-row.st-permission:not(.ibx-tell) .ibx-send { display: none; }
 
 @media (max-width: 900px) {
+  body.ibx-open .tabbar { display: grid; z-index: 81; background: var(--bg2); }
+  body.ibx-open #modal { bottom: calc(var(--tab-h) + env(safe-area-inset-bottom)); }
+  body.ibx-open.ibx-kb .tabbar { display: none; }
+  body.ibx-open.ibx-kb #modal { bottom: 0; }
+  .modal .box.ibx { max-height: 100%; }
+  .box.ibx .sh .btn.icon { display: none; }
   .ibx-banner { grid-template-columns: 1fr; grid-template-areas: "t" "rows" "go"; row-gap: 4px; padding: var(--sp-3); }
   .btn.ibx-go { justify-content: center; height: 44px; margin-top: 6px; }
   .ibx-hrow { grid-template-columns: 24px minmax(0, 1fr) auto; row-gap: 2px; padding: 10px 2px; }
@@ -62,8 +68,8 @@
   .ibx-hm { grid-column: 2 / -1; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 }
 @media (max-width: 600px) {
-  .modal .box.ibx { width: 100vw; max-height: 100dvh; height: 100dvh; border-radius: 0; }
-  .ibx-body { padding: 10px 10px calc(10px + env(safe-area-inset-bottom)); }
+  .modal .box.ibx { width: 100vw; height: 100%; border: 0; border-radius: 0; }
+  .ibx-body { padding: 10px; }
   .ibx-acts .sp:first-of-type { flex-basis: 0; }
   .ibx-btn { flex: 1; justify-content: center; }
   .ibx-ta { font-size: var(--fs-lg); min-height: 44px; }   /* no iOS zoom on focus */

@@ -5,5 +5,6 @@
 .qpin .ico { flex: none; margin-top: 2px; color: var(--dim); }
 .qpin-t { flex: 1; min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
 @media (max-width: 900px) {
+  body.kb-open .qpin { display: none; }
   .qpin { padding: 6px 12px; font-size: var(--fs-md); }
 }
