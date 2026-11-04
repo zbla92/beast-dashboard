@@ -1,8 +1,8 @@
 'use strict';
 FEAT.quotes = (() => {
-  const CAP = 4000, KEY = 'bd.quotes.', GAP = 8, DOCK_ROOM = 80, SETTLE_MS = 120, CLICK_WAIT_MS = 300, LONG_QUOTE = 60;
+  const CAP = 4000, KEY = 'bd.quotes.', MARK = 'bd-quote', GAP = 8, DOCK_ROOM = 80, SETTLE_MS = 120, CLICK_WAIT_MS = 300, LONG_QUOTE = 60;
   const store = new Map();
-  const ui = { cur: null, pressing: false, dragging: false, timer: 0, frame: 0, pill: null };
+  const ui = { cur: null, pressing: false, dragging: false, timer: 0, frame: 0, marks: 0, pill: null, down: false, afterUp: null };
 
   const clean = s => String(s ?? '').replace(/\r\n?/g, '\n').replace(/ /g, ' ').replace(/\n{3,}/g, '\n\n').replace(/^(?:[ \t]*\n)+/, '').trimEnd();
   const capQuote = s => {
@@ -16,7 +16,7 @@ FEAT.quotes = (() => {
   const parse = raw => {
     try {
       const v = JSON.parse(raw);
-      return Array.isArray(v) ? v.filter(c => c && typeof c.id === 'string' && typeof c.quote === 'string' && c.quote).map(c => ({ id: c.id, quote: c.quote, ask: typeof c.ask === 'string' ? c.ask : '' })) : [];
+      return Array.isArray(v) ? v.filter(c => c && typeof c.id === 'string' && typeof c.quote === 'string' && c.quote).map(c => ({ id: c.id, quote: c.quote, ask: typeof c.ask === 'string' ? c.ask : '', ...(Number.isFinite(c.at) ? { at: c.at } : {}) })) : [];
     } catch { return []; }
   };
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(v, hi));
@@ -40,6 +40,17 @@ FEAT.quotes = (() => {
     return { left: left + (right - left - w) / 2, top: roomBelow >= DOCK_ROOM || roomBelow >= roomAbove ? low : high };
   };
 
+  const quotesLabel = n => n === 1 ? '1 quote' : n + ' quotes';
+  const squeeze = s => String(s ?? '').replace(/\s+/g, '');
+  const needleOf = quote => squeeze(String(quote ?? '').replace(/…$/, ''));
+  const nearestMatch = (text, needle, at) => {
+    if (!needle) return -1;
+    const pieces = text.split(needle);
+    if (pieces.length < 2) return -1;
+    const hits = pieces.slice(0, -1).reduce((acc, piece) => { acc.push((acc.length ? acc[acc.length - 1] + needle.length : 0) + piece.length); return acc; }, []);
+    return at == null ? hits[hits.length - 1] : hits.reduce((best, hit) => Math.abs(hit - at) < Math.abs(best - at) ? hit : best);
+  };
+
   const load = name => {
     if (!store.has(name)) { const raw = (() => { try { return localStorage.getItem(KEY + name); } catch { return null; } })(); store.set(name, parse(raw)); }
     return store.get(name);
@@ -51,13 +62,13 @@ FEAT.quotes = (() => {
   const has = name => load(name).length > 0;
   const isCommand = typed => typed.startsWith('/');
   const message = (name, typed) => compose(isCommand(typed) ? [] : load(name), typed);
-  const add = (name, text) => {
-    const chip = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), quote: capQuote(text), ask: '' };
+  const add = (name, text, at) => {
+    const chip = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), quote: capQuote(text), ask: '', ...(Number.isFinite(at) ? { at } : {}) };
     save(name, [...load(name), chip]);
     paint(name);
     return chip;
   };
-  const setAsk = (name, id, ask) => { save(name, load(name).map(c => c.id === id ? { ...c, ask } : c)); paint(name); };
+  const setAsk = (name, id, ask) => { save(name, load(name).map(c => c.id === id ? { ...c, ask } : c)); boxesOf(name).forEach(mount); };
   const remove = (name, id) => { save(name, load(name).filter(c => c.id !== id)); paint(name); };
   const take = (name, typed = '') => { if (isCommand(typed)) return []; const chips = load(name); save(name, []); paint(name); return chips; };
   const restore = (name, chips) => {
@@ -68,7 +79,48 @@ FEAT.quotes = (() => {
 
   const composerOf = box => { const el = box.querySelector(':scope > .cbox2'); return el && el._c; };
   const boxesOf = name => [...document.querySelectorAll('[data-chat]')].filter(b => b.dataset.chat === name);
-  const paint = name => boxesOf(name).forEach(mount);
+  const paint = name => { boxesOf(name).forEach(mount); marksSoon(); };
+
+  const indexConv = conv => {
+    const walker = document.createTreeWalker(conv, NodeFilter.SHOW_TEXT), parts = [], end = { at: 0 };
+    while (walker.nextNode()) {
+      const text = squeeze(walker.currentNode.nodeValue);
+      if (text) { parts.push({ node: walker.currentNode, start: end.at, size: text.length, text }); end.at += text.length; }
+    }
+    return { parts, text: parts.map(p => p.text).join('') };
+  };
+  const pointAt = (parts, i) => {
+    const part = parts.find(p => i < p.start + p.size);
+    const solid = /\S/g;
+    return { node: part.node, offset: Array.from({ length: i - part.start + 1 }, () => solid.exec(part.node.nodeValue)).pop().index };
+  };
+  const rangeOf = (index, chip) => {
+    const needle = needleOf(chip.quote), start = nearestMatch(index.text, needle, chip.at);
+    if (start < 0) return null;
+    const from = pointAt(index.parts, start), to = pointAt(index.parts, start + needle.length - 1), range = document.createRange();
+    range.setStart(from.node, from.offset); range.setEnd(to.node, to.offset + 1);
+    return range;
+  };
+  const paintMarks = () => {
+    const ranges = [...document.querySelectorAll('[data-chat]')].flatMap(box => {
+      const chips = load(box.dataset.chat), conv = chips.length && box.querySelector(':scope > .cscroll > .conv');
+      if (!conv) return [];
+      const index = indexConv(conv);
+      return chips.map(chip => rangeOf(index, chip)).filter(Boolean);
+    });
+    if (ranges.length) CSS.highlights.set(MARK, new Highlight(...ranges)); else CSS.highlights.delete(MARK);
+  };
+  function marksSoon() {
+    if (!window.Highlight || !window.CSS || !CSS.highlights || ui.marks) return;
+    ui.marks = requestAnimationFrame(() => { ui.marks = 0; paintMarks(); });
+  }
+  const startOffset = (conv, range) => {
+    if (!conv) return undefined;
+    const before = document.createRange();
+    before.selectNodeContents(conv);
+    before.setEnd(range.startContainer, range.startOffset);
+    return squeeze(before.toString()).length;
+  };
 
   function chipEl(name, chip) {
     const box = () => input.closest('[data-chat]');
@@ -85,34 +137,76 @@ FEAT.quotes = (() => {
     });
     input.value = chip.ask;
     const el = h('div', { class: 'qchip' });
+    el._id = chip.id;
     const more = chip.quote.includes('\n') || chip.quote.length > LONG_QUOTE
-      ? h('button', { class: 'qchip-btn qchip-more', type: 'button', title: 'show the whole quote', 'aria-label': 'Show the whole quote', onclick: () => el.classList.toggle('open') }, ico('chevronDown', 13))
+      ? h('button', { class: 'qchip-btn qchip-more', type: 'button', title: 'show the whole quote', 'aria-label': 'Show the whole quote', onmousedown: ev => ev.preventDefault(), onclick: () => el.classList.toggle('open') }, ico('chevronDown', 13))
       : null;
     el.append(
       h('div', { class: 'qchip-top' }, h('div', { class: 'qchip-q' }, chip.quote), more,
-        h('button', { class: 'qchip-btn', type: 'button', title: 'remove this quote', 'aria-label': 'Remove this quote', onclick: () => remove(name, chip.id) }, ico('x', 13))),
+        h('button', { class: 'qchip-btn', type: 'button', title: 'remove this quote', 'aria-label': 'Remove this quote', onmousedown: ev => ev.preventDefault(), onclick: () => remove(name, chip.id) }, ico('x', 13))),
       input);
     el._input = input;
     return el;
+  }
+
+  const shownChip = (host, list) => list.find(c => c.id === host._active) || (list.length === 1 ? list[0] : null);
+  function paintHead(host, list) {
+    const { count, peek, toggle, drop } = host._head, open = host.classList.contains('open'), one = shownChip(host, list);
+    const text = (one || list[list.length - 1] || { quote: '' }).quote.replace(/\s+/g, ' ').trim();
+    if (count.textContent !== quotesLabel(list.length)) count.textContent = quotesLabel(list.length);
+    if (peek.textContent !== text) peek.textContent = text;
+    drop.classList.toggle('hidden', open || !one);
+    toggle.setAttribute('aria-expanded', String(open));
+    toggle.title = open ? 'hide the quotes' : 'show the quotes';
+    for (const [id, el] of host._els) el.classList.toggle('active', id === host._active);
+  }
+  const reshape = (name, host, change) => {
+    const sc = host.parentElement && host.parentElement.querySelector(':scope > .cscroll'), pinned = sc && sc.scrollHeight - sc.scrollTop - sc.clientHeight < 60;
+    change();
+    paintHead(host, load(name));
+    if (pinned) sc.scrollTop = sc.scrollHeight;
+  };
+  const showActive = host => {
+    const el = host.classList.contains('open') && host._els.get(host._active);
+    if (el) host._rows.scrollTop = el.offsetTop - host._rows.offsetTop;
+  };
+  const settleTray = host => setTimeout(() => {
+    if (ui.down) { ui.afterUp = () => settleTray(host); return; }
+    if (host.isConnected && (host._active || host.classList.contains('open')) && !host.contains(document.activeElement)) host._close();
+  }, 0);
+  function trayEl(name) {
+    const host = h('div', { class: 'qchips',
+      onfocusin: ev => { const chip = ev.target.closest('.qchip'); if (chip && chip._id !== host._active) reshape(name, host, () => { host._active = chip._id; }); },
+      onfocusout: () => settleTray(host),
+    });
+    host._close = () => reshape(name, host, () => { host._active = null; host.classList.remove('open'); });
+    const count = h('span', { class: 'qchips-n' }), peek = h('span', { class: 'qchips-peek' });
+    const toggle = h('button', { class: 'qchips-toggle', type: 'button', onmousedown: ev => ev.preventDefault(), onclick: () => reshape(name, host, () => { host.classList.toggle('open'); showActive(host); }) }, count, peek, ico('chevronDown', 13));
+    const drop = h('button', { class: 'qchip-btn qchips-drop', type: 'button', title: 'remove this quote', 'aria-label': 'Remove this quote', onmousedown: ev => ev.preventDefault(), onclick: () => { const chip = shownChip(host, load(name)); if (chip) remove(name, chip.id); } }, ico('x', 13));
+    host._rows = h('div', { class: 'qchip-rows' });
+    host._els = new Map();
+    host._head = { count, peek, toggle, drop };
+    host.append(h('div', { class: 'qchip-list' }, h('div', { class: 'qchips-head' }, toggle, drop), host._rows));
+    return host;
   }
 
   function mount(box) {
     const name = box.dataset.chat, c = composerOf(box);
     if (!c) return;
     const list = load(name), found = box.querySelector(':scope > .qchips'), sc = box.querySelector(':scope > .cscroll');
-    const pinned = sc && sc.scrollHeight - sc.scrollTop - sc.clientHeight < 60, shown = found ? found.firstElementChild.children.length : 0;
+    const pinned = sc && sc.scrollHeight - sc.scrollTop - sc.clientHeight < 60, shown = found ? found._rows.children.length : 0;
     const active = found && found.contains(document.activeElement) && document.activeElement.classList.contains('qchip-ask') ? document.activeElement : null;
     if (list.length) {
-      const rows = found ? found.firstElementChild : h('div', { class: 'qchip-list' });
-      const host = found || h('div', { class: 'qchips' }, rows);
-      const els = host._els || (host._els = new Map());
+      const host = found || trayEl(name), els = host._els;
       for (const id of els.keys()) if (!list.some(x => x.id === id)) els.delete(id);
       for (const chip of list) {
         if (!els.has(chip.id)) els.set(chip.id, chipEl(name, chip));
         const input = els.get(chip.id)._input;
         if (input !== document.activeElement && input.value !== chip.ask) input.value = chip.ask;
       }
-      syncChildren(rows, list.map(chip => els.get(chip.id)));
+      syncChildren(host._rows, list.map(chip => els.get(chip.id)));
+      if (active && active.isConnected && document.activeElement !== active) { active.focus({ preventScroll: true }); showActive(host); }
+      paintHead(host, list);
       const stack = box.querySelector(':scope > .qstack');
       if (!found) c.el.before(host);
       else if (stack && host.nextElementSibling === stack) host.before(stack);
@@ -156,10 +250,12 @@ FEAT.quotes = (() => {
     ui.cur = null;
     position();
     if (!got) return;
-    add(got.name, got.text);
+    const chip = add(got.name, got.text, startOffset(got.sc.querySelector(':scope > .conv'), got.range));
     getSelection().removeAllRanges();
-    const input = got.box.isConnected && [...got.box.querySelectorAll(':scope > .qchips .qchip-ask')].pop();
-    if (input) input.focus({ preventScroll: true });
+    const host = got.box.isConnected && got.box.querySelector(':scope > .qchips');
+    if (!host) return;
+    reshape(got.name, host, () => { host._active = chip.id; host.classList.remove('open'); });
+    host._els.get(chip.id)?._input.focus({ preventScroll: true });
   }
 
   document.addEventListener('selectionchange', () => {
@@ -167,19 +263,30 @@ FEAT.quotes = (() => {
     clearTimeout(ui.timer);
     ui.timer = setTimeout(refresh, getSelection().isCollapsed ? 0 : SETTLE_MS);
   });
+  const pointerDone = () => { ui.down = false; const next = ui.afterUp; ui.afterUp = null; if (next) next(); };
+  document.addEventListener('focusin', ev => {
+    const box = ev.target.closest && ev.target.closest('.cbox2') && ev.target.closest('[data-chat]'), host = box && box.querySelector(':scope > .qchips');
+    if (host) settleTray(host);
+  });
   document.addEventListener('pointerdown', ev => {
+    ui.down = true;
     if (ev.target.closest && ev.target.closest('.qpill')) { clearTimeout(ui.timer); ui.pressing = true; return; }
     ui.pressing = false;
     if (ev.pointerType === 'mouse') { ui.dragging = true; ui.cur = null; position(); }
   }, true);
   document.addEventListener('pointerup', ev => {
+    pointerDone();
     ui.dragging = false;
     if (!ui.pressing) { clearTimeout(ui.timer); ui.timer = setTimeout(refresh, 0); return; }
     const r = ui.pill.getBoundingClientRect(), inside = ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom;
     clearTimeout(ui.timer);
     ui.timer = setTimeout(() => { if (inside) commit(); else { ui.pressing = false; refresh(); } }, CLICK_WAIT_MS);
   }, true);
-  document.addEventListener('pointercancel', () => { ui.dragging = false; ui.pressing = false; clearTimeout(ui.timer); ui.timer = setTimeout(refresh, 0); }, true);
+  document.addEventListener('pointercancel', () => { pointerDone(); ui.dragging = false; ui.pressing = false; clearTimeout(ui.timer); ui.timer = setTimeout(refresh, 0); }, true);
+  document.addEventListener('click', ev => {
+    const quote = ev.target.closest && ev.target.closest('.turn.user .mquote');
+    if (quote && !ev.target.closest('a') && getSelection().isCollapsed) quote.classList.toggle('open');
+  });
   document.addEventListener('scroll', schedule, { capture: true, passive: true });
   window.addEventListener('resize', schedule);
   if (window.visualViewport) { visualViewport.addEventListener('resize', schedule); visualViewport.addEventListener('scroll', schedule); }
@@ -190,5 +297,5 @@ FEAT.quotes = (() => {
     paint(name);
   });
 
-  return { capQuote, blockquote, compose, parse, pillPos, dockPos, chipEl, load, has, message, add, setAsk, remove, take, restore, composerShown(box) { mount(box); schedule(); } };
+  return { capQuote, blockquote, compose, parse, pillPos, dockPos, quotesLabel, needleOf, nearestMatch, pointAt, chipEl, load, has, message, add, setAsk, remove, take, restore, composerShown(box) { mount(box); schedule(); marksSoon(); } };
 })();

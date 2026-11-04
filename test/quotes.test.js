@@ -186,6 +186,34 @@ test('pill position: null when every selected line has scrolled out of the chat'
 
 const textOf = el => typeof el === 'string' ? el : (el.kids || []).map(textOf).join('');
 
+test('tray label and the search for a quote in the chat', () => {
+  const { Q } = boot();
+  assert.strictEqual(Q.quotesLabel(1), '1 quote');
+  assert.strictEqual(Q.quotesLabel(3), '3 quotes');
+  assert.strictEqual(Q.needleOf('a line\n\nthe next  one…'), 'alinethenextone');
+  assert.strictEqual(Q.nearestMatch('abcxabcxabc', 'abc', 5), 4);
+  assert.strictEqual(Q.nearestMatch('abcxabcxabc', 'abc', 100), 8);
+  assert.strictEqual(Q.nearestMatch('abcxabcxabc', 'abc', undefined), 8);
+  assert.strictEqual(Q.nearestMatch('abcxabc', 'zzz', 0), -1);
+  assert.strictEqual(Q.nearestMatch('abc', '', 0), -1);
+});
+
+test('a position in the text without spaces maps back to the place in the page text', () => {
+  const { Q } = boot();
+  const first = { nodeValue: '  ab c\n' }, second = { nodeValue: 'd  e' };
+  const parts = [{ node: first, start: 0, size: 3 }, { node: second, start: 3, size: 2 }];
+  assert.deepStrictEqual(plain(Q.pointAt(parts, 2)).offset, 5);
+  assert.strictEqual(Q.pointAt(parts, 3).node, second);
+  assert.strictEqual(Q.pointAt(parts, 4).offset, 3);
+});
+
+test('persistence: where the quote started is stored and a bad value is dropped', () => {
+  const { Q } = boot();
+  assert.strictEqual(plain(Q.add('s', 'text', 42)).at, 42);
+  assert.strictEqual('at' in plain(Q.add('s', 'text')), false);
+  assert.deepStrictEqual(plain(Q.parse(JSON.stringify([{ id: 'a', quote: 'q', at: 7 }, { id: 'b', quote: 'q', at: 'x' }]))), [{ id: 'a', quote: 'q', ask: '', at: 7 }, { id: 'b', quote: 'q', ask: '' }]);
+});
+
 test('chips: a <script> quote stays literal text and never reaches html', () => {
   const { Q } = boot();
   const evil = '<script>window.PWNED=1</script><img src=x onerror=alert(1)>';
