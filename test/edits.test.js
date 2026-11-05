@@ -94,3 +94,20 @@ test('byPath lists sessions that edited a file, newest first, with label and liv
   assert.deepStrictEqual(edits.byPath('/r/own.js').map(h => h.sessionId), ['n']);
   assert.deepStrictEqual(edits.byPath('/r/none.js'), []);
 });
+
+test('cwdsOf counts the folders of a transcript and its subagents, also past the inline limit and across appends', async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bd-cwds-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  edits.init({});
+  const main = path.join(root, 's.jsonl');
+  const line = cwd => JSON.stringify({ type: 'user', cwd, message: { content: 'x'.repeat(2000) } }) + '\n';
+  fs.writeFileSync(main, line('/r/a').repeat(200) + line('/r/b').repeat(2));
+  const sub = path.join(root, 's', 'subagents');
+  fs.mkdirSync(sub, { recursive: true });
+  fs.writeFileSync(path.join(sub, 'agent-1.jsonl'), line('/r/b'));
+  const count = async () => Object.fromEntries((await edits.cwdsOf(main)).map(c => [c.dir, c.count]));
+  assert.deepStrictEqual(await count(), { '/r/a': 200, '/r/b': 3 });
+  fs.appendFileSync(main, line('/r/c'));
+  assert.deepStrictEqual(await count(), { '/r/a': 200, '/r/b': 3, '/r/c': 1 });
+  assert.deepStrictEqual(await edits.cwdsOf('not-a-transcript'), []);
+});

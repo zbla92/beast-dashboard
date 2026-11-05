@@ -862,7 +862,9 @@ main { padding: 8px 28px 60px; }
 .frow .fchg { font-family: var(--mono); font-size: var(--fs-2xs); color: var(--amber); background: color-mix(in srgb, var(--amber) 12%, transparent); border-radius: var(--r-sm); padding: 0 5px; }
 .fprev { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
 .fbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--bg2); flex-wrap: wrap; }
-.fbar .fpath { font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40%; }
+.fbar .fpath { display: flex; font-size: var(--fs-sm); overflow: hidden; white-space: nowrap; max-width: 40%; }
+.fpath .fdir { flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--dim); }
+.fpath .fbase { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .fbar .btn.sm.primary { pointer-events: none; }
 .fbar .fi { min-width: 24px; height: 18px; font-size: var(--fs-2xs); }
 .fdiff { flex: 1; overflow: auto; margin: 0; border-radius: 0; }

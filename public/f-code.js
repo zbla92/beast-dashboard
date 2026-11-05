@@ -7,7 +7,7 @@ FEAT.code = (() => {
   const POP = { close: null, anchor: null };
   const WS = { on: localStorage.getItem('bd.code.ws') === '1', w: +localStorage.getItem('bd.code.wsw') || 460, host: null };
   const readPrefs = () => { try { return JSON.parse(localStorage.getItem('bd.code.prefs')) || {}; } catch { return {}; } };
-  const PREF = { split: false, wrap: false, ws: false, scope: 'all', tab: 'changes', w: 340, ...readPrefs() };
+  const PREF = { split: false, wrap: false, ws: false, scope: 'all', tab: 'changes', panelTab: 'changes', w: 340, ...readPrefs() };
   const savePrefs = () => localStorage.setItem('bd.code.prefs', JSON.stringify(PREF));
 
   const LARGE_LINES = 3000;
@@ -82,7 +82,9 @@ FEAT.code = (() => {
   function sessionRoots(ws) {
     if (!ws) return [];
     const edits = id => ws.edited?.[id]?.length || 0;
-    return wsRoots(ws).map((id, i) => ({ id, i })).sort((a, b) => edits(b.id) - edits(a.id) || work(wipRoot(b.id)) - work(wipRoot(a.id)) || a.i - b.i).map(x => x.id);
+    const worked = id => { const i = (ws.worked || []).indexOf(id); return i < 0 ? Infinity : i; };
+    const rank = (a, b) => { const x = worked(a), y = worked(b); return x === y ? 0 : x - y; };
+    return wsRoots(ws).map((id, i) => ({ id, i })).sort((a, b) => edits(b.id) - edits(a.id) || rank(a.id, b.id) || work(wipRoot(b.id)) - work(wipRoot(a.id)) || a.i - b.i).map(x => x.id);
   }
 
   function sigOf(id) {
@@ -473,7 +475,7 @@ FEAT.code = (() => {
 
   function make(kind) {
     const panel = kind === 'panel';
-    const C = { root: null, tab: panel ? 'changes' : PREF.tab, step: 'list', layers: 0, sess: null, ws: null, fromTerm: null, sel: null, one: null, want: null, commit: null, commitData: null, port: null, pin: null };
+    const C = { root: null, tab: panel ? PREF.panelTab : PREF.tab, step: 'list', layers: 0, sess: null, ws: null, fromTerm: null, sel: null, one: null, want: null, commit: null, commitData: null, port: null, pin: null };
     const TREE = { open: new Set(JSON.parse(localStorage.getItem('bd.code.fopen') || '[]')), sel: null, mode: 'auto', editing: false, wide: false };
     const HIST = { root: null, sig: null, commits: [], more: false, loading: false, tok: 0, err: null };
     const D = {};
@@ -1296,7 +1298,7 @@ FEAT.code = (() => {
       D.branchBtn = h('button', { class: 'cv-branch', 'aria-haspopup': 'listbox', 'aria-expanded': 'false', title: 'Switch or create a branch', onclick: openBranches }, ic('branch', 15), D.branchName, D.branchAhead, D.branchBehind, h('span', { class: 'cv-chev' }, ic('chevronDown', 14)));
       D.seg = h('div', { class: 'cv-seg', role: 'tablist', 'aria-label': 'Code sections' }, TABS.map(([key, label, icon]) => h('button', {
         class: 'cv-segb', role: 'tab', title: label, 'aria-label': label, 'data-tab': key,
-        onclick: () => { if (stacked() && C.step === 'view') { closeView(); dropViewLayer(); } setTab(key); paint(); },
+        onclick: () => { if (stacked() && C.step === 'view') { closeView(); dropViewLayer(); } if (panel) { PREF.panelTab = key; savePrefs(); } setTab(key); paint(); },
       }, ic(icon, 17))));
       const panelBtns = panel ? [
         h('button', { class: 'cv-ib', title: 'Expand to the full Code view', 'aria-label': 'Expand to the full Code view', onclick: () => V.open({ root: C.root, session: TERM.active }) }, ic('full', 15)),
@@ -1367,7 +1369,7 @@ FEAT.code = (() => {
       if (C.sess !== TERM.active) { C.sess = TERM.active; C.root = null; C.pin = null; closeView(); }
       C.ws = wsOf(C.sess);
       const ids = sessionRoots(C.ws);
-      if (C.ws && !ids.includes(C.root) && C.root !== C.pin) {
+      if (C.ws && !ids.includes(C.root) && (!C.root || C.root !== C.pin)) {
         C.root = null;
         if (ids[0]) select(ids[0]);
       }

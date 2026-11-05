@@ -2643,12 +2643,12 @@ function tabFiles(el, p, o = {}) {
       prev.innerHTML = '';
       const showDiff = wantDiff && diff && !diff.error && diff.text;
       const bar = h('div', { class: 'fbar' },
-        fileIcon(e.name), h('span', { class: 'fpath mono', title: e.path }, e.path),
+        fileIcon(e.name), h('span', { class: 'fpath mono', title: e.path }, e.path.includes('/') ? h('span', { class: 'fdir' }, e.path.slice(0, e.path.lastIndexOf('/') + 1)) : null, h('span', { class: 'fbase' }, e.name)),
         status ? h('span', { class: 'chst s' + (status === '?' ? 'Q' : status), title: STATUS_TITLE[status] || status }, status) : null,
         h('span', { class: 'dim mono', style: 'font-size:11px' }, fmtB(content.size || e.size)),
         h('span', { class: 'sp' }),
-        status ? h('button', { class: 'btn sm' + (showDiff ? ' primary' : ''), onclick: () => { st.mode = 'diff'; showFile(e); } }, gl('± diff')) : null,
-        o.select ? null : h('button', { class: 'btn sm' + (!showDiff && !st.editing ? ' primary' : ''), onclick: () => { st.mode = 'content'; st.editing = false; showFile(e); } }, gl('▤ content')),
+        status ? h('button', { class: 'btn sm' + (showDiff ? ' primary' : ''), title: 'show what changed', onclick: () => { st.mode = 'diff'; showFile(e); } }, gl('± diff')) : null,
+        o.select ? null : h('button', { class: 'btn sm' + (!showDiff && !st.editing ? ' primary' : ''), title: 'show the whole file', onclick: () => { st.mode = 'content'; st.editing = false; showFile(e); } }, gl('▤ content')),
         !o.noEdit && !content.error && !content.binary && !content.truncated ? h('button', { class: 'btn sm' + (st.editing ? ' primary' : ''), title: 'edit in place (simple text editor)', onclick: () => { st.mode = 'content'; st.editing = true; render(); } }, gl('✎ edit')) : null,
         h('a', { class: 'btn sm', href: `/api/download/${p.id}?path=${encodeURIComponent(e.path)}&inline=1`, target: '_blank', rel: 'noopener', title: 'open in a new tab' }, gl(o.select ? '↗ Open' : '↗ open')),
         h('a', { class: 'btn sm' + (o.select ? ' primary' : ''), href: `/api/download/${p.id}?path=${encodeURIComponent(e.path)}`, download: e.name, title: 'download this file' }, gl(o.select ? '⇩ Download' : '⇩ download')),

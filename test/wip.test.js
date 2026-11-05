@@ -156,6 +156,18 @@ test('workspace of a session that edited two repos of a set returns the set, liv
   assert.deepStrictEqual(solo.sets, ['p--solo']);
 });
 
+test('workspace ranks the repos a chat worked in by how long it stayed there, without any file edits', async t => {
+  const { root, set, web, api } = setup(t, []);
+  const line = cwd => JSON.stringify({ type: 'user', cwd, message: { role: 'user', content: 'x' } }) + '\n';
+  const tr = path.join(root, 'bash-only.jsonl');
+  write(tr, line(set) + line(api) + line(web) + line(web) + line(web) + line('/tmp/not-a-repo'));
+  const ws = await wip.workspace({ session: 'bd-3', cwd: set, transcripts: [tr] });
+  assert.deepStrictEqual(ws.worked, ['h--tm--web', 'h--tm--api']);
+  assert.deepStrictEqual(ws.roots, ['h--tm--api', 'h--tm--web']);
+  assert.deepStrictEqual(ws.edited, {});
+  assert.deepStrictEqual(ws.sets, ['h--tm']);
+});
+
 test('workspace seq ranks edits across transcripts by write time, not by byte offset', async t => {
   const { root, set, web } = setup(t);
   const old = path.join(root, 'old.jsonl');
