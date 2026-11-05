@@ -761,6 +761,14 @@
 
   function remove(...ids) { for (const id of ids) { const el = document.getElementById(id); if (el) el.remove(); } }
 
+  const LEAVE_MS = 240;
+  function slideOut(el) {
+    if (!el) return;
+    if (el.classList.contains('sheet')) { el.remove(); return; }
+    el.classList.add('leaving');
+    setTimeout(() => { if (el.classList.contains('leaving')) el.remove(); }, LEAVE_MS);
+  }
+
   function teardown() {
     if (SH.close) SH.close();
     remove('fp2-panel', 'fp2-scrim');
@@ -827,9 +835,9 @@
     ST.sig = sig;
     main.classList.toggle('fp2-open', open && !phone);
     const old = document.getElementById('fp2-panel');
-    if (!open) { remove('fp2-panel', 'fp2-scrim'); return; }
+    if (!open) { remove('fp2-scrim'); slideOut(old); return; }
     PV.ctx = { own, list, names, shown, preview };
-    if (old && PV.phone === phone) PV.rerender();
+    if (old && PV.phone === phone) { old.classList.remove('leaving'); PV.rerender(); }
     else {
       remove('fp2-panel', 'fp2-scrim');
       const el = panel(phone);

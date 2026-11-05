@@ -21,8 +21,12 @@
 
 .termmain.fp2-open { position: relative; }
 .termmain.fp2-open .termframes { margin-right: min(380px, 38vw); }
+.termframes:has(> #term-chat:not(.hidden)) { transition: margin-right .24s cubic-bezier(.32,.72,0,1); }
 .fp2-panel { display: flex; flex-direction: column; min-height: 0; background: var(--bg2); border-left: 1px solid var(--line2); }
-.fp2-panel:not(.sheet) { position: absolute; right: 0; bottom: 0; top: var(--fp2-top, 98px); width: min(380px, 38vw); z-index: 3; }
+.fp2-panel:not(.sheet) { position: absolute; right: 0; bottom: 0; top: var(--fp2-top, 98px); width: min(380px, 38vw); z-index: 3; transition: transform .24s cubic-bezier(.32,.72,0,1), opacity .2s ease; }
+@starting-style { .fp2-panel:not(.sheet) { transform: translateX(100%); opacity: 0; } }
+.fp2-panel.leaving { transform: translateX(100%); opacity: 0; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { .termframes, .fp2-panel:not(.sheet) { transition: none; } }
 .fp2-sp { flex: 1; }
 .fp2-x { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 0; border-radius: var(--r); background: var(--fill); color: var(--muted); cursor: pointer; }
 .fp2-x:hover { background: var(--fill2); color: var(--text); }

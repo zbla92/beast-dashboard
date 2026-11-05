@@ -176,11 +176,15 @@ test('answerMsg refuses an empty or too long answer after collapsing', () => {
   assert.ok(plan2.answerMsg('t', W, 'a'.repeat(1000) + '\n\n\n' + 'b'.repeat(999)));
 });
 
+const classes = () => {
+  const on = new Set();
+  return { add: c => on.add(c), remove: c => on.delete(c), contains: c => on.has(c), toggle: (c, v) => (v ?? !on.has(c)) ? on.add(c) : on.delete(c) };
+};
 const fakeDom = () => {
   const listeners = [];
   const body = [];
   const node = (tag, attrs, kids) => {
-    const n = { tag, attrs: attrs || {}, kids: kids.flat(Infinity).filter(k => k != null && k !== false), classList: { toggle() {} } };
+    const n = { tag, attrs: attrs || {}, kids: kids.flat(Infinity).filter(k => k != null && k !== false), classList: classes() };
     n.remove = () => { const i = body.indexOf(n); if (i >= 0) body.splice(i, 1); };
     n.append = (...k) => n.kids.push(...k);
     n.listeners = {};
@@ -476,7 +480,7 @@ const lifeBoot = async ({ sums, archived = [], files = false, stored = null, pho
   });
   p.onState();
   await tick();
-  const panel = () => reg['fp2-panel'] || null;
+  const panel = () => { const el = reg['fp2-panel']; return el && !el.classList.contains('leaving') ? el : null; };
   const byClass = cls => find(panel(), n => n.attrs.class && n.attrs.class.split(' ').includes(cls));
   const button = label => find(panel(), n => n.tag === 'button' && dom.text(n).includes(label));
   const topic = () => dom.text(byClass('fp2-ptopic')[0]) || byClass('fp2-ptopic')[0].textContent;
@@ -594,6 +598,26 @@ test('Complete from a list row asks without switching the plan', async () => {
   assert.deepStrictEqual(t.calls.api.find(c => c[0] === 'plan-complete'), ['plan-complete', { id: 'api/other' }]);
   assert.strictEqual(t.topic(), 'own');
   assert.strictEqual(t.byClass('fp2-drop').length, 0);
+});
+
+test('closing the panel slides it out before removing it, and reopening in time keeps the same panel', async () => {
+  const t = await lifeBoot({ sums: [plan('web/own', 'web', { sessions: ['claude-a'] })] });
+  const el = t.reg['fp2-panel'];
+  assert.ok(el);
+  planBtn(t).attrs.onclick();
+  await tick();
+  assert.strictEqual(t.reg['fp2-panel'], el);
+  assert.ok(el.classList.contains('leaving'));
+  planBtn(t).attrs.onclick();
+  await tick();
+  assert.strictEqual(t.reg['fp2-panel'], el);
+  assert.ok(!el.classList.contains('leaving'));
+  await new Promise(r => setTimeout(r, 300));
+  assert.strictEqual(t.reg['fp2-panel'], el);
+  planBtn(t).attrs.onclick();
+  await tick();
+  await new Promise(r => setTimeout(r, 300));
+  assert.strictEqual(t.reg['fp2-panel'], undefined);
 });
 
 test('Complete on the only plan of the org closes the panel and leaves the no-plan row', async () => {

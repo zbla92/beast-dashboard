@@ -1,8 +1,12 @@
 body[data-view="code"] .maincol { padding-bottom: 0; }
 #code { padding: 0; }
 
-#term-ws { display: none; position: absolute; top: 0; right: 0; bottom: 0; width: var(--ws-w, 460px); border-left: 1px solid var(--edge-soft); background: var(--glass-solid); z-index: 2; }
-#term-frames.ws-on > #term-ws { display: flex; }
+#term-ws { display: none; position: absolute; top: 0; right: 0; bottom: 0; width: var(--ws-w, 460px); border-left: 1px solid var(--edge-soft); background: var(--glass-solid); z-index: 2; transform: translateX(100%); opacity: 0; transition: transform .24s cubic-bezier(.32,.72,0,1), opacity .2s ease, display .24s allow-discrete; }
+#term-frames.ws-on > #term-ws { display: flex; transform: none; opacity: 1; }
+@starting-style { #term-frames.ws-on > #term-ws { transform: translateX(100%); opacity: 0; } }
+#term-frames > #term-chat { transition: right .24s cubic-bezier(.32,.72,0,1); }
+#term-frames.ws-drag > #term-chat { transition: none; }
+@media (prefers-reduced-motion: reduce) { #term-ws, #term-frames > #term-chat { transition: none; } }
 #term-frames.ws-on > .termframe, #term-frames.ws-on > .chatpane { right: var(--ws-w, 460px); width: auto; }
 #term-frames.ws-drag > .termframe, #term-frames.ws-drag > .chatpane { pointer-events: none; user-select: none; }
 .cvp-grip { position: absolute; left: -4px; top: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 3; }
