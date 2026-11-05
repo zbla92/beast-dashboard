@@ -833,7 +833,9 @@
     try { return decodeURIComponent(escape(atob(b64))); } catch (e) { try { return atob(b64); } catch (e2) { return ''; } }
   }
   var oscHooked = false;
+  var waitTermTries = 0;
   var waitTerm = setInterval(function () {
+    if (++waitTermTries > 150) { clearInterval(waitTerm); return; }
     var t = window.term;
     if (!t || !t.parser || oscHooked) { if (oscHooked) clearInterval(waitTerm); return; }
     try {

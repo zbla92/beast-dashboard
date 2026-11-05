@@ -4,7 +4,6 @@
   const CK = new Map();
   const enc = encodeURIComponent;
   const hm = ts => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  const plural = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
   const busyOf = name => ['working', 'background', 'permission'].includes((claudeOf(name) || {}).state);
   const base = p => String(p).split('/').pop();
   const totals = e => e.repos.reduce((a, x) => ({ files: a.files + (x.files || 0), add: a.add + (x.add || 0), del: a.del + (x.del || 0) }), { files: 0, add: 0, del: 0 });
@@ -176,6 +175,5 @@
   FEAT.checkpoints = {
     conversation,
     sessMenu: (name, sess, cl) => cl ? { label: 'Changes by turn…', icon: ico('undo', 15), title: 'what each Claude turn changed, with diff and undo', onclick: () => openList(name) } : null,
-    openTurn, openList,
   };
 })();

@@ -37,10 +37,6 @@
   }
 
   const lineAt = el => (el && el.classList.contains('dl') && scan(el).get(el)) || null;
-  function locate(el) {
-    const at = lineAt(el); if (!at) return null;
-    return { file: at.file || '', line: at.line, side: at.side };
-  }
 
   function closeEditor() { if (RV.editor) { RV.editor.remove(); RV.editor = null; } }
 
@@ -158,5 +154,5 @@
 
   window.addEventListener('storage', e => { if (e.key === KEY) { RV.list = load(); renderPill(); } });
   setTimeout(renderPill, 0);
-  FEAT.review = { paletteItems, tray, locate, message };
+  FEAT.review = { paletteItems };
 })();

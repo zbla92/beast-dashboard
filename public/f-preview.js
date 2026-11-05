@@ -88,5 +88,4 @@ FEAT.preview = (() => {
     open(hit.dataset.path, +hit.dataset.line || 0);
   }, true);
 
-  return { open };
 })();

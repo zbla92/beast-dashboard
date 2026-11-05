@@ -1,6 +1,6 @@
 'use strict';
 (() => {
-  const ST = { acct: localStorage.getItem('bd.nt.acct') === 'company' ? 'company' : 'personal', tab: localStorage.getItem('bd.ns.tab') === 'resume' ? 'resume' : 'new' };
+  const ST = { acct: savedAcct(), tab: localStorage.getItem('bd.ns.tab') === 'resume' ? 'resume' : 'new' };
   const HUES = [210, 25, 150, 275, 45, 190, 330, 95, 240, 10, 170, 300];
   const hash = s => { let x = 0; for (const c of String(s)) x = (x * 31 + c.charCodeAt(0)) >>> 0; return x; };
   const mono = s => { const w = String(s).split(/[^A-Za-z0-9]+/).filter(Boolean); return (w.length > 1 ? w[0][0] + w[1][0] : (w[0] || '?').slice(0, 2)).replace(/^./, c => c.toUpperCase()); };
@@ -39,15 +39,14 @@
   function open(tab, text, opts = {}) {
     const m = $('#modal'); m.classList.remove('hidden');
     if (tab === 'new' || tab === 'resume') ST.tab = tab;
-    ST.acct = localStorage.getItem('bd.nt.acct') === 'company' ? 'company' : 'personal';
+    ST.acct = savedAcct();
     const proj = opts.project ? S.projects.find(p => p.id === opts.project) || S.projects.find(p => p.dirName === opts.project || p.name === opts.project) : null;
     const here = opts.here ? hereOf(opts.here) : proj ? fromProject(proj) : null; const hereAcct = opts.here ? (claudeOf(opts.here) || {}).account : ['personal', 'company'].includes(opts.account) ? opts.account : null;
     const G = { res: null, for: '', manual: here, touched: !!hereAcct, seq: 0, busy: false, timer: 0, files: [] };
     if (hereAcct) ST.acct = hereAcct;
-    const saved = () => localStorage.getItem('bd.nt.acct') === 'company' ? 'company' : 'personal';
     const R = { seq: 0, timer: 0 };
     const releasePreview = f => { if (f.url) URL.revokeObjectURL(f.url); };
-    const finish = () => { G.files.forEach(releasePreview); m.classList.add('hidden'); document.removeEventListener('keydown', onEsc, true); };
+    const finish = () => { clearTimeout(G.timer); clearTimeout(R.timer); G.files.forEach(releasePreview); m.classList.add('hidden'); document.removeEventListener('keydown', onEsc, true); };
     const close = () => { if (!G.busy) finish(); };
     const onEsc = e => { if (!box.isConnected) { document.removeEventListener('keydown', onEsc, true); return; } if (e.key !== 'Escape' || m.classList.contains('hidden') || document.body.classList.contains('recording')) return; e.preventDefault(); e.stopPropagation(); if (!pick.classList.contains('hidden')) { pick.classList.add('hidden'); return; } close(); };
     document.addEventListener('keydown', onEsc, true);
@@ -79,9 +78,9 @@
       renderHint();
     };
     const renderHint = () => {
-      const c = target(); const want = G.touched ? ST.acct : c.account || saved();
+      const c = target(); const want = G.touched ? ST.acct : c.account || savedAcct();
       if (want !== ST.acct) { setAcct(want, false); return; }
-      hint.textContent = !G.touched && c.account && c.account !== saved() ? `${c.account} account — usual for ${c.name}` : '';
+      hint.textContent = !G.touched && c.account && c.account !== savedAcct() ? `${c.account} account — usual for ${c.name}` : '';
     };
     const choose = c => { G.manual = c; pick.classList.add('hidden'); renderChip(); ta.focus(); };
     const pickRow = c => h('div', { class: 'ntrow ns-prow' + (target() === c || (G.manual && G.manual.kind === c.kind && G.manual.id === c.id && G.manual.org === c.org && G.manual.group === c.group) ? ' on' : ''), onclick: () => choose(c) }, tileOf(c), h('div', { class: 'ntn' }, h('div', { class: 'ntt' }, c.name), h('div', { class: 'nts' }, subOf(c))), c.why ? h('span', { class: 'dim ns-why' }, c.why) : null);

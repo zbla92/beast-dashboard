@@ -7,6 +7,7 @@ FEAT.code = (() => {
   const POP = { close: null, anchor: null };
   const WS = { on: localStorage.getItem('bd.code.ws') === '1', w: +localStorage.getItem('bd.code.wsw') || 460, host: null };
   const readPrefs = () => { try { return JSON.parse(localStorage.getItem('bd.code.prefs')) || {}; } catch { return {}; } };
+  const readOpenFolders = () => { try { return JSON.parse(localStorage.getItem('bd.code.fopen') || '[]'); } catch { return []; } };
   const PREF = { split: false, wrap: false, ws: false, scope: 'all', tab: 'changes', panelTab: 'changes', w: 340, ...readPrefs() };
   const savePrefs = () => localStorage.setItem('bd.code.prefs', JSON.stringify(PREF));
 
@@ -37,7 +38,6 @@ FEAT.code = (() => {
 
   const phone = () => matchMedia('(max-width: 900px)').matches;
   const touch = () => matchMedia('(hover: none)').matches;
-  const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
   const wipOf = () => S.wip || { roots: [], groups: [] };
   const wipRoot = id => wipOf().roots.find(r => r.id === id) || null;
   const pending = r => r ? r.staged + r.unstaged + r.untracked + r.conflicts : 0;
@@ -476,7 +476,7 @@ FEAT.code = (() => {
   function make(kind) {
     const panel = kind === 'panel';
     const C = { root: null, tab: panel ? PREF.panelTab : PREF.tab, step: 'list', layers: 0, sess: null, ws: null, fromTerm: null, sel: null, one: null, want: null, commit: null, commitData: null, port: null, pin: null };
-    const TREE = { open: new Set(JSON.parse(localStorage.getItem('bd.code.fopen') || '[]')), sel: null, mode: 'auto', editing: false, wide: false };
+    const TREE = { open: new Set(readOpenFolders()), sel: null, mode: 'auto', editing: false, wide: false };
     const HIST = { root: null, sig: null, commits: [], more: false, loading: false, tok: 0, err: null };
     const D = {};
     const stamp = { tree: null, frame: null, commitTok: 0, avatar: '', arrows: '', empty: '', meta: '', wide: null, sized: false };
@@ -1326,8 +1326,8 @@ FEAT.code = (() => {
       const left = D.left.getBoundingClientRect().left;
       D.el.classList.add('dragging');
       const mv = e => setWidth(e.clientX - left);
-      const up = () => { removeEventListener('pointermove', mv); removeEventListener('pointerup', up); D.el.classList.remove('dragging'); savePrefs(); };
-      addEventListener('pointermove', mv); addEventListener('pointerup', up);
+      const up = () => { removeEventListener('pointermove', mv); removeEventListener('pointerup', up); removeEventListener('pointercancel', up); D.el.classList.remove('dragging'); savePrefs(); };
+      addEventListener('pointermove', mv); addEventListener('pointerup', up); addEventListener('pointercancel', up);
     }
 
     function ensure() {
@@ -1548,8 +1548,8 @@ FEAT.code = (() => {
     const right = frames.getBoundingClientRect().right;
     frames.classList.add('ws-drag');
     const mv = e => { WS.w = Math.max(320, Math.min(right - 380 - frames.getBoundingClientRect().left, Math.round(right - e.clientX))); frames.style.setProperty('--ws-w', WS.w + 'px'); };
-    const up = () => { removeEventListener('pointermove', mv); removeEventListener('pointerup', up); frames.classList.remove('ws-drag'); localStorage.setItem('bd.code.wsw', String(WS.w)); };
-    addEventListener('pointermove', mv); addEventListener('pointerup', up);
+    const up = () => { removeEventListener('pointermove', mv); removeEventListener('pointerup', up); removeEventListener('pointercancel', up); frames.classList.remove('ws-drag'); localStorage.setItem('bd.code.wsw', String(WS.w)); };
+    addEventListener('pointermove', mv); addEventListener('pointerup', up); addEventListener('pointercancel', up);
   }
 
   function badge(name) {
@@ -1600,5 +1600,5 @@ FEAT.code = (() => {
   const rightOpen = which => { if (which !== 'files' && panelOn()) toggleWs(false); };
   const filesOn = panelOn;
 
-  return { open: V.open, back: V.back, onState, rightOpen, filesOn, deepLink, termBar, termBarKey, toolOpen, openAbs, togglePanel: toggleWs, state: V.C, panel: P.C };
+  return { open: V.open, back: V.back, onState, rightOpen, filesOn, deepLink, termBar, termBarKey, toolOpen, state: V.C };
 })();

@@ -94,5 +94,5 @@
     ];
   }
 
-  FEAT.t3 = { sessMenu, paletteItems, fork, linkFor };
+  FEAT.t3 = { sessMenu, paletteItems };
 })();

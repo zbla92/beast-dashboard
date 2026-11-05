@@ -12,6 +12,8 @@ const h = (tag, attrs = {}, ...kids) => {
   return el;
 };
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const savedAcct = () => localStorage.getItem('bd.nt.acct') === 'company' ? 'company' : 'personal';
+const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 const fmtB = n => { if (n == null) return '–'; const u = ['B', 'K', 'M', 'G', 'T']; let i = 0; while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; } return (i >= 3 ? n.toFixed(1) : Math.round(n)) + u[i]; };
 const fmtRate = n => fmtB(n) + '/s';
 const ago = ts => { if (!ts) return ''; const s = Math.max(0, (Date.now() - ts) / 1000); if (s < 60) return Math.round(s) + 's'; if (s < 3600) return Math.round(s / 60) + 'm'; if (s < 86400) return (s / 3600).toFixed(s < 36000 ? 1 : 0) + 'h'; return Math.round(s / 86400) + 'd'; };
@@ -551,7 +553,7 @@ function gcFrames() { const now = Date.now(); for (const k of [...TERM.frames.ke
 async function newShell() { try { const r = await api('shell', {}); openTerm(r.name); } catch (e) { toast('shell failed: ' + e.message, 'err'); } }
 // "+ Terminal": pick a project, account (personal/company) and fresh/resume-last → Claude session in that project;
 // or skip the project and start a plain bash shell. Choices are remembered.
-const NT = { acct: localStorage.getItem('bd.nt.acct') || 'personal', q: '', org: 'all' };
+const NT = { acct: savedAcct(), q: '', org: 'all' };
 function newTerminalModal() {
   const m = $('#modal'); m.classList.remove('hidden');
   const close = () => { m.classList.add('hidden'); document.removeEventListener('keydown', esc, true); };
@@ -592,7 +594,6 @@ const newSessionModal = (tab, text, opts) => FEAT.session ? FEAT.session.open(ta
 function claudeOf(name) { const s = S.runtime.sessions.find(x => x.name === name); return s && s.claude || null; }
 const isClaudeSession = s => s.name.startsWith('claude-') || s.current === 'claude' || !!s.claude;
 // Claude first, and within Claude: the ones that need you, then the ones working, then idle.
-const STATE_RANK = { permission: 0, error: 1, 'needs-you': 2, working: 3, background: 4, idle: 5, unknown: 6, ended: 7 };
 function termSessions() {
   const P = byId(); const out = { claude: [], dev: [], other: [], all: [] };
   for (const s of S.runtime.sessions) {
@@ -636,8 +637,6 @@ function claudeGroups(list) {
   for (const g of groups) g.items.sort((a, b) => rank(a) - rank(b));
   return groups;
 }
-const GROUP_SEL = JSON.parse(localStorage.getItem('bd.gsel') || '{}');
-function selectTab(key, name) { GROUP_SEL[key] = name; localStorage.setItem('bd.gsel', JSON.stringify(GROUP_SEL)); renderTermStrip(); }
 // "+" on a card / group: another instance or a worktree on that project (same menu as the ✦ Claude ▾ button)
 function plusClaude(ev, pid) { ev.stopPropagation(); const p = pid && byId()[pid]; if (!p) return toast('no project for this session', 'err'); claudeMenu(ev, p); }
 // branch / worktree tag: a worktree gets its own colour and the path on hover
@@ -676,7 +675,7 @@ function renderTermPanel(force) {
     const acctTag = kind === 'claude' && multiAcct() && it.account !== 'personal' ? h('span', { class: 'badge tag acc ' + it.account }, acct(it.account)) : null;
     const tag = kind === 'claude' ? null : kind === 'dev' ? h('span', { class: 'grp' }, it.label) : it.name.startsWith('sh-') ? h('span', { class: 'grp' }, 'bash') : null;
     const line2 = cl ? [h('span', { class: 'cst mini ' + cl.state }, gico(STATE_ICON[cl.state] || '·', 10), ' ', STATE_LABEL[cl.state] || cl.state), cl.model ? h('span', { class: 'mdl' }, modelName(cl.model)) : null, !sub && i && i.n ? h('span', { class: 'grp' }, '#' + i.n) : null, acctTag]
-      : [h('span', { class: 'grp' }, [it.group, it.org].filter(Boolean).join(' · ') || home(it.cwd)), h('span', { class: 'grp' }, `${ago(it.started)} · ${it.cpu.toFixed(0)}% · ${fmtB(it.mem)}`)];
+      : [h('span', { class: 'grp' }, [it.group, it.org].filter(Boolean).join(' · ') || home(it.cwd)), h('span', { class: 'grp' }, `${ago(it.started)} · ${(it.cpu || 0).toFixed(0)}% · ${fmtB(it.mem || 0)}`)];
     const others = cl && isNewChat(it.name) ? (cl.projects || []).filter(x => x !== it.pid).slice(0, 2).map(x => h('span', { class: 'grp pchip' }, byId()[x]?.name || x)) : [];
     const line3 = cl ? [where, ...others, isNewChat(it.name) && !sub ? (it.pid ? null : h('span', { class: 'grp' }, home(it.cwd))) : cl.title ? h('span', { class: 'ttl', title: cl.title }, cl.title) : cl.lastPrompt ? h('span', { class: 'ttl dim', title: cl.lastPrompt }, ico('prompt', 12), ' ' + cl.lastPrompt) : null] : null;
     return h('div', { class: 'titem ' + kind + (sub ? ' sub' : '') + (isActive ? ' on' : '') + (opened ? ' opened' : '') + (cl ? ' st-' + cl.state : ''), style: `--org:${orgColor(it.org)}`, onclick: () => openTerm(it.name), title: it.name },
@@ -716,8 +715,6 @@ function renderTermPanel(force) {
   const act = S.runtime.sessions.find(s => s.name === TERM.active); const cl = act && act.claude;
   const actAcc = act && (cl || isClaudeSession(act)) ? (cl?.account || (act.name.endsWith('-company') ? 'company' : 'personal')) : null;
   const accTag = () => actAcc ? h('span', { class: 'tacc ' + actAcc, title: 'Claude Code account: ' + acct(actAcc) }, acct(actAcc)) : null;
-  // mobile: ☰ + native <select> session picker (sidebar is an overlay there)
-  const allNames = [...new Set([...S3.all.map(x => x.name), ...TERM.frames.keys()])];
   const mobName = act ? sessTitle(act) : (TERM.active || 'Sessions');
   barAdd(h('button', { class: 'btn sm ghost mob icon', title: 'back to dashboard (sessions keep running)', onclick: closeTermPanel }, ico('back', 17)),
     h('button', { class: 'mob msess', title: 'switch session', onclick: () => { TERM.showList = true; renderTermPanel(true); } }, act ? avatar(act.project, 'sm') : null, h('span', { class: 'nm' }, mobName), accTag(), instOf(act || { name: TERM.active || '' }).n ? h('span', { class: 'grp' }, '#' + instOf(act).n) : null, cl && IS_PHONE ? stateBadge(cl, true) : null));
@@ -740,12 +737,6 @@ function renderTermPanel(force) {
   else barAdd(h('span', { class: 'dim' }, 'Pick a session.'), h('span', { class: 'sp' }));
   fillCtx($('#term-chat'));
 }
-// remember what gets started per project (dev commands, compose, Claude account) -> "▶▶ Start all" brings it all up next time
-function noteBundle(p, entry) { const b = (S.settings.projects?.[p.id]?.bundle || []).filter(x => !(x.kind === entry.kind && x.name === entry.name)); b.push(entry); api('project', { id: p.id, bundle: b.slice(-8) }).catch(() => {}); }
-async function startBundle(p) {
-  const b = S.settings.projects?.[p.id]?.bundle || []; if (!b.length) return;
-  for (const e of b) { try { if (e.kind === 'cmd') { if (!runtimeFor(p.id).sessions.some(s => s.label === e.name)) await act(`${p.name}: ${e.name}`, api('run', { id: p.id, name: e.name })); } else if (e.kind === 'claude') { if (!runtimeFor(p.id).sessions.some(s => s.claude?.mode === 'chat' && (s.claude.account || 'personal') === e.name)) await startClaude(p, e.name, {}, true); } } catch {} }
-}
 async function restoreClaude(tmux) {
   try {
     const items = (await api('claude-restore', tmux ? { tmux } : {})).restored || [];
@@ -757,7 +748,6 @@ async function restoreClaude(tmux) {
   } catch (e) { toast('Restore failed: ' + e.message, 'err'); }
 }
 async function startClaude(p, account, opts = {}, quiet) {
-  if (!quiet && !opts.resume && !opts.worktree) noteBundle(p, { kind: 'claude', name: account });
   try { const r = await api('claude', { id: p.id, account, ...opts }); toast(r.existed ? `Attaching to ${r.name}` : `Started ${r.name} (${account}, chat)`, 'ok'); openTerm(r.name); }
   catch (e) { toast('Chat failed: ' + e.message, 'err'); }
 }
@@ -803,7 +793,6 @@ function renderHeader() {
 }
 
 // ---------- stats ----------
-const spark = {};
 function sparkline(canvas, data, color, max = 100, fill = true, span = 180) {
   const dpr = window.devicePixelRatio || 1; const W = canvas.clientWidth, H = canvas.clientHeight; if (!W) return;
   if (canvas.width !== Math.floor(W * dpr) || canvas.height !== Math.floor(H * dpr)) { canvas.width = W * dpr; canvas.height = H * dpr; }
@@ -1352,28 +1341,6 @@ function badges(p) {
   if (p.tags.includes('compose')) b.push(h('span', { class: 'badge tag' }, 'compose'));
   return b;
 }
-function gitRow(p) {
-  const g = gitOf(p); if (!g) return h('div', { class: 'gitrow' }, h('span', { class: 'dim' }, p.parent ? 'sub-project' : 'no git'));
-  if (g.error) return h('div', { class: 'gitrow' }, h('span', { style: 'color:var(--red)' }, g.error));
-  const target = p.isGit ? p : byId()[p.parent];
-  return h('div', { class: 'gitrow' },
-    h('button', { class: 'branch', title: 'switch branch', onclick: ev => branchMenu(ev, target) }, h('span', { class: 'ico' }, ico('branch', 13)), h('span', { class: 'b' }, g.branch), h('span', { class: 'caret' }, ico('chevronDown', 12))),
-    g.dirty + g.untracked ? h('span', { class: 'dirty', title: `${g.dirty} modified, ${g.untracked} untracked` }, ico('dot', 9), ' ' + (g.dirty + g.untracked)) : null,
-    g.ahead ? h('span', { class: 'ab', title: 'ahead' }, ico('arrowUp', 11), g.ahead) : null, g.behind ? h('span', { class: 'ab behind', title: 'behind' }, ico('arrowDown', 11), g.behind) : null,
-    g.stashes ? h('span', { class: 'stash', title: 'stashes' }, [ico('layers', 12), ' ' + g.stashes]) : null,
-    g.last ? h('span', { class: 'last', title: g.last.subject }, h('b', null, g.last.hash), ' ', g.last.subject, ' · ', g.last.rel) : null);
-}
-function portLinks(ports) { return h('span', { class: 'ports' }, ports.filter(p => !p.ephemeral).map(p => portChip(p))); }
-function runRows(p) {
-  const r = runtimeFor(p.id); const rows = [];
-  for (const s of r.sessions) rows.push(h('div', { class: 'run' + (s.name.startsWith('claude-') ? ' claude' : '') }, h('span', { class: 'dot' }), h('span', { class: 'lbl' }, s.name.startsWith('claude-') ? (s.name.endsWith('-company') ? 'Claude · company' : 'Claude · personal') : s.label), h('span', { class: 'cmd', title: s.cmd || s.current }, s.cmd || s.current), portLinks(s.ports), h('span', { class: 'res' }, `${s.cpu.toFixed(0)}% · ${fmtB(s.mem)} · ${ago(s.startedAt)}`),
-    h('span', { class: 'acts' }, h('button', { class: 'btn sm', title: 'open live terminal (tmux attach in browser)', onclick: () => openTerm(s.name) }, gl('⌨')), h('button', { class: 'btn sm', title: 'logs', onclick: () => openDrawer(p.id, 'logs', s.name) }, gl('☰')), s.managed ? h('button', { class: 'btn sm', title: 'restart', onclick: () => act('Restart ' + s.label, api('restart', { session: s.name })) }, gl('↻')) : null, h('button', { class: 'btn sm danger', title: 'stop (Ctrl-C, then kill)', onclick: () => act('Stop ' + s.label, api('stop', { session: s.name })) }, gl('■')))));
-  for (const e of r.external) rows.push(h('div', { class: 'run ext', title: 'started outside beast-dash (pid ' + e.pid + ') — no log capture; attach via ssh' }, h('span', { class: 'dot' }), h('span', { class: 'lbl' }, e.label || e.comm), h('span', { class: 'cmd', title: e.cmd }, e.cmd), portLinks(e.ports), h('span', { class: 'res' }, `${e.cpu.toFixed(0)}% · ${fmtB(e.mem)}`),
-    h('span', { class: 'acts' }, h('button', { class: 'btn sm danger', title: 'kill', onclick: () => confirm(`Kill pid ${e.pid} (${e.comm})? It was started outside the dashboard.`) && act('Kill ' + e.pid, api('kill', { pid: e.pid })) }, gl('■')))));
-  for (const c of r.containers) rows.push(h('div', { class: 'run docker' + (c.state === 'running' ? '' : ' dead') }, h('span', { class: 'dot' }), h('span', { class: 'lbl' }, c.service || c.name), h('span', { class: 'cmd' }, c.image + ' · ' + c.status), c.state === 'running' ? portLinks([...new Map(c.ports.filter(x => x.host).map(x => [x.host, { port: x.host, addr: x.hostIp, loopback: x.hostIp === '127.0.0.1' || x.hostIp === '::1' }])).values()]) : null,
-    h('span', { class: 'acts' }, h('button', { class: 'btn sm', title: 'logs', onclick: () => openDrawer(p.id, 'logs', 'docker:' + c.id) }, gl('☰')), c.state === 'running' ? h('button', { class: 'btn sm danger', title: 'stop', onclick: () => act('Stop ' + c.name, api('docker', { id: c.id, action: 'stop' })) }, gl('■')) : h('button', { class: 'btn sm', title: 'start', onclick: () => act('Start ' + c.name, api('docker', { id: c.id, action: 'start' })) }, gl('▶')))));
-  return rows.length ? h('div', { class: 'runs' }, rows) : null;
-}
 function primaryCmd(p) { return p.commands.find(c => c.primary) || p.commands.find(c => c.kind === 'serve') || p.commands.find(c => c.kind === 'compose' && /up/.test(c.name)) || null; }
 function card(p) {
   const live = isLive(p.id); const pc = primaryCmd(p); const r = runtimeFor(p.id);
@@ -1392,7 +1359,7 @@ function card(p) {
     g.ahead ? h('span', { class: 'ab', title: 'ahead of upstream' }, ico('arrowUp', 11), g.ahead) : null, g.behind ? h('span', { class: 'ab behind', title: 'behind upstream — pull' }, ico('arrowDown', 11), g.behind) : null,
     g.last ? h('span', { class: 'last', title: g.last.subject }, g.last.subject, h('i', null, ' · ' + g.last.rel)) : null);
   const startBtn = pc ? h('div', { class: 'split' },
-    h('button', { class: 'btn sm', disabled: running.has(pc.name), title: pc.cmd, onclick: () => { noteBundle(p, { kind: 'cmd', name: pc.name }); act(`${p.name}: ${pc.name}`, api('run', { id: p.id, name: pc.name })); } }, gl('▶ '), pc.name),
+    h('button', { class: 'btn sm', disabled: running.has(pc.name), title: pc.cmd, onclick: () => { act(`${p.name}: ${pc.name}`, api('run', { id: p.id, name: pc.name })); } }, gl('▶ '), pc.name),
     h('button', { class: 'btn sm', title: 'all commands', onclick: ev => cmdMenu(ev, p) }, h('span', { class: 'caret' }, ico('chevronDown', 12)))) : (p.commands.length ? h('button', { class: 'btn sm', onclick: ev => cmdMenu(ev, p) }, gl('▶ Run '), h('span', { class: 'caret' }, ico('chevronDown', 12))) : null);
   return h('div', { class: 'card' + (live ? ' live' : '') + (p.parent ? ' sub' : ''), style: `--org:${orgColor(p.org)};--pc:${projColor(p)}`, 'data-id': p.id },
     h('div', { class: 'head' }, avatar(p.id, 'lg'),
@@ -1477,7 +1444,7 @@ function cmdMenu(ev, p) {
   const running = new Set(runtimeFor(p.id).sessions.map(s => s.label));
   const groups = [['custom', 'Custom'], ['serve', 'Serve'], ['compose', 'Docker compose'], ['build', 'Build'], ['install', 'Install'], ['check', 'Checks'], ['task', 'Other']];
   const items = [];
-  for (const [k, label] of groups) { const cs = p.commands.filter(c => (c.custom ? 'custom' : c.kind) === k); if (!cs.length) continue; items.push({ header: label }); for (const c of cs) items.push({ label: c.name, sub: c.cmd, icon: KIND_ICON[k], cur: running.has(c.name), disabled: running.has(c.name), title: c.cmd, onclick: () => { noteBundle(p, { kind: 'cmd', name: c.name }); act(`${p.name}: ${c.name}`, api('run', { id: p.id, name: c.name })); } }); }
+  for (const [k, label] of groups) { const cs = p.commands.filter(c => (c.custom ? 'custom' : c.kind) === k); if (!cs.length) continue; items.push({ header: label }); for (const c of cs) items.push({ label: c.name, sub: c.cmd, icon: KIND_ICON[k], cur: running.has(c.name), disabled: running.has(c.name), title: c.cmd, onclick: () => { act(`${p.name}: ${c.name}`, api('run', { id: p.id, name: c.name })); } }); }
   items.push('sep', { label: 'Custom command…', icon: '＋', onclick: () => { openDrawer(p.id, 'overview'); setTimeout(() => $('#newcmd')?.focus(), 300); } });
   openMenu(ev, items);
 }
@@ -1712,7 +1679,6 @@ function composer(box, name, cl, conv, scroller, o, busy, justSent, jobs, prevDr
   ta.value = prevDraft;
   let syncAct = () => {};
   const grow = () => { ta.style.height = '0px'; ta.style.height = Math.min(Math.max(IS_PHONE ? 48 : 56, ta.scrollHeight), 10 * 24 + 12) + 'px'; saveDraft(name, ta.value); syncAct(); };   // every change goes through grow() -> the draft is saved
-  const sendText = async (v) => { (PENDING[name] = PENDING[name] || []).push({ text: v, ts: Date.now() }); conv.append(h('div', { class: 'turn user pending' }, h('div', { class: 'who' }, gl('❯ you'), h('span', { class: 'dim' }, ' sending…')), h('div', { class: 'ttext' }, v))); scroller.scrollTop = scroller.scrollHeight; try { await api('send', { session: name, text: v }); } catch (e) { toast(e.message, 'err'); } setTimeout(o.refresh, 700); setTimeout(o.refresh, 2500); };
   const shellMode = () => cl.mode === 'chat' && !!FEAT.shell && FEAT.shell.is(ta.value);
   let shelling = false;
   const runShell = async () => { if (shelling) return; const v = ta.value; shelling = true; ta.value = ''; grow(); try { if (!(await FEAT.shell.run(name, v))) { if (!ta.value) { ta.value = v; grow(); } ta.focus(); } } finally { shelling = false; } };
@@ -1745,7 +1711,7 @@ function composer(box, name, cl, conv, scroller, o, busy, justSent, jobs, prevDr
   const mic = voiceButton(ta, name);
   const clock = h('button', { class: 'btn sm ghost qk csched', title: 'schedule this message for later (or a chain of messages)', onclick: () => scheduleDialog(name, ta.value) }, ico('sched', 15));
   conv.classList.toggle('focus', CHAT.focus && !box.closest('#drawer'));
-  const keys = h('div', { class: 'ckeys' }, attach, fileIn, ...feat('composerKeys', name));
+  const keys = h('div', { class: 'ckeys' }, attach, fileIn);
   const sjobs = sj.length ? h('span', { class: 'sjobs' }, sj.map(j => h('span', { class: 'sjob', title: j.prompts.join('\n\n') }, ico('clock', 12), ' ', j.whenFree ? 'when free' : new Date(j.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), j.prompts.length > 1 ? ` ×${j.prompts.length}` : '', j.state === 'running' || j.state === 'sent' ? ' · ' + j.state : '', h('button', { class: 'x', title: 'remove', onclick: () => api('schedule-remove', { id: j.id }) }, ico('x', 11))))) : null;
   const acctTag = cl.account && multiAcct() ? h('span', { class: 'tacc ' + cl.account, title: 'Claude Code account: ' + acct(cl.account) }, acct(cl.account)) : null;
   const el = h('div', { class: 'cbox2', 'data-k': compKey }, h('div', { class: 'cfield', onclick: ev => { if (ev.target === ev.currentTarget || ev.target.classList.contains('cline') || ev.target.classList.contains('cfoot')) ta.focus(); } }, shBar && shBar.el,
@@ -2809,7 +2775,7 @@ function settingsModal() {
         row('Tunnels', `${S.runtime.exposures.length} loopback ports forwarded onto ${S.host.tsIp || 'the tailscale IP'} (socat) so your laptop reaches them without ssh -L`, h('button', { class: 'btn sm', onclick: () => { m.classList.add('hidden'); UI.showTunnels = true; renderTunnels(); window.scrollTo(0, 0); } }, 'Open')),
         row('Auto-expose', 'forward every loopback-bound project port automatically', h('label', { class: 'sw' }, auto, h('i'))),
         row('Projects', `rescan ${home(S.host.devRoot || '~')} for new folders`, h('button', { class: 'btn sm', onclick: () => act('Rescan', api('rescan', {})) }, 'Rescan')),
-        row('State backup', 'nightly tar of sessions, labels, push subscriptions, settings, schedule — 14 kept', h('a', { href: '/api/backup', class: 'btn sm' }, 'Download')),
+        row('State backup', 'nightly tar of sessions, labels, push subscriptions, settings, schedule — 7 kept', h('a', { href: '/api/backup', class: 'btn sm' }, 'Download')),
         row('Cached app on this device', 'app files kept here so it opens without waiting for the network · clear it if the app looks broken', h('button', { class: 'btn sm', onclick: () => clearDevice().then(() => location.reload()) }, 'Clear'))),
       sect('Notifications',
         ncb('done', 'Session finished'), ncb('permission', 'Needs permission'), ncb('error', 'Session error'), ncb('limit', 'Usage limit hit'), ncb('crash', 'Dev server died'), ncb('system', 'Server too hot / out of memory / runaway process / battery low'), ncb('digest', 'Monday weekly digest'), row('Morning summary', '08:00 — tasks to review, sessions that need you, yesterday\'s spend', sw(n.daily !== false, { 'data-n': 'daily' })),
@@ -3083,7 +3049,10 @@ function downloadsModal() {
   DLF.sel = null; DLF.wide = false;
   const m = $('#modal'); m.classList.remove('hidden');
   const close = () => { m.classList.add('hidden'); document.removeEventListener('keydown', esc, true); };
-  const esc = e => { if (e.key === 'Escape' && !m.classList.contains('hidden')) { e.preventDefault(); e.stopPropagation(); close(); } };
+  const esc = e => {
+    if (!box.isConnected || m.classList.contains('hidden')) { document.removeEventListener('keydown', esc, true); return; }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+  };
   document.addEventListener('keydown', esc, true);
   const body = h('div', { class: 'db files-tab dlx-body' });
   const box = h('div', { class: 'box dlx' },
@@ -3097,7 +3066,10 @@ function downloadsModal() {
 function sleepModal() {
   const m = $('#modal'); m.classList.remove('hidden');
   const close = () => { m.classList.add('hidden'); document.removeEventListener('keydown', esc, true); };
-  const esc = e => { if (e.key === 'Escape' && !m.classList.contains('hidden')) { e.preventDefault(); e.stopPropagation(); close(); } };
+  const esc = e => {
+    if (!box.isConnected || m.classList.contains('hidden')) { document.removeEventListener('keydown', esc, true); return; }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+  };
   document.addEventListener('keydown', esc, true);
   const at = S.host.nextWake ? new Date(S.host.nextWake) : null;
   const when = at ? at.toLocaleString([], { weekday: 'long', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
@@ -3109,13 +3081,14 @@ function sleepModal() {
     try { const r = await api('suspend', { confirm: true }); toast('Sleeping in a few seconds — wakes ' + new Date(r.wakeAt).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' }), 'ok'); close(); }
     catch (e) { btn.disabled = false; btn.replaceChildren(...gl('☾ Sleep now')); toast('Sleep failed: ' + e.message, 'err'); }
   } }, gl('☾ Sleep now'));
-  m.replaceChildren(h('div', { class: 'box', style: 'width:min(460px,92vw)' },
+  const box = h('div', { class: 'box', style: 'width:min(460px,92vw)' },
     h('h3', null, gl('☾ Put the server to sleep?')),
     h('p', { style: 'margin:0 0 10px' }, 'It wakes itself on ', h('b', null, when), ' (Mon–Fri, 07:00). If you switch it on yourself before that, nothing else happens.'),
     h('p', { class: 'dim', style: 'margin:0 0 10px;font-size:13px' }, 'Until then the dashboard, terminals and Tailscale are unreachable — nothing on the network can wake it, not even from home.'),
     busy.length ? h('p', { style: 'margin:0 0 10px;color:var(--amber)' }, gl(`⚠ ${busy.length} Claude agent${busy.length === 1 ? '' : 's'} ${busy.length === 1 ? 'is' : 'are'} still working (${busy.map(s => s.claude.label || s.name).slice(0, 3).join(', ')}) — sleep freezes ${busy.length === 1 ? 'it' : 'them'} until the morning.`)) : null,
     dev ? h('p', { class: 'dim', style: 'margin:0 0 10px;font-size:13px' }, `${dev} dev server${dev === 1 ? '' : 's'} running here will pause too.`) : null,
-    h('div', { class: 'foot' }, h('button', { class: 'btn ghost', onclick: close }, 'Cancel'), btn)));
+    h('div', { class: 'foot' }, h('button', { class: 'btn ghost', onclick: close }, 'Cancel'), btn));
+  m.replaceChildren(box);
   m.onclick = e => { if (e.target === m) close(); };
 }
 if ($('#btn-downloads')) $('#btn-downloads').onclick = downloadsModal;   // guarded: a phone may still hold an older index.html
@@ -3170,7 +3143,7 @@ function openPalette(mode) { const was = PAL.open; PAL.open = true; if (!was) pu
 let searchTimer = null, searchRes = null, searchQ = '';
 function paletteSearch(q) {
   if (q === searchQ) return; searchQ = q; clearTimeout(searchTimer);
-  searchTimer = setTimeout(async () => { try { searchRes = await api('search?q=' + encodeURIComponent(q)); } catch (e) { searchRes = { hits: [], error: e.message }; } if (PAL.open) renderPalette(); }, 250);
+  searchTimer = setTimeout(async () => { try { searchRes = await api('search?q=' + encodeURIComponent(q)); } catch (e) { searchRes = { q, hits: [], error: e.message }; } if (PAL.open) renderPalette(); }, 250);
 }
 function searchItems() {
   const q = PAL.q.slice(1).trim(); if (q.length < 2) return [{ kind: 'hint', label: 'Search conversations', sub: 'type at least 2 characters — searches every session of both accounts', icon: '🔍', run: () => {} }];
@@ -3329,7 +3302,7 @@ function safeToReload() {
   if (!$('#modal')?.classList.contains('hidden')) return false;
   if (typeof PAL !== 'undefined' && PAL.open) return false;
   if (typeof FILES !== 'undefined' && FILES.editing) return false;
-  for (const t of document.querySelectorAll('input.cmsg, input.qr-in')) if (t.value && t.value.trim()) return false;
+  for (const t of document.querySelectorAll('input.cmsg')) if (t.value && t.value.trim()) return false;
   return true;
 }
 async function checkVersion() {

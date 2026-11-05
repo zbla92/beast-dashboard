@@ -5,8 +5,6 @@ FEAT.icons = (() => {
   const TYPES = new Set(['svg', 'png', 'jpg', 'jpeg', 'webp', 'ico']);
   const ACCEPT = '.svg,.png,.jpg,.jpeg,.webp,.ico,image/svg+xml,image/png,image/jpeg,image/webp,image/x-icon,image/vnd.microsoft.icon';
   const MAX = 512 * 1024, LIMIT = 60;
-  const acct = () => localStorage.getItem('bd.nt.acct') === 'company' ? 'company' : 'personal';
-  const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
   const missing = () => S.projects.filter(p => !p.icon && !p.hidden);
   const alive = name => !!name && S.runtime.sessions.some(s => s.name === name);
   let starting = false, banEl = null, banKey = '', open = null;
@@ -59,7 +57,7 @@ FEAT.icons = (() => {
     }
     async function ask() {
       setBusy(true); say('Starting Claude…');
-      try { const r = await api('icon-ask', { kind: t.kind, id: t.id, account: acct() }); close(); started(r, `an icon for ${info.name}`); openTerm(r.name); }
+      try { const r = await api('icon-ask', { kind: t.kind, id: t.id, account: savedAcct() }); close(); started(r, `an icon for ${info.name}`); openTerm(r.name); }
       catch (e) { say('Could not start Claude: ' + e.message, true); setBusy(false); }
     }
     async function reset() {
@@ -90,7 +88,7 @@ FEAT.icons = (() => {
     if (!ids.length || starting) return;
     starting = true; banKey = ''; render();
     try {
-      const r = await api('icon-ask', { kind: 'batch', ids, account: acct() });
+      const r = await api('icon-ask', { kind: 'batch', ids, account: savedAcct() });
       localStorage.setItem(BATCH, r.name);
       started(r, plural(r.targets.length, 'icon'));
     } catch (e) { toast('Could not start Claude: ' + e.message, 'err'); }
@@ -133,5 +131,5 @@ FEAT.icons = (() => {
     if (info && JSON.stringify([info.url, info.custom]) !== open.key) sheet(open.t);
   }
 
-  return { projectMenu, projectsTop, orgBadge, orgActions, onState, sheet };
+  return { projectMenu, projectsTop, orgBadge, orgActions, onState };
 })();

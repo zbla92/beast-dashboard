@@ -16,8 +16,7 @@ FEAT.worktrees = (() => {
       if (j !== sumJson) {
         sumJson = j; sum = d;
         if (typeof render === 'function') render();
-        if (UI.drawer && UI.tab === KEY && !first) renderDrawer(true);
-        else if (UI.drawer && first && UI.tab === KEY) renderDrawer(true);   // deep link opened before the data arrived
+        if (UI.drawer && UI.tab === KEY) renderDrawer(true);
       } else if (first && UI.drawer && UI.tab === KEY) renderDrawer(true);
     } catch { /* offline / server restarting: keep what we have */ }
     finally { busy = false; }
@@ -34,7 +33,6 @@ FEAT.worktrees = (() => {
     return j;
   }
 
-  const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
   const isDirty = w => (w.dirty || 0) + (w.untracked || 0) > 0;
   const isStale = w => w.prunable || (!w.sessions.length && !isDirty(w) && !w.active && !w.agentBusy && w.merged);
   const ACTIVE_MIN = 30, TAB_TTL = 15000;
@@ -65,8 +63,8 @@ FEAT.worktrees = (() => {
     const s = sum[p.id]; if (!s || !s.count) return null;
     const pop = h('div', { class: 'wtx-pop hidden', onclick: ev => ev.stopPropagation() });
     let hideT = 0;
-    const outside = ev => { if (pop.contains(ev.target) || chip.contains(ev.target)) return; ev.stopPropagation(); ev.preventDefault(); hide(); };
-    const onScroll = ev => { if (!pop.contains(ev.target)) hide(); };
+    const outside = ev => { if (!chip.isConnected) { hide(); return; } if (pop.contains(ev.target) || chip.contains(ev.target)) return; ev.stopPropagation(); ev.preventDefault(); hide(); };
+    const onScroll = ev => { if (!chip.isConnected || !pop.contains(ev.target)) hide(); };
     const hide = () => {
       clearTimeout(hideT); pop.classList.add('hidden');
       document.removeEventListener('click', outside, true); document.removeEventListener('scroll', onScroll, true);

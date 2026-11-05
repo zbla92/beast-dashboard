@@ -1,7 +1,6 @@
 'use strict';
 FEAT.newproj = (() => {
   const RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
-  const saved = () => localStorage.getItem('bd.nt.acct') === 'company' ? 'company' : 'personal';
   const hue = n => n.split('').reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7) % 360;
   const tileOf = n => h('span', { class: 'av ns-org sm', style: `--org:hsl(${hue(n)} 22% 62%)` }, h('span', { class: 'g' }, n.slice(0, 2).toUpperCase()));
 
@@ -17,7 +16,7 @@ FEAT.newproj = (() => {
   function open(opts = {}) {
     const m = $('#modal'); m.classList.remove('hidden');
     const F = folders();
-    const st = { org: '', group: '', fresh: false, acct: saved(), touched: false, busy: false };
+    const st = { org: '', group: '', fresh: false, acct: savedAcct(), touched: false, busy: false };
     const orgAcct = o => FEAT.wip?.orgAccount ? FEAT.wip.orgAccount(o) : ['personal', 'company'].includes((S.settings?.orgAccounts || {})[o]) ? S.settings.orgAccounts[o] : null;
     const close = () => { m.classList.add('hidden'); document.removeEventListener('keydown', onEsc, true); };
     const onEsc = e => { if (!box.isConnected) { document.removeEventListener('keydown', onEsc, true); return; } if (e.key !== 'Escape' || m.classList.contains('hidden')) return; e.preventDefault(); e.stopPropagation(); close(); };
@@ -53,7 +52,7 @@ FEAT.newproj = (() => {
     };
     const pick = (org, group, fresh) => {
       st.org = org; st.group = group; st.fresh = fresh; err.classList.add('hidden');
-      if (!st.touched) st.acct = (!fresh && orgAcct(org)) || saved();
+      if (!st.touched) st.acct = (!fresh && orgAcct(org)) || savedAcct();
       orgIn.classList.toggle('hidden', !fresh);
       if (!fresh) orgIn.value = '';
       renderList(); renderAcct(); renderPath();
