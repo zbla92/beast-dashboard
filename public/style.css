@@ -27,7 +27,7 @@
   --hl: inset 0 1px 0 var(--edge); --hl-soft: inset 0 1px 0 var(--edge-soft);
   --shadow-pane: 0 30px 80px -16px rgba(0,0,0,.7), 0 4px 14px rgba(0,0,0,.35);
   --shadow-float: 0 24px 60px -12px rgba(0,0,0,.72), 0 2px 8px rgba(0,0,0,.3);
-  --glass-gap: 18px;
+  --glass-gap: 0px;
   --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px; --sp-6: 32px;
   --fs-2xs: 10.5px; --fs-xs: 11.5px; --fs-sm: 12.5px; --fs-md: 13.5px; --fs-lg: 16px; --fs-xl: 18px; --fs-2xl: 24px;
   --shadow: 0 16px 40px -10px rgba(0,0,0,.6), 0 2px 6px rgba(0,0,0,.25);

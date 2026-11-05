@@ -137,13 +137,12 @@ body.term-open .maincol { visibility: hidden; }
   html, body { height: 100%; overflow: hidden; }
   body::after {
     content: ""; position: fixed; z-index: -1; inset: var(--glass-gap); pointer-events: none;
-    border-radius: var(--r-2xl); background: var(--sheet);
+    background: var(--sheet);
     backdrop-filter: blur(14px) saturate(45%); -webkit-backdrop-filter: blur(14px) saturate(45%);
-    box-shadow: var(--hl), inset 0 0 0 1px var(--edge-soft), var(--shadow-pane);
   }
-  .rail { left: var(--glass-gap); top: var(--glass-gap); bottom: var(--glass-gap); width: calc(var(--rail-w) - var(--glass-gap)); padding: 14px 10px 10px; background: transparent; border-right: 1px solid var(--line); border-radius: var(--r-2xl) 0 0 var(--r-2xl); }
+  .rail { left: var(--glass-gap); top: var(--glass-gap); bottom: var(--glass-gap); width: calc(var(--rail-w) - var(--glass-gap)); padding: 14px 10px 10px; background: transparent; border-right: 1px solid var(--line); }
   .rail::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none; background: rgba(170,175,185,.06); backdrop-filter: var(--blur-1); -webkit-backdrop-filter: var(--blur-1); }
-  .maincol { position: fixed; top: var(--glass-gap); right: var(--glass-gap); bottom: var(--glass-gap); left: var(--rail-w); margin: 0; min-height: 0; padding-bottom: 0; overflow-x: hidden; overflow-y: auto; border-radius: 0 var(--r-2xl) var(--r-2xl) 0; }
+  .maincol { position: fixed; top: var(--glass-gap); right: var(--glass-gap); bottom: var(--glass-gap); left: var(--rail-w); margin: 0; min-height: 0; padding-bottom: 0; overflow-x: hidden; overflow-y: auto; }
   .top { height: 52px; padding: 0 16px 0 22px; gap: 12px; background: rgba(16,18,20,.42); border-bottom: 1px solid var(--line); box-shadow: var(--hl); backdrop-filter: var(--blur-1); -webkit-backdrop-filter: var(--blur-1); }
   .vtitle { min-width: 0; font-size: var(--fs-md); }
   .search { height: 30px; max-width: 320px; margin-left: auto; border-radius: var(--r-pill); background: var(--fill); }
@@ -151,11 +150,11 @@ body.term-open .maincol { visibility: hidden; }
   .kbtn { height: 30px; border: 1px solid var(--line); background: var(--fill); border-radius: var(--r-pill); }
   main { padding: 18px 22px 40px; }
   .banner { margin-top: 14px; }
-  .termpanel { top: var(--glass-gap); right: var(--glass-gap); bottom: var(--glass-gap); height: auto; background: rgba(10,10,12,.2); border-radius: 0 var(--r-2xl) var(--r-2xl) 0; overflow: hidden; }
-  body.focus .termpanel { left: var(--glass-gap); border-radius: var(--r-2xl); }
+  .termpanel { top: var(--glass-gap); right: var(--glass-gap); bottom: var(--glass-gap); height: auto; background: rgba(10,10,12,.2); overflow: hidden; }
+  body.focus .termpanel { left: var(--glass-gap); }
   .termbar { box-shadow: var(--hl); }
-  .conn { top: var(--glass-gap); right: var(--glass-gap); border-radius: 0 var(--r-2xl) 0 0; }
-  .drawer { top: var(--glass-gap); right: var(--glass-gap); bottom: var(--glass-gap); height: auto; border: 1px solid var(--line); border-radius: var(--r-xl); overflow: hidden; transform: translateX(calc(100% + 24px)); }
+  .conn { top: var(--glass-gap); right: var(--glass-gap); }
+  .drawer { top: var(--glass-gap); right: var(--glass-gap); bottom: var(--glass-gap); height: auto; border: 0; border-left: 1px solid var(--line); border-radius: 0; overflow: hidden; transform: translateX(calc(100% + 24px)); }
   .drawer.open { transform: none; }
 
 }
