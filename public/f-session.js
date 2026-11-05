@@ -42,7 +42,7 @@
     ST.acct = localStorage.getItem('bd.nt.acct') === 'company' ? 'company' : 'personal';
     const proj = opts.project ? S.projects.find(p => p.id === opts.project) || S.projects.find(p => p.dirName === opts.project || p.name === opts.project) : null;
     const here = opts.here ? hereOf(opts.here) : proj ? fromProject(proj) : null; const hereAcct = opts.here ? (claudeOf(opts.here) || {}).account : ['personal', 'company'].includes(opts.account) ? opts.account : null;
-    const G = { res: null, for: '', manual: here, touched: !!hereAcct, seq: 0, busy: false, timer: 0 };
+    const G = { res: null, for: '', manual: here, touched: !!hereAcct, seq: 0, busy: false, timer: 0, files: [], uploads: 0 };
     if (hereAcct) ST.acct = hereAcct;
     const saved = () => localStorage.getItem('bd.nt.acct') === 'company' ? 'company' : 'personal';
     const R = { seq: 0, timer: 0 };
@@ -61,6 +61,9 @@
     const chip = h('button', { class: 'ns-chip', title: 'where the chat starts — click to change' });
     const hint = h('span', { class: 'ns-hint dim' });
     const sendBtn = h('button', { class: 'btn primary ns-send' }, ico('send', 14), 'Start chat');
+    const fileIn = h('input', { type: 'file', multiple: true, style: 'display:none' });
+    const filesBox = h('div', { class: 'tk-files edit ns-files' });
+    const clipBtn = h('button', { class: 'btn ns-clip', title: 'attach files — photo, screenshot, CSV, PDF, anything up to 100 MB (or drop / paste them here)', onclick: () => fileIn.click() }, ico('clip', 16));
     const pickIn = h('input', { class: 'txt', placeholder: 'Search projects and folders…', autocomplete: 'off' });
     const pickList = h('div', { class: 'ns-picklist' });
     const pick = h('div', { class: 'ns-pick hidden' }, pickIn, pickList);
@@ -102,36 +105,53 @@
       try { const r = await api('guess-project', { text, context: ctx() }); if (n === G.seq) { G.res = r; G.for = text; renderChip(); if (!pick.classList.contains('hidden')) renderPick(); } } catch {}
     };
     const runGuess = () => { clearTimeout(G.timer); G.timer = setTimeout(guessNow, 300); };
-    // nothing typed: the button opens an empty chat in the place on the chip; you write the first message in the chat
     const renderSend = () => {
-      if (G.busy) return; const empty = !ta.value.trim();
-      sendBtn.replaceChildren(ico(empty ? 'plus' : 'send', 14), empty ? 'Open empty chat' : 'Start chat');
-      sendBtn.title = empty ? 'start Claude here without a first message — type it in the chat' : '';
+      if (G.busy) return; const empty = !ta.value.trim() && !G.files.length;
+      sendBtn.disabled = G.uploads > 0;
+      sendBtn.replaceChildren(ico(G.uploads ? 'hourglass' : empty ? 'plus' : 'send', 14), G.uploads ? 'Uploading…' : empty ? 'Open empty chat' : 'Start chat');
+      sendBtn.title = empty && !G.uploads ? 'start Claude here without a first message — type it in the chat' : '';
     };
+    const renderFiles = () => {
+      const chips = G.files.map(f => h('span', { class: 'tk-file', title: f.path }, /\.(png|jpe?g|gif|webp)$/i.test(f.path) ? h('img', { src: '/api/file?p=' + encodeURIComponent(f.path), alt: '' }) : fileIcon(f.name), h('span', { class: 'ns-fname' }, f.name), h('button', { class: 'x', title: 'remove', onclick: () => { G.files = G.files.filter(x => x !== f); renderFiles(); renderSend(); } }, ico('x', 11))));
+      if (G.uploads) chips.push(h('span', { class: 'tk-file' }, ico('hourglass', 12), `uploading ${G.uploads}…`));
+      filesBox.replaceChildren(...chips);
+    };
+    const attachFiles = async picked => {
+      picked = [...picked].filter(Boolean); if (!picked.length || G.busy) return;
+      G.uploads += picked.length; renderFiles(); renderSend();
+      for (const f of picked) {
+        try { const path = await uploadFile(f); G.files.push({ path, name: f.name || path.split('/').pop() }); }
+        catch (e) { toast('upload failed: ' + e.message, 'err'); }
+        G.uploads--; renderFiles(); renderSend();
+      }
+      if (!IS_PHONE && pick.classList.contains('hidden')) ta.focus();
+    };
+    fileIn.addEventListener('change', () => { const picked = [...fileIn.files]; fileIn.value = ''; attachFiles(picked); });
+    ta.addEventListener('paste', ev => { const dt = ev.clipboardData; if (!dt) return; const txt = dt.getData('text/plain'); if (txt.length >= PASTE_AS_FILE) { ev.preventDefault(); attachFiles([new File([txt], `paste-${new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '')}.txt`, { type: 'text/plain' })]); return; } if (txt) return; const picked = [...(dt.files || [])]; if (picked.length) { ev.preventDefault(); attachFiles(picked); } });
+    const firstMessage = text => { const paths = G.files.map(f => f.path); if (!paths.length) return text; return text ? text + '\n\n' + paths.join('\n') : '📎 ' + paths.join(' '); };
     ta.oninput = () => { runGuess(); renderSend(); };
 
     const go = async () => {
-      const text = ta.value.trim(); if (G.busy) return;
-      G.busy = true; sendBtn.disabled = true; sendBtn.lastChild.textContent = 'Starting…';
+      const text = ta.value.trim(); if (G.busy || G.uploads) return;
+      G.busy = true; sendBtn.disabled = true; clipBtn.disabled = true; sendBtn.lastChild.textContent = 'Starting…';
       if (!G.manual && G.for !== text) await guessNow();
-      const c = target();
+      const c = target(); const message = firstMessage(text);
       try {
-        const r = await api('chat-new', text ? { text, account: ST.acct, target: targetOf(c) } : { empty: true, account: ST.acct, target: targetOf(c) });
+        const r = await api('chat-new', message ? { text: message, account: ST.acct, target: targetOf(c) } : { empty: true, account: ST.acct, target: targetOf(c) });
         localStorage.setItem('bd.ns.tab', 'new');
-        if (!text) toast(`Empty chat opened in ${c.name} (${ST.acct})`, 'ok');
-        else if (!r.sent) { saveDraft(r.name, text); toast('Chat started, but the first message did not arrive (' + (r.error || 'runner not ready') + '). It is in the chat box — press Send.', 'err'); }
+        if (!message) toast(`Empty chat opened in ${c.name} (${ST.acct})`, 'ok');
+        else if (!r.sent) { saveDraft(r.name, message); toast('Chat started, but the first message did not arrive (' + (r.error || 'runner not ready') + '). It is in the chat box — press Send.', 'err'); }
         else toast(`Chat started in ${c.name} (${ST.acct})`, 'ok');
         close(); openTerm(r.name);
       } catch (e) {
         status.classList.remove('hidden'); status.textContent = 'Could not start the chat: ' + e.message;
-        G.busy = false; sendBtn.disabled = false; renderSend();
+        G.busy = false; sendBtn.disabled = false; clipBtn.disabled = false; renderSend();
       }
     };
     sendBtn.onclick = go;
-    // Enter needs text: a stray Enter in the empty box must not start a Claude — the empty chat is the button only
-    ta.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing && ((e.metaKey || e.ctrlKey) || (!IS_PHONE && !e.shiftKey))) { e.preventDefault(); if (ta.value.trim()) go(); } };
+    ta.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing && ((e.metaKey || e.ctrlKey) || (!IS_PHONE && !e.shiftKey))) { e.preventDefault(); if (ta.value.trim() || G.files.length) go(); } };
 
-    const newBody = h('div', { class: 'ns-new' }, ta, h('div', { class: 'ns-bar' }, chip, h('span', { class: 'sp' }), voiceButton(ta, '_new'), sendBtn), hint, pick, status);
+    const newBody = h('div', { class: 'ns-new' }, ta, filesBox, fileIn, h('div', { class: 'ns-bar' }, chip, h('span', { class: 'sp' }), clipBtn, voiceButton(ta, '_new'), sendBtn), hint, pick, status);
 
     const hq = h('input', { class: 'txt', placeholder: 'Search past conversations — title, prompt, project, folder…', autocomplete: 'off' });
     const hlist = h('div', { class: 'ntlist ns-hist' });
@@ -178,7 +198,12 @@
     const box = h('div', { class: 'box ntbox nsbox' },
       h('div', { class: 'sh' }, h('h3', null, gl('＋ New session')), h('span', { class: 'sp' }), acctSeg, h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', onclick: close }, ico('x', 15))),
       tabSeg, body, foot);
+    box.addEventListener('dragover', ev => { if (!hasFiles(ev) || ST.tab !== 'new') return; ev.preventDefault(); ev.dataTransfer.dropEffect = 'copy'; newBody.classList.add('ns-drop'); });
+    box.addEventListener('dragleave', ev => { if (!box.contains(ev.relatedTarget)) newBody.classList.remove('ns-drop'); });
+    box.addEventListener('drop', ev => { if (!hasFiles(ev) || ST.tab !== 'new') return; ev.preventDefault(); newBody.classList.remove('ns-drop'); attachFiles(ev.dataTransfer.files); });
     m.replaceChildren(box); m.onclick = e => { if (e.target === m) close(); };
+    const swallowFileDrop = ev => { if (!box.isConnected) { m.ondragover = m.ondrop = null; return; } if (hasFiles(ev)) ev.preventDefault(); };
+    m.ondragover = swallowFileDrop; m.ondrop = swallowFileDrop;
     renderAcct(); renderTabs(); renderChip(); renderBody();
     if (text && ST.tab === 'new') { ta.value = String(text).slice(0, 100000); runGuess(); }
     renderSend();

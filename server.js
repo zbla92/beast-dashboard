@@ -1048,7 +1048,7 @@ async function api(req, res, url) {
       if (path.resolve(cwd) === path.resolve(rec.cwd || '')) return json(res, 409, { error: 'already there' });
       if (SWITCHING.has(name)) return json(res, 409, { error: 'busy' });
       const sid = rec.sessionId; const account = rec.account === 'company' ? 'company' : 'personal';
-      const tr = headless.findTranscript(rec.cwd, account, sid, rec.transcriptPath); if (!tr) return json(res, 409, { error: 'conversation file not found' });
+      const tr = headless.findTranscript(rec.cwd, account, sid, rec.transcriptPath); if (!tr) return json(res, 409, { error: rec.firstPrompt ? 'conversation file not found' : 'send the first message before moving this chat' });
       SWITCHING.add(name); SWITCHED.set(name, Date.now());
       try {
         const L = await headless.status(name);
@@ -1130,7 +1130,7 @@ async function api(req, res, url) {
     case 'chat-new': {
       const cwd = targetCwd(b.target);
       if (!cwd) return json(res, 400, { ok: false, error: 'unknown target' });
-      const r = b.empty === true ? await headless.startEmptyChat(cwd, b.account) : await headless.startChat(cwd, b.account, b.text);   // empty: no first message
+      const r = b.empty === true ? await headless.startEmptyChat(cwd, b.account) : await headless.startChat(cwd, b.account, b.text);
       setTimeout(tick, 300);
       return json(res, r.ok ? 200 : 400, r);
     }

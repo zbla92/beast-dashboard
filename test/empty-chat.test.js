@@ -4,11 +4,9 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-// a fake tmux first on PATH: no real tmux session is ever made. has-session says "no such session";
-// new-session logs its args and creates the runner's socket file, as the runner would.
 const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'bd-empty-')));
 process.env.BD_TEST = '1';
-process.env.BD_MIRROR = tmp;   // the session store is read-only: nothing is written to state/
+process.env.BD_MIRROR = tmp;
 process.env.XDG_RUNTIME_DIR = tmp;
 fs.writeFileSync(path.join(tmp, 'claude-sessions.json'), '{}');
 const PORT = 8795, socks = path.join(tmp, `beast-dash-test-${PORT}`), log = path.join(tmp, 'tmux.log'), bin = path.join(tmp, 'bin');
@@ -49,4 +47,56 @@ test('startEmptyChat: anything but company is personal; a missing folder fails',
 
 test('startChat still refuses an empty message (a blank prompt sent by mistake must not leave an idle chat behind)', async () => {
   for (const t of ['', '   ', null, undefined]) assert.deepStrictEqual(await headless.startChat(tmp, 'personal', t), { ok: false, error: 'empty message' });
+});
+
+test('a chat title shows what was typed, or the file names, never the upload paths', () => {
+  const { titleFromPrompt } = require('../lib/util');
+  assert.strictEqual(titleFromPrompt('fix this\n\n/home/u/dev/.pasted/a.jpg\n/home/u/dev/.pasted/b.pdf'), 'fix this');
+  assert.strictEqual(titleFromPrompt('📎 /home/u/dev/.pasted/a.jpg /home/u/dev/.pasted/keep/b.pdf'), '📎 a.jpg b.pdf');
+  assert.strictEqual(titleFromPrompt('look at   /etc/hosts please'), 'look at /etc/hosts please');
+});
+
+test('startEmptyChat: fails when the runner never comes up', async () => {
+  const tmuxFile = path.join(bin, 'tmux'); const working = fs.readFileSync(tmuxFile, 'utf8');
+  fs.writeFileSync(tmuxFile, '#!/bin/sh\ncase "$1" in has-session) exit 1 ;; esac\nexit 0\n', { mode: 0o755 });
+  try {
+    const dir = path.join(tmp, 'proj3'); fs.mkdirSync(dir);
+    const r = await headless.startEmptyChat(dir, 'personal');
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(r.error, 'the chat did not start');
+    assert.ok(!Object.values(claude.all()).some(record => record.cwd === dir), 'no record left behind');
+  } finally { fs.writeFileSync(tmuxFile, working, { mode: 0o755 }); }
+});
+
+test('startEmptyChat: a runner still starting is not reported as a failure', async () => {
+  const tmuxFile = path.join(bin, 'tmux'); const working = fs.readFileSync(tmuxFile, 'utf8');
+  fs.writeFileSync(tmuxFile, `#!/bin/sh
+marker=${JSON.stringify(path.join(tmp, 'alive'))}
+case "$1" in
+  has-session) [ -e "$marker" ] ;;
+  new-session) : > "$marker" ;;
+esac
+`, { mode: 0o755 });
+  try {
+    const dir = path.join(tmp, 'proj5'); fs.mkdirSync(dir);
+    const r = await headless.startEmptyChat(dir, 'personal');
+    assert.strictEqual(r.ok, true, r.error);
+    assert.strictEqual(claude.get(r.name).cwd, dir);
+  } finally { fs.writeFileSync(tmuxFile, working, { mode: 0o755 }); }
+});
+
+test('forkChat: a chat with no conversation yet is refused, with the reason', async () => {
+  const dir = path.join(tmp, 'proj4'); fs.mkdirSync(dir);
+  const r = await headless.forkChat({ sessionId: '11111111-1111-4111-8111-111111111111', cwd: dir, account: 'personal' });
+  assert.deepStrictEqual(r, { ok: false, error: 'no conversation to fork was found for this session' });
+});
+
+test('an empty chat takes its title from the first message it gets', () => {
+  const name = 'claude-chat-title-test';
+  claude.markChat(name, { cwd: tmp, account: 'personal', sessionId: '22222222-2222-4222-8222-222222222222' });
+  assert.ok(!claude.get(name).firstPrompt);
+  claude.onHook({ 'x-tmux-session': name }, { hook_event_name: 'UserPromptSubmit', prompt: 'fix the login\n\n/home/u/dev/.pasted/a.jpg' });
+  assert.strictEqual(claude.get(name).firstPrompt, 'fix the login');
+  claude.onHook({ 'x-tmux-session': name }, { hook_event_name: 'UserPromptSubmit', prompt: 'second message' });
+  assert.strictEqual(claude.get(name).firstPrompt, 'fix the login');
 });
