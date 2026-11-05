@@ -322,7 +322,8 @@ a.cv-ib { color: var(--dim); }
 .cvp .cv-fileh { position: absolute; top: 7px; left: 6px; z-index: 1; padding: 0; }
 .cvp .fbar { flex-wrap: nowrap; min-height: 44px; padding: 6px 8px 6px 42px; }
 .cvp .fbar .fpath { flex: 0 1 auto; max-width: none; min-width: 0; }
-.cvp .fbar > .dim, .cvp .fbar > .fi, .cvp .fbar > .chst { flex: none; }
+.cvp .fbar > .fi, .cvp .fbar > .chst { flex: none; }
+.cvp .fbar > .dim, .cvp .fbar .fdir { display: none; }
 .cvp .fbar .sp { flex: 1 0 4px; }
 .cvp .fbar .btn.sm { flex: none; width: 30px; height: 30px; padding: 0; justify-content: center; gap: 0; font-size: 0; }
 .cvp .fbar button.ghost { display: none; }
