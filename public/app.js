@@ -480,7 +480,7 @@ function closeTermPanel(pop = true) { if (!TERM.open) return; if (TERM.active) T
 // fixed panel (the "content behind" scroll). Only the chat list, the session list and textareas may scroll.
 document.addEventListener('touchmove', e => {
   if (!TERM.open) return;
-  const ok = e.target.closest && e.target.closest('.cscroll, #term-list, .termside, .rail-list, textarea, .tsel, .chpath, .modal .box, .drawer, .sbody, .logbox, .peek-b, .recov-text, .qchip-rows');
+  const ok = e.target.closest && e.target.closest('.cscroll, #term-list, .termside, .rail-list, textarea, .tsel, .chpath, .modal .box, .drawer, .sbody, .logbox, .peek-b, .recbar-text, .qchip-rows');
   if (!ok) e.preventDefault();
 }, { passive: false });
 function termOrder() { return [...new Set([...termSessions().all.map(x => x.name), ...TERM.frames.keys()])]; }
@@ -1871,38 +1871,58 @@ function voiceButton(ta, chatKey) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const canRec = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
   if (!SR && !canRec) return null;
-  // Tap the mic (a long press counts as a tap too) -> a full-screen recording sheet over everything; the only thing
-  // you can press is Stop. The words show on the sheet; the message box gets them on Stop (never sent by itself).
   // iOS ends a recognition on its own after a pause or ~1 min while the button still looks live: onend restarts it
   // for as long as we are recording, keeping what was already recognised. One recogniser is reused per page so
   // iOS asks for the microphone as rarely as it lets us (a home-screen app still forgets it on every launch).
   const b = h('button', { class: 'btn sm ghost qk mic', title: 'record — tap, talk, then Stop (the text lands in the message box; you send it)' }, ico('mic', 18));
   let rec = null, final = '', interim = '', active = false, restarts = [], settle = null;
-  // while recording: a sheet over the bottom of the screen — red dot + timer, the words as they come in (always
-  // scrolled to the newest), one big Stop. The textarea fills too and is kept scrolled to the end.
   let ov = null, ovText = null, ovTime = null, ovTimer = null, t0 = 0, ovStatus = null;
   // spoken language: Settings → voiceLangs (e.g. ['sr', 'en']) — the sheet toggles between them, remembered per chat
   // (falls back to the last one picked anywhere, then the first). Empty list: no toggle, Whisper detects the language.
   const LANGS = () => (Array.isArray(S.settings?.voiceLangs) ? S.settings.voiceLangs : []).filter(x => /^[a-z]{2,3}$/.test(x)); const lk = 'bd.vlang.' + (chatKey || '_');
   const vlang = () => { const L = LANGS(); if (!L.length) return ''; try { const v = localStorage.getItem(lk) || localStorage.getItem('bd.vlang'); return L.includes(v) ? v : L[0]; } catch { return L[0]; } };
   const setVlang = v => { try { localStorage.setItem(lk, v); localStorage.setItem('bd.vlang', v); } catch {} };
-  const openOverlay = () => {
-    ovText = h('div', { class: 'recov-text' }, h('span', { class: 'dim' }, 'listening…')); ovTime = h('span', { class: 'recov-time mono' }, '0:00'); t0 = Date.now();
-    ov = h('div', { class: 'recov' }, h('div', { class: 'recov-box' },
-      h('div', { class: 'recov-head' }, h('span', { class: 'recov-dot' }), h('b', null, 'Recording'), ovTime, h('span', { class: 'sp' }), (ovStatus = h('span', { class: 'recov-st' }, canRec && WHISPER.ok ? '' : 'browser speech')),
-        canRec && WHISPER.ok && LANGS().length > 1 ? h('button', { class: 'btn sm ghost recov-lang', title: 'language you speak in this chat — tap to switch (' + LANGS().join(' / ') + ', remembered per chat)', onclick: ev => { ev.preventDefault(); ev.stopPropagation(); const L = LANGS(); const n = L[(L.indexOf(vlang()) + 1) % L.length]; setVlang(n); ev.currentTarget.textContent = n.toUpperCase(); } }, vlang().toUpperCase()) : null),
-      ovText,
-      h('button', { class: 'btn recov-stop', onclick: ev => { ev.preventDefault(); ev.stopPropagation(); finish(); } }, h('span', { class: 'sq' }), 'Stop recording')));
-    for (const t of ['pointerdown', 'pointerup', 'click', 'touchstart']) ov.addEventListener(t, ev => { ev.stopPropagation(); if (ev.target === ov) ev.preventDefault(); });
-    ov.addEventListener('keydown', ev => ev.stopPropagation());
-    document.body.append(ov); document.activeElement && document.activeElement.blur && document.activeElement.blur();
+  const boxNow = () => ta.isConnected ? ta : [...document.querySelectorAll('[data-chat] .creply')].find(x => x.closest('[data-chat]').dataset.chat === chatKey);
+  const placeBar = () => {
+    if (!ov) return;
+    const box = boxNow(), host = box && box.parentElement;
+    if (!host || !host.getClientRects().length) { ov.classList.add('float'); ov.style.minHeight = ''; if (ov.parentElement !== document.body) document.body.append(ov); return; }
+    ov.classList.remove('float');
+    if (box.nextElementSibling === ov) return;
+    ov.style.minHeight = Math.max(44, (box.closest('.cline') || box).offsetHeight) + 'px';
+    box.after(ov);
+  };
+  const guardOutside = ev => {
+    if (ev.target.closest && ev.target.closest('.recbar, .cscroll, #term-ws, #fp2-panel')) return;
+    ev.stopPropagation();
+    if (ev.type !== 'click') return;
+    ev.preventDefault();
+    if (ov) ov.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.012)' }, { transform: 'scale(1)' }], { duration: 240, easing: 'ease-out' });
+  };
+  const openBar = () => {
+    ovText = h('div', { class: 'recbar-text' }, canRec && WHISPER.ok ? null : h('span', { class: 'dim' }, 'Listening…')); ovTime = h('span', { class: 'recbar-time mono' }, '0:00'); t0 = Date.now();
+    ovStatus = h('span', { class: 'recbar-st' }, canRec && WHISPER.ok ? '' : 'browser speech');
+    const langs = canRec && WHISPER.ok && LANGS().length > 1;
+    ov = h('div', { class: 'recbar', role: 'status' },
+      h('span', { class: 'recbar-dot' }), ovTime, ovText, ovStatus,
+      langs ? h('button', { class: 'recbar-lang mono', title: 'language you speak in this chat — tap to switch (' + LANGS().join(' / ') + ', remembered per chat)', onclick: ev => { const L = LANGS(); const n = L[(L.indexOf(vlang()) + 1) % L.length]; setVlang(n); ev.currentTarget.textContent = n.toUpperCase(); } }, vlang().toUpperCase()) : null,
+      h('button', { class: 'recbar-stop', title: 'Stop recording (Esc) — the text lands in the message box', 'aria-label': 'Stop recording', onclick: () => finish() }, h('span', { class: 'sq' })));
+    placeBar();
+    document.activeElement && document.activeElement.blur && document.activeElement.blur();
     document.addEventListener('keydown', escStop, true);
-    ovTimer = setInterval(() => { const s = Math.floor((Date.now() - t0) / 1000); ovTime.textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }, 500);
+    for (const t of ['pointerdown', 'click']) document.addEventListener(t, guardOutside, true);
+    ovTimer = setInterval(() => { placeBar(); const s = Math.floor((Date.now() - t0) / 1000); ovTime.textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }, 500);
   };
   const escStop = ev => { if (ev.key === 'Escape' && active) { ev.preventDefault(); ev.stopPropagation(); finish(); } };
-  const closeOverlay = () => { stopWave(); clearInterval(ovTimer); if (ov) ov.remove(); ov = null; ovText = null; ovStatus = null; document.removeEventListener('keydown', escStop, true); };
+  const closeBar = () => {
+    stopWave(); clearInterval(ovTimer);
+    document.removeEventListener('keydown', escStop, true);
+    for (const t of ['pointerdown', 'click']) document.removeEventListener(t, guardOutside, true);
+    if (ov) { const el = ov; el.style.height = el.offsetHeight + 'px'; el.classList.add('leaving'); setTimeout(() => el.remove(), 240); }
+    ov = null; ovText = null; ovStatus = null;
+  };
   const show = () => {
-    if (ovText) { const said = (final + interim).trim(); ovText.replaceChildren(said ? h('span', null, final, h('span', { class: 'dim' }, interim)) : h('span', { class: 'dim' }, 'listening…')); ovText.scrollTop = ovText.scrollHeight; }
+    if (ovText) { const said = (final + interim).trim(); ovText.replaceChildren(said ? h('span', null, final, h('span', { class: 'dim' }, interim)) : h('span', { class: 'dim' }, 'Listening…')); ovText.scrollTop = ovText.scrollHeight; }
   };
   const ensure = () => {
     if (rec) return rec;
@@ -1923,7 +1943,7 @@ function voiceButton(ta, chatKey) {
   };
   const begin = () => {
     active = true; clearTimeout(settle); final = ''; interim = ''; restarts = [];
-    b.classList.add('rec'); document.body.classList.add('recording'); openOverlay();
+    b.classList.add('rec'); document.body.classList.add('recording'); openBar();
     if (canRec && WHISPER.ok) { startWhisper(); return; }
     if (!SR) { toast('voice: Whisper on the server is not running', 'err'); finish(); return; }
     try { ensure().start(); } catch (e) { try { rec.abort(); } catch {} rec = null; try { ensure().start(); } catch { toast('voice unavailable', 'err'); finish(); } }
@@ -1938,7 +1958,7 @@ function voiceButton(ta, chatKey) {
     const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status); return j;
   };
   let tapAt = 0, lag = 0, whisperNote = '';
-  const micStatus = (live, extra) => { if (!ovStatus) return; ovStatus.replaceChildren(...(live ? [h('span', { class: 'ok' }, ico('dot', 9), ' Recording — talk')] : [h('span', { class: 'spin' }), ' Starting mic… wait'])); if (whisperNote) ovStatus.append(h('span', { class: 'dim' }, ' · ' + whisperNote)); };
+  const micStatus = live => { if (!ovStatus) return; ovStatus.replaceChildren(...(live ? [] : [h('span', { class: 'spin' }), 'Starting mic…'])); if (whisperNote) ovStatus.append(' ' + whisperNote); };
   async function startWhisper() {
     whisperOn = true; chunks = []; const my = ++gen; tapAt = Date.now(); whisperNote = ''; micStatus(false);
     wakeWhisper(my);   // starts the service if it's asleep; audio is buffered, so it doesn't matter when it's ready
@@ -1950,16 +1970,15 @@ function voiceButton(ta, chatKey) {
     mr.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
     mr.onstart = () => { lag = Date.now() - tapAt; if (my === gen) { micStatus(true); beep(); startWave(); } };   // only now is the mic really recording
     mr.start(1000);
-    if (ovText) ovText.replaceChildren(h('span', { class: 'dim' }, 'Talk — the text appears in the message box after Stop.'));
   }
   // Level meter while recording: bars scroll right-to-left with the mic's loudness (an analyser on the same stream,
   // never connected to the speakers). actx was resumed in the tap, so iOS lets it run.
   let waveRaf = 0, waveSrc = null;
   function startWave() {
     if (!ovText || !stream) return;
-    const N = 40, lv = new Array(N).fill(0), bars = Array.from({ length: N }, () => h('i'));
+    const N = Math.max(20, Math.min(110, Math.floor(ovText.clientWidth / 6))), lv = new Array(N).fill(0), bars = Array.from({ length: N }, () => h('i'));
     const wave = h('div', { class: 'recwave' }, ...bars);
-    ovText.replaceChildren(wave, h('div', { class: 'dim recwave-hint' }, 'Talk — the text appears in the message box after Stop.'));
+    ovText.replaceChildren(wave);
     let an = null, buf = null;
     try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === 'suspended') actx.resume(); waveSrc = actx.createMediaStreamSource(stream); an = actx.createAnalyser(); an.fftSize = 1024; waveSrc.connect(an); buf = new Float32Array(an.fftSize); } catch { an = null; }
     let last = 0;
@@ -1967,7 +1986,7 @@ function voiceButton(ta, chatKey) {
       if (!wave.isConnected) return stopWave();
       waveRaf = requestAnimationFrame(tick); if (t - last < 60) return; last = t;
       let v = 0; if (an) { an.getFloatTimeDomainData(buf); let sq = 0; for (let i = 0; i < buf.length; i++) sq += buf[i] * buf[i]; v = Math.min(1, Math.max(0, Math.sqrt(Math.sqrt(sq / buf.length)) * 2.4 - 0.1)); }
-      lv.push(v); lv.shift(); for (let i = 0; i < N; i++) bars[i].style.transform = `scaleY(${Math.max(0.06, lv[i])})`;
+      lv.push(v); lv.shift(); for (let i = 0; i < N; i++) bars[i].style.transform = `scaleY(${Math.max(0.07, lv[i])})`;
     };
     waveRaf = requestAnimationFrame(tick);
   }
@@ -1998,16 +2017,21 @@ function voiceButton(ta, chatKey) {
   function finish() {
     if (!active) return; active = false;
     b.classList.remove('rec');
-    // Whisper: keep the sheet up ("Finishing…") until the final pass is back, then close it and fill the box
-    const done = () => { document.body.classList.remove('recording'); closeOverlay(); };
-    if (whisperOn && ov) { clearInterval(ovTimer); const sb = ov.querySelector('.recov-stop'); if (sb) { sb.disabled = true; sb.replaceChildren(h('span', { class: 'spin' }), 'Finishing…'); } if (ovStatus) ovStatus.replaceChildren(h('span', { class: 'dim' }, 'Whisper is writing it down')); }
+    const done = () => { document.body.classList.remove('recording'); closeBar(); };
+    if (whisperOn && ov) {
+      clearInterval(ovTimer); ovTimer = setInterval(placeBar, 500);
+      ov.classList.add('finishing');
+      const sb = ov.querySelector('.recbar-stop'); if (sb) { sb.disabled = true; sb.replaceChildren(h('span', { class: 'spin' })); }
+      if (ovStatus) ovStatus.replaceChildren();
+      if (ovText) ovText.replaceChildren(h('span', { class: 'recbar-writing' }, 'Writing it down…'));
+    }
     else done();
     // The box this button was made with can be gone: a re-render (Claude working, a state change, the phone waking)
     // builds a new one. Write into the box of this chat that is on screen now; no box -> the chat's saved draft.
     const settleText = () => {
       if (interim) { final += interim.trim() + ' '; interim = ''; }
       if (!final.trim()) return;
-      const box = ta.isConnected ? ta : [...document.querySelectorAll('[data-chat] .creply')].find(x => x.closest('[data-chat]').dataset.chat === chatKey);
+      const box = boxNow();
       const add = v => (v.trim() ? v.replace(/\s*$/, ' ') : '') + final;
       if (!box) { saveDraft(chatKey, add(loadDraft(chatKey))); toast('saved in the chat\'s draft — open the chat to send it', 'ok'); return; }
       box.value = add(box.value); box.dispatchEvent(new Event('input'));   // that box's own grow(): height + saved draft
@@ -2019,7 +2043,6 @@ function voiceButton(ta, chatKey) {
     settle = setTimeout(settleText, 500);
   }
   b.addEventListener('pointerenter', () => whisperUp());
-  // tap = start (a long press is the same tap); stopping only happens with Stop on the sheet
   b.addEventListener('pointerdown', ev => { ev.preventDefault(); try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); actx.resume(); } catch {} if (!active) begin(); });
   b.addEventListener('click', ev => ev.preventDefault());
   b.addEventListener('contextmenu', ev => ev.preventDefault());

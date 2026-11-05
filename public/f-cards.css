@@ -27,7 +27,6 @@
   background: var(--card-fill); border-color: var(--card-edge); box-shadow: var(--card-rim), var(--card-lift);
   backdrop-filter: var(--card-blur); -webkit-backdrop-filter: var(--card-blur);
 }
-.recov-box { background: var(--glass-3); backdrop-filter: var(--blur-3); -webkit-backdrop-filter: var(--blur-3); }
 
 .tile.clickable:hover, .wstrip:hover, .wstrip:focus-visible, .titem:hover, .titem.on, .emu-tile:hover, .chfile:hover, .card:hover, .sa-row:hover { background: var(--card-fill-hover); }
 .card.sub { background: color-mix(in srgb, #fff 3%, var(--card-tint)); }

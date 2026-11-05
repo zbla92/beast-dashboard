@@ -150,6 +150,46 @@
 .cfield .cstop:hover { background: color-mix(in srgb, var(--red) 38%, transparent); }
 .cfield .cstop-sq { width: 10px; height: 10px; background: #fff; }
 body.recording .cfield .qk:not(.mic) { pointer-events: none; opacity: .4; }
+.recbar { --rec: color-mix(in srgb, var(--red) 82%, #fff); box-sizing: border-box; flex: 1 1 100%; align-self: stretch; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 6px 6px 6px 16px; border: 1px solid color-mix(in srgb, var(--red) 32%, var(--line)); border-radius: 16px; background: color-mix(in srgb, var(--red) 7%, var(--fill)); box-shadow: var(--hl-soft); cursor: default; clip-path: inset(0 round 16px); transition: clip-path .22s cubic-bezier(.4,0,.2,1), opacity .22s ease; }
+@starting-style { .recbar { clip-path: inset(0 0 0 calc(100% - 46px) round 16px); opacity: .4; } }
+@media (prefers-reduced-motion: no-preference) {
+  .recbar { transition-duration: .36s; transition-timing-function: cubic-bezier(.32,.72,0,1); }
+  .recbar > * { animation: recbar-in .3s .1s ease-out backwards; }
+}
+@keyframes recbar-in { from { opacity: 0; transform: translateX(8px); } }
+textarea:has(+ .recbar:not(.leaving)) { display: none; }
+.cline:has(> .recbar:not(.leaving)) > :not(.recbar) { display: none; }
+:has(> .recbar.leaving:not(.float)) { position: relative; }
+.recbar.leaving { transition-duration: .22s; transition-timing-function: cubic-bezier(.4,0,.2,1); clip-path: inset(0 0 0 calc(100% - 46px) round 16px); opacity: 0; pointer-events: none; }
+.recbar.leaving:not(.float) { position: absolute; top: 0; left: 0; right: 0; }
+.recbar.float { position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom)); z-index: 200; width: min(560px, calc(100vw - 24px)); min-height: 48px; translate: -50% 0; background: var(--glass-3); -webkit-backdrop-filter: var(--blur-2); backdrop-filter: var(--blur-2); box-shadow: var(--shadow); }
+.recbar-dot { flex: none; position: relative; width: 8px; height: 8px; border-radius: 50%; background: var(--rec); }
+.recbar-dot::after { content: ''; position: absolute; inset: 0; border-radius: 50%; background: var(--rec); animation: recbar-ping 1.6s cubic-bezier(0,0,.2,1) infinite; }
+@keyframes recbar-ping { 75%, 100% { transform: scale(2.8); opacity: 0; } }
+.recbar-time { flex: none; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; color: var(--text); }
+.recbar-text { flex: 1; min-width: 0; max-height: 96px; overflow-y: auto; font-size: var(--fs-sm); line-height: 20px; color: var(--text); touch-action: pan-y; overscroll-behavior: contain; }
+.recwave { display: flex; align-items: center; justify-content: space-between; height: 30px; -webkit-mask-image: linear-gradient(90deg, transparent, #000 22%); mask-image: linear-gradient(90deg, transparent, #000 22%); }
+.recwave i { flex: none; width: 2px; height: 100%; border-radius: 1px; background: var(--rec); transform: scaleY(.07); transition: transform 90ms linear; }
+.recbar-st { flex: none; display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-xs); color: var(--muted); white-space: nowrap; }
+.recbar-st:empty { display: none; }
+.recbar-st .spin { width: 11px; height: 11px; }
+.recbar-lang { flex: none; height: 26px; min-width: 34px; padding: 0 7px; border: 0; border-radius: 8px; background: var(--fill); color: var(--muted); font-size: var(--fs-xs); font-weight: 600; cursor: pointer; }
+.recbar-lang:hover { background: var(--fill2); color: var(--text); }
+.recbar-stop { flex: none; display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 50%; background: var(--red); cursor: pointer; transition: transform .12s ease, filter .12s ease; }
+.recbar-stop:hover { filter: brightness(1.12); }
+.recbar-stop:active { transform: scale(.92); }
+.recbar-stop:focus-visible { outline: 2px solid var(--rec); outline-offset: 2px; }
+.recbar-stop .sq { width: 11px; height: 11px; border-radius: 3px; background: #fff; }
+.recbar-stop .spin { width: 14px; height: 14px; }
+.recbar-stop:disabled { background: var(--fill2); cursor: default; }
+.recbar.finishing .recbar-dot::after { animation: none; opacity: 0; }
+.recbar.finishing .recbar-dot { background: var(--muted); }
+.recbar.finishing .recbar-time { color: var(--muted); }
+.recbar-writing { color: transparent; background: linear-gradient(90deg, var(--muted) 30%, var(--text) 50%, var(--muted) 70%) 0 0 / 220% 100%; -webkit-background-clip: text; background-clip: text; animation: recbar-shine 1.5s linear infinite; }
+@keyframes recbar-shine { from { background-position: 110% 0; } to { background-position: -110% 0; } }
+body.recording .cfoot { opacity: .4; pointer-events: none; transition: opacity .2s ease; }
+@media (prefers-reduced-motion: reduce) { .recbar-dot::after, .recbar-writing { animation: none; } .recbar-writing { color: var(--muted); } .recwave i { transition: none; } }
+@media (max-width: 900px) { .recbar { gap: 10px; padding-left: 14px; } .recbar-stop { width: 38px; height: 38px; } }
 
 .cfoot { display: flex; align-items: center; gap: 6px; min-width: 0; margin-top: 8px; padding: 8px 0 0; border-top: 1px solid var(--line); }
 .cfoot .mpick { min-width: 0; gap: 6px; }
