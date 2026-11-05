@@ -98,7 +98,7 @@
 .trow.err > .tr-sum .tlab { color: var(--red); }
 .trow.t-cmd .ti { color: var(--muted); }
 .trow.t-cmd .tl2 { flex-direction: row; align-items: center; gap: 10px; }
-.trow.t-cmd .tlab { flex: 0 1 auto; min-width: 0; }
+.trow.t-cmd .tlab { flex: 0 1 auto; min-width: 0; max-width: 100%; }
 .trow.t-cmd .tsub, .trow.t-cmd.bare .tlab { flex: 0 1 auto; min-width: 0; max-width: 100%; padding: 2px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--chat-pill); font-family: var(--mono); font-size: 12px; font-weight: 400; color: var(--text); }
 
 .turn.live { gap: 8px; padding: 0; border-radius: 0; background: none; }
