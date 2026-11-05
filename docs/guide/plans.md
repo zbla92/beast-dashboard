@@ -2,7 +2,11 @@
 
 A plan is a multi-step piece of work an agent runs across sessions: phases, tasks, what is next and
 what waits on you. Beast Dash keeps plans **outside your repos** and shows them live on every
-session. This page is the contract the CLI (`bin/plan`), the SessionStart hook, the server and the
+session.
+
+![A chat with the Plans panel and an open question](../screenshots/plan-panel.png)
+
+This page is the contract the CLI (`bin/plan`), the SessionStart hook, the server and the
 UI share. Parser, serializer and validator: [`lib/planfile.js`](../../lib/planfile.js). Examples:
 [`test/fixtures/plans/`](../../test/fixtures/plans/).
 

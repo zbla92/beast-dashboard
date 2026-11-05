@@ -54,13 +54,31 @@ Type what you want. The project is guessed from your words.
 <td><img src="docs/screenshots/chat-tools.png" alt="Tool calls opened: diffs and test output"></td>
 <td><img src="docs/screenshots/new-chat.png" alt="New chat with the guessed project"></td>
 </tr>
+<tr>
+<td width="50%" valign="top">
+
+### Follow the plan
+Phases and tasks tick off live beside the chat. Questions for you wait on top.
+
+</td>
+<td width="50%" valign="top">
+
+### Open what Claude names
+A file path in a reply opens a preview. Code blocks copy in one tap.
+
+</td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/plan-panel.png" alt="A chat with the Plans panel and an open question"></td>
+<td><img src="docs/screenshots/chat-preview.png" alt="A file named in a chat opened in the preview"></td>
+</tr>
 </table>
 
 <div align="center">
 
 ### Made for the phone, too
 
-<img src="docs/screenshots/phone-strip.png" alt="Phone: home, chat, a diff, Downloads" width="100%">
+<img src="docs/screenshots/phone-strip.png" alt="Phone: home, chat, the plan, a diff, Downloads" width="100%">
 
 </div>
 

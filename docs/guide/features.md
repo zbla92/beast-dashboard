@@ -110,6 +110,10 @@ you it is your turn.
 
 ![Chat of a finished session: Claude's summary with a list and a question](../screenshots/chat-done.png)
 
+A file path in a reply opens a preview: image, PDF, Markdown, or code at the named line.
+
+![A file named in a chat opened in the preview](../screenshots/chat-preview.png)
+
 ### Start anywhere, pick up anything
 
 **New chat** — type what you want done. The project is guessed from the words (names, paths, the
@@ -138,6 +142,10 @@ its changes, commits and files, with a diff or file viewer, and which live Claud
 
 ### Plan the work
 
+**Plans** — with ⚙ Settings → Plans on, the chat that works on a plan shows it beside the conversation: phases, tasks ticking off, what is next and the questions waiting for you. See [Plans](plans.md).
+
+![A chat with the Plans panel and an open question](../screenshots/plan-panel.png)
+
 | Projects, grouped by folder | Tasks per project |
 |---|---|
 | ![Project cards with branch, changes and what runs in each](../screenshots/projects.png) | ![Task backlog: in progress and to do](../screenshots/tasks.png) |
@@ -155,11 +163,12 @@ asked, files edited, cost).
 
 ### On the phone
 
-![Phone: home, chat, a diff, Downloads](../screenshots/phone-strip.png)
+![Phone: home, chat, the plan, a diff, Downloads](../screenshots/phone-strip.png)
 
 <p align="center">
-<img src="../screenshots/phone-sessions.png" width="24%" alt="Phone: session switcher">
-<img src="../screenshots/phone-chat-done.png" width="24%" alt="Phone: a finished session">
-<img src="../screenshots/phone-projects.png" width="24%" alt="Phone: projects">
-<img src="../screenshots/phone-tasks.png" width="24%" alt="Phone: tasks">
+<img src="../screenshots/phone-sessions.png" width="19%" alt="Phone: session switcher">
+<img src="../screenshots/phone-chat-done.png" width="19%" alt="Phone: a finished session">
+<img src="../screenshots/phone-projects.png" width="19%" alt="Phone: projects">
+<img src="../screenshots/phone-plan.png" width="19%" alt="Phone: the plan in session Options">
+<img src="../screenshots/phone-tasks.png" width="19%" alt="Phone: tasks">
 </p>
