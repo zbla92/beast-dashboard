@@ -168,7 +168,7 @@ body.term-open .maincol { visibility: hidden; }
     --blur-1: blur(22px) saturate(55%); --blur-2: blur(26px) saturate(55%); --blur-3: blur(32px) saturate(55%);
   }
   body::before { background-image: linear-gradient(rgba(12,13,18,.3), rgba(12,13,18,.5)), url('earth.jpg'); background-size: 100% 100%, min(128vw, 88lvh) auto; background-position: 0 0, 50% 14%; background-blend-mode: normal, lighten; }
-  body.term-open:not(.sess-list)::before { filter: blur(14px) saturate(45%); transform: translateZ(0) scale(1.08); }
+  body.term-open:not(.sess-list)::before, body[data-view="code"]:not(.sess-list)::before { filter: blur(14px) saturate(45%); transform: translateZ(0) scale(1.08); }
   .top { background: var(--glass-2); border-bottom: 1px solid var(--line); box-shadow: var(--hl-soft); backdrop-filter: var(--blur-1); -webkit-backdrop-filter: var(--blur-1); }
   .tabbar { left: 12px; right: 12px; bottom: max(10px, calc(env(safe-area-inset-bottom) - 12px)); height: 60px; padding: 4px; border: 0; border-radius: var(--r-pill); background: var(--glass-3); box-shadow: var(--hl), inset 0 0 0 1px var(--edge-soft), var(--shadow-float); backdrop-filter: var(--blur-2); -webkit-backdrop-filter: var(--blur-2); }
   .tb { border-radius: var(--r-pill); min-height: 44px; }
