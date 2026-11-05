@@ -1828,7 +1828,7 @@ function assistantTurn(turn, ctx) {
 function toggleChatFocus() {
   // it can be pressed anywhere in the chat: what you're reading stays put while the tool rows above it fold away or come back (not every browser does scroll anchoring)
   const spots = [...document.querySelectorAll('.conv')].map(conv => {
-    const scroller = conv.parentElement, top = scroller.getBoundingClientRect().top;
+    const scroller = conv.parentElement, top = scroller.getBoundingClientRect().top + (parseFloat(getComputedStyle(scroller).getPropertyValue('--chat-inset')) || 0);
     const anchor = [...conv.querySelectorAll(':scope > .turn.user, :scope > .turn > .ttext')].find(el => el.getBoundingClientRect().bottom > top);
     return { conv, scroller, anchor, was: anchor && anchor.getBoundingClientRect().top, atEnd: scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 60 };
   });

@@ -1,0 +1,73 @@
+:root {
+  --card-tint: rgba(36,41,55,.7);
+  --card-tint-hover: rgba(47,53,70,.76);
+  --card-sheen: linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,0) 60%);
+  --card-fill: var(--card-sheen), var(--card-tint);
+  --card-fill-hover: var(--card-sheen), var(--card-tint-hover);
+  --card-edge: rgba(255,255,255,.085);
+  --card-lift: 0 14px 30px -22px rgba(0,0,0,.7);
+  --card-blur: blur(24px) saturate(165%);
+  --bar-tint: rgba(20,24,34,.48);
+  --bar-blur: blur(26px) saturate(170%);
+  --tb-h: 47px;
+  --chat-inset: 0px;
+}
+
+.drawer, .modal .box, .pal, .menu, .fp2-panel, .fp2-sh {
+  --card-tint: rgba(255,255,255,.055);
+  --card-tint-hover: rgba(255,255,255,.09);
+  --card-fill: var(--card-tint);
+  --card-fill-hover: var(--card-tint-hover);
+  --card-lift: 0 0 transparent;
+  --card-blur: none;
+}
+
+.tile, .runwrap, .wstrip, .tk, .card, .rc-list, .rc-empty, .tunnels, .emu-tile, .sched, .wcard, .wtx-card, .fp-grp, .fp-sec, .fp-doc, .fp2-sec, .fp2-qrow, .cdet, .chfile, .ctr, .cmdrow, .titem, .ibx-row, .ibx-banner, .sa-row, .sa-result, .rail-card, .ban {
+  background: var(--card-fill); border-color: var(--card-edge); box-shadow: var(--hl-soft), var(--card-lift);
+  backdrop-filter: var(--card-blur); -webkit-backdrop-filter: var(--card-blur);
+}
+.recov-box { background: var(--glass-3); backdrop-filter: var(--blur-3); -webkit-backdrop-filter: var(--blur-3); }
+
+.tile.clickable:hover, .wstrip:hover, .wstrip:focus-visible, .titem:hover, .titem.on, .emu-tile:hover, .chfile:hover, .card:hover, .sa-row:hover { background: var(--card-fill-hover); }
+.card.sub { background: color-mix(in srgb, #fff 3%, var(--card-tint)); }
+.card.sub:hover { background: var(--card-fill-hover); }
+.titem.st-needs-you { background: color-mix(in srgb, var(--st-need) 8%, var(--card-tint)); }
+.titem.st-permission { background: color-mix(in srgb, var(--st-perm) 10%, var(--card-tint)); }
+.titem.st-needs-you:hover, .titem.st-needs-you.on { background: color-mix(in srgb, var(--st-need) 12%, var(--card-tint-hover)); }
+.titem.st-permission:hover, .titem.st-permission.on { background: color-mix(in srgb, var(--st-perm) 14%, var(--card-tint-hover)); }
+.ckp-file.on:hover { background: color-mix(in srgb, var(--accent) 16%, var(--card-tint-hover)); }
+.tile.hogs.is-hot { background: color-mix(in srgb, var(--red) 8%, var(--card-tint)); }
+.ibx-row { border-color: color-mix(in srgb, var(--signal) 35%, transparent); }
+.ibx-banner {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--signal) 15%, var(--card-tint)), var(--card-tint) 62%);
+  border-color: color-mix(in srgb, var(--signal) 32%, transparent);
+  box-shadow: var(--hl), 0 18px 40px -24px color-mix(in srgb, var(--signal) 45%, transparent);
+}
+.ibx-row.st-permission { background: color-mix(in srgb, var(--perm) 9%, var(--card-tint)); }
+.sa-row.sa-run { background: color-mix(in srgb, var(--cyan) 8%, var(--card-tint)); }
+.ban { background: color-mix(in srgb, var(--amber) 8%, var(--card-tint)); border-color: color-mix(in srgb, var(--amber) 26%, transparent); }
+.ban.err { background: color-mix(in srgb, var(--red) 9%, var(--card-tint)); }
+.ban.fic-ban { background: var(--card-fill); }
+
+body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rail-card { backdrop-filter: none; -webkit-backdrop-filter: none; }
+
+.termbar { position: relative; z-index: 6; flex: none; box-sizing: border-box; height: var(--tb-h); min-height: 0; background: var(--bar-tint); backdrop-filter: var(--bar-blur); -webkit-backdrop-filter: var(--bar-blur); }
+.chatpane:has(> .cscroll) { --chat-inset: var(--tb-h); top: calc(-1 * var(--tb-h)); }
+.chatpane > .cscroll { padding-top: calc(16px + var(--chat-inset)); scroll-padding-top: calc(8px + var(--chat-inset)); }
+
+.turn.assistant > .ttext, .tqa, .ttodo, .turn.user, .turn.assistant.cmenu { backdrop-filter: var(--card-blur); -webkit-backdrop-filter: var(--card-blur); }
+.turn.user .tqa, .ttext .tqa, .ttext .ttodo, .turn.user.queued, .turn.ask .ttext.askplan { backdrop-filter: none; -webkit-backdrop-filter: none; }
+
+@media (max-width: 900px) {
+  :root { --card-blur: blur(18px) saturate(160%); --tb-h: 48px; --bar-tint: rgba(20,24,34,.72); }
+  body.kb-open { --tb-h: 0px; }
+  .chatpane > .cscroll { padding-top: calc(12px + var(--chat-inset)); }
+  .cv-sec { background: var(--card-fill); backdrop-filter: var(--card-blur); -webkit-backdrop-filter: var(--card-blur); }
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root { --card-tint: #1c212d; --card-tint-hover: #252b39; --bar-tint: #151a26; --chat-bubble: #1f2533; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  :root { --card-tint: #1c212d; --card-tint-hover: #252b39; --card-blur: none; --bar-tint: #151a26; --bar-blur: none; }
+}

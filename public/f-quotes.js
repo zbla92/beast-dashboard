@@ -235,7 +235,9 @@ FEAT.quotes = (() => {
     if (!ui.cur || !ui.cur.range.startContainer.isConnected) { el.classList.add('hidden'); return; }
     el.classList.remove('hidden');
     const vv = window.visualViewport, view = vv ? { left: vv.offsetLeft, top: vv.offsetTop, right: vv.offsetLeft + vv.width, bottom: vv.offsetTop + vv.height } : { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
-    const pos = (TOUCH ? dockPos : pillPos)([...ui.cur.range.getClientRects()], view, ui.cur.sc.getBoundingClientRect(), el.offsetWidth, el.offsetHeight);
+    const sc = ui.cur.sc.getBoundingClientRect();
+    const box = { left: sc.left, right: sc.right, bottom: sc.bottom, top: sc.top + (parseFloat(getComputedStyle(ui.cur.sc).getPropertyValue('--chat-inset')) || 0) };
+    const pos = (TOUCH ? dockPos : pillPos)([...ui.cur.range.getClientRects()], view, box, el.offsetWidth, el.offsetHeight);
     if (!pos) { el.classList.add('hidden'); return; }
     el.style.left = pos.left + 'px'; el.style.top = pos.top + 'px';
   };

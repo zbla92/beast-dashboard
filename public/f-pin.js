@@ -21,16 +21,17 @@
   function attach(conv, box) {
     const scroller = conv.parentElement;
     let cur = null, raf = 0;
+    const insetOf = () => parseFloat(getComputedStyle(scroller).getPropertyValue('--chat-inset')) || 0;
     const txt = h('span', { class: 'qpin-t' });
     // positioned inline: if f-pin.css ever fails to load, the pin is plain but still stays out of the scroller's way
-    const pin = h('button', { class: 'qpin hidden', style: 'position:absolute;top:0;left:0;right:0', title: 'back to the start of this question and its reply', onclick: () => {
+    const pin = h('button', { class: 'qpin hidden', style: 'position:absolute;top:var(--chat-inset,0px);left:0;right:0', title: 'back to the start of this question and its reply', onclick: () => {
       if (!cur || !cur.isConnected) return;
-      scroller.scrollTop += cur.getBoundingClientRect().top - scroller.getBoundingClientRect().top - GAP;
+      scroller.scrollTop += cur.getBoundingClientRect().top - scroller.getBoundingClientRect().top - insetOf() - GAP;
     } }, ico('arrowUp', 14), txt);
     const update = () => {
       raf = 0;
       if (!scroller.isConnected) { st.stop(); return; }
-      const r = scroller.getBoundingClientRect(), q = r.height ? questionAt(conv, r.top) : null;   // no height: Terminal view, panel closed
+      const r = scroller.getBoundingClientRect(), q = r.height ? questionAt(conv, r.top + insetOf()) : null;   // no height: Terminal view, panel closed
       if (q === cur) return;
       cur = q; pin.classList.toggle('hidden', !q);
       if (!q) return;

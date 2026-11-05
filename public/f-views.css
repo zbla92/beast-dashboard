@@ -1,15 +1,6 @@
 :root {
-  --card-fill: linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.04));
-  --card-fill-hover: linear-gradient(180deg, rgba(255,255,255,.105), rgba(255,255,255,.06));
-  --card-edge: rgba(255,255,255,.065);
-  --card-lift: 0 14px 30px -22px rgba(0,0,0,.7);
   --code-fill: rgba(6,9,15,.82);
 }
-
-.tile, .runwrap, .wstrip, .tk, .card, .rc-list, .rc-empty, .tunnels, .emu-tile, .sched, .wcard, .wtx-card, .fp-grp, .fp-sec, .fp2-sec, .cdet, .chfile, .ctr, .cmdrow, .agent {
-  background: var(--card-fill); border-color: var(--card-edge); box-shadow: var(--hl-soft), var(--card-lift);
-}
-.tile.clickable:hover, .agent:hover, .wstrip:hover, .wstrip:focus-visible { background: var(--card-fill-hover); }
 
 #view-home { gap: 36px; padding-top: 14px; }
 .tshead { margin-bottom: 14px; }
@@ -51,7 +42,6 @@
 
 .feat-home { gap: 14px; }
 .feat-home > .tile { border-radius: var(--r-xl); padding: 18px 20px; }
-.sa-tile { background: var(--card-fill); }
 
 .runwrap { border-radius: var(--r-xl); border: 1px solid var(--card-edge); }
 .runtbl th { border-bottom-color: rgba(255,255,255,.07); font-size: var(--fs-xs); font-weight: 500; padding: 12px 14px 10px; }
@@ -84,7 +74,6 @@
   .tabbar { background: rgba(18,23,35,.86); }
   #view-home { gap: 28px; padding-top: 12px; }
   .ibx-banner { padding: 16px 16px 10px; border-radius: var(--r-xl); }
-  .agents { background: var(--card-fill); border: 1px solid var(--card-edge); box-shadow: var(--hl-soft); }
   .agents > * + * { border-top-color: rgba(255,255,255,.06); }
   .stats { gap: 10px; }
   .tile { min-height: 84px; padding: 12px 14px 10px; border-radius: var(--r-lg); }
@@ -101,7 +90,6 @@
 
 .fic-ban { flex-wrap: wrap; }
 .fic-ban > span:first-child { flex: 1 1 220px; min-width: 0; }
-.ban.fic-ban { background: var(--card-fill); border-color: var(--card-edge); }
 
 .pbar { padding: 14px 28px 4px; gap: 10px; }
 #filters .chip { height: 32px; }
@@ -111,7 +99,6 @@
 .ghead h2 { font-size: var(--fs-lg); }
 .grid { gap: 14px; }
 .card { padding: 16px 18px; border-radius: var(--r-xl); border: 1px solid var(--card-edge); gap: 13px; }
-.card.sub { background: rgba(255,255,255,.035); }
 .card.live { border-color: color-mix(in srgb, var(--green) 34%, transparent); }
 .card .badges .badge, .card .kind .badge { background: rgba(255,255,255,.08); border-color: transparent; }
 .run { background: rgba(5,8,14,.28); }

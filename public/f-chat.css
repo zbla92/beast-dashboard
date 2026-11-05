@@ -1,8 +1,8 @@
 :root {
   --chat-col: 920px;
   --chat-band: rgba(10,14,22,.46);
-  --chat-bubble: rgba(150,164,190,.15);
-  --chat-bubble-edge: rgba(255,255,255,.07);
+  --chat-bubble: rgba(44,49,64,.62);
+  --chat-bubble-edge: rgba(255,255,255,.085);
   --chat-user: rgba(34,78,162,.72);
   --chat-user-edge: rgba(132,172,250,.26);
   --chat-tool: #6fd6c9;

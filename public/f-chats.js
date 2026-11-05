@@ -56,8 +56,8 @@ window.CHATS = (() => {
   const barOn = (box, text, ms = BAR_MS) => {
     if (!box || !box.isConnected) return;
     if (!st.bar) { st.bar = document.createElement('div'); st.bar.className = 'cupd'; st.bar.setAttribute('role', 'status'); document.body.append(st.bar); }
-    const r = box.getBoundingClientRect();
-    Object.assign(st.bar.style, { top: r.top + 'px', left: r.left + 'px', width: r.width + 'px' });
+    const r = box.getBoundingClientRect(), inset = parseFloat(getComputedStyle(box).getPropertyValue('--chat-inset')) || 0;
+    Object.assign(st.bar.style, { top: r.top + inset + 'px', left: r.left + 'px', width: r.width + 'px' });
     st.bar.textContent = text;
     st.bar.classList.add('on');
     clearTimeout(st.timer);
