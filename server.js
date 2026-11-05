@@ -21,6 +21,7 @@ hogs.setResolver(cwd => { const id = rt.attributeTo(projects, cwd); return id ? 
 const expose = require('./lib/expose');
 const actions = require('./lib/actions');
 const SAFE_NAME = /^[\w.-]+$/;
+function decodeSeg(s) { try { return decodeURIComponent(s); } catch { return null; } }
 const claude = require('./lib/claude');
 const files = require('./lib/files');
 const pasted = require('./lib/pasted');
@@ -311,7 +312,7 @@ async function tickBody() {
     if (!TEST) detachHelpers().catch(e => console.error('detach', e));
     pushState(false);
     autoRestore().catch(e => console.error('auto-restore', e));
-    refreshGit(false).then(() => pushState(false));
+    refreshGit(false).then(() => pushState(false)).catch(e => console.error('refresh-git:', e.message));
   } catch (e) { console.error('tick failed', e); }
 }
 // Port health for every chip the UI shows (dev servers, external processes, running containers on the host).
@@ -410,7 +411,7 @@ function backupState() {
   run('tar', ['-czf', out, '-C', path.join(__dirname, 'state'), '--exclude=logs', '--exclude=usage-cache.json', '--exclude=claude-lkg', '.'], { timeout: 60000 }).then(r => {
     if (!r.ok) return console.error('backup failed', r.stderr);
     const files = fs.readdirSync(dir).filter(f => f.startsWith('state-')).sort(); while (files.length > 7) { try { fs.unlinkSync(path.join(dir, files.shift())); } catch {} }
-  });
+  }).catch(e => console.error('backup:', e.message));
 }
 // Auto-restore after a reboot: the first tick after start sees the remembered sessions with no tmux behind them.
 let autoRestored = false;
@@ -637,11 +638,11 @@ function send(res, code, headers, body, level = 1) {
 function json(res, code, obj) { send(res, code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }, JSON.stringify(obj)); }
 const staticGz = new Map();
 function sendStatic(req, res, fp, url) {
-  const st = fs.statSync(fp); const type = MIME[path.extname(fp)] || 'application/octet-stream';
+  const st = fs.statSync(fp); if (!st.isFile()) return json(res, 404, { error: 'not found' }); const type = MIME[path.extname(fp)] || 'application/octet-stream';
   const etag = `W/"${st.size.toString(36)}-${Math.round(st.mtimeMs).toString(36)}"`;
   const headers = { 'content-type': type, 'cache-control': url.searchParams.has('v') ? 'private, max-age=31536000, immutable' : 'no-cache', etag };
   if (req.headers['if-none-match'] === etag) { res.writeHead(304, headers); return res.end(); }
-  if (!GZIP_TYPE.test(type)) { res.writeHead(200, { ...headers, 'content-length': st.size }); return fs.createReadStream(fp).pipe(res); }
+  if (!GZIP_TYPE.test(type)) { res.writeHead(200, { ...headers, 'content-length': st.size }); return fs.createReadStream(fp).on('error', () => res.destroy()).pipe(res); }
   const raw = fs.readFileSync(fp);
   if (!wantsGzip(req) || raw.length <= 1400) return send(res, 200, headers, raw);
   let c = staticGz.get(fp);
@@ -695,7 +696,7 @@ async function api(req, res, url) {
     return;
   }
   if (m === 'GET' && parts[0] === 'hl-live' && parts[1]) {
-    const name = decodeURIComponent(parts[1]); if (!SAFE_NAME.test(name) || !isChat(name)) return json(res, 404, { error: 'not a chat session' });
+    const name = decodeSeg(parts[1]); if (name === null) return json(res, 400, { error: 'bad name' }); if (!SAFE_NAME.test(name) || !isChat(name)) return json(res, 404, { error: 'not a chat session' });
     sse(res);
     const out = o => { try { res.write(`event: ${o.ev}\ndata: ${JSON.stringify(o)}\n\n`); if (o.forgotten) res.end(); } catch {} };
     const snap = headless.live(name); if (snap) out(snap);
@@ -705,7 +706,7 @@ async function api(req, res, url) {
     return;
   }
   if (m === 'GET' && parts[0] === 'logs' && parts[1]) {
-    const name = decodeURIComponent(parts[1]); if (!SAFE_NAME.test(name)) return json(res, 400, { error: 'bad name' });
+    const name = decodeSeg(parts[1]); if (name === null || !SAFE_NAME.test(name)) return json(res, 400, { error: 'bad name' });
     if (parts[2] === 'stream') {
       sse(res);
       const f = actions.logFile(name);
@@ -722,22 +723,24 @@ async function api(req, res, url) {
   if (m === 'GET' && parts[0] === 'extlogs' && parts[1]) {
     const e = snapshot.external.find(x => String(x.pid) === parts[1]); if (!e) return json(res, 404, { error: 'process gone' });
     sse(res);
-    const send = d => res.write(`event: log\ndata: ${JSON.stringify(d.toString('utf8'))}\n\n`);
+    const cleanups = []; let gone = req.destroyed || res.writableEnded;
+    req.on('close', () => { gone = true; for (const f of cleanups) f(); });
+    const send = d => { try { res.write(`event: log\ndata: ${JSON.stringify(d.toString('utf8'))}\n\n`); } catch {} };
     if (e.unit) {
       const child = spawn('journalctl', ['--user', '-u', e.unit, '-n', '400', '-f', '-o', 'cat', '--no-pager']);
-      child.stdout.on('data', send); child.stderr.on('data', send); child.on('close', () => { try { res.write('event: end\ndata: {}\n\n'); } catch {} }); req.on('close', () => child.kill()); return;
+      child.stdout.on('data', send); child.stderr.on('data', send); child.on('close', () => { try { res.write('event: end\ndata: {}\n\n'); } catch {} }); cleanups.push(() => child.kill()); if (gone) child.kill(); return;
     }
     if (e.tty) {
       const pane = (await run('tmux', ['list-panes', '-a', '-F', '#{pane_tty}\t#{session_name}:#{window_index}.#{pane_index}'])).stdout.split('\n').find(l => l.startsWith(e.tty + '\t'));
       if (!pane) { send(`(prints to ${e.tty}, not a tmux pane — nothing to follow)\n`); res.write('event: end\ndata: {}\n\n'); return; }
       const target = pane.split('\t')[1]; let last = '';
       const grab = async () => { const r = await run('tmux', ['capture-pane', '-p', '-J', '-t', target, '-S', '-400']); const txt = r.stdout.replace(/\s+$/, '') + '\n'; if (txt !== last) { if (last && txt.startsWith(last.slice(0, -1))) send(txt.slice(last.length - 1)); else send((last ? '\x1b[2m--- pane redrawn ---\x1b[0m\n' : '') + txt); last = txt; } };
-      await grab(); const timer = setInterval(grab, 1000); req.on('close', () => clearInterval(timer)); return;
+      await grab(); if (gone) return; const timer = setInterval(grab, 1000); cleanups.push(() => clearInterval(timer)); return;
     }
     if (e.outFile) {
       let pos = 0; try { const st = fs.statSync(e.outFile); pos = Math.max(0, st.size - 300 * 1024); } catch {}
       const pump = () => { try { const st = fs.statSync(e.outFile); if (st.size < pos) pos = 0; if (st.size > pos) { const fd = fs.openSync(e.outFile, 'r'); const buf = Buffer.alloc(Math.min(st.size - pos, 512 * 1024)); fs.readSync(fd, buf, 0, buf.length, pos); fs.closeSync(fd); pos += buf.length; send(buf); } } catch {} };
-      pump(); const timer = setInterval(pump, 500); req.on('close', () => clearInterval(timer)); return;
+      pump(); const timer = setInterval(pump, 500); cleanups.push(() => clearInterval(timer)); return;
     }
     send('(this process writes to a socket/pipe the dashboard cannot read — start it from the dashboard or as a systemd unit to get logs here)\n'); res.write('event: end\ndata: {}\n\n'); return;
   }
@@ -819,10 +822,10 @@ async function api(req, res, url) {
   }
   if (m === 'GET' && parts[0] === 'file' && !parts[1] && url.searchParams.get('p')) { // an uploaded attachment (only from <devRoot>/.pasted)
     const base = pastedDir(); const fp = path.resolve(url.searchParams.get('p'));
-    if (!fp.startsWith(base + path.sep) || !fs.existsSync(fp)) return json(res, 404, { error: 'missing' });
+    if (!fp.startsWith(base + path.sep) || !fs.existsSync(fp) || !fs.statSync(fp).isFile()) return json(res, 404, { error: 'missing' });
     const ext = path.extname(fp).toLowerCase(); const type = MIME[ext] || ({ '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.pdf': 'application/pdf', '.csv': 'text/csv; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.json': 'application/json' })[ext] || 'application/octet-stream';
     // an uploaded .html / .svg must not run script as the dashboard's origin: sandbox it (no scripts, opaque origin)
-    res.writeHead(200, { 'content-type': type, 'cache-control': 'private, max-age=3600', ...(/html|svg/.test(type) ? { 'content-security-policy': 'sandbox' } : {}) }); return fs.createReadStream(fp).pipe(res);
+    res.writeHead(200, { 'content-type': type, 'cache-control': 'private, max-age=3600', ...(type === 'application/octet-stream' ? { 'content-disposition': 'attachment' } : {}), ...(/html|svg/.test(type) ? { 'content-security-policy': 'sandbox' } : {}) }); return fs.createReadStream(fp).on('error', () => res.destroy()).pipe(res);
   }
   // ---- v1.4 features ----
   if (m === 'GET' && parts[0] === 'plans' && !parts[1]) {
@@ -851,7 +854,8 @@ async function api(req, res, url) {
   }
   if (m === 'GET' && parts[0] === 'usage' && parts[1] === 'models') return json(res, 200, usage.models(Math.max(1, Math.min(30, +url.searchParams.get('days') || 7))));
   if (m === 'GET' && parts[0] === 'subagents' && parts[1]) {
-    const r = claude.get(decodeURIComponent(parts[1])); if (!r || !r.transcriptPath) return json(res, 404, { error: 'no transcript' });
+    const sess = decodeSeg(parts[1]); if (sess === null) return json(res, 400, { error: 'bad name' });
+    const r = claude.get(sess); if (!r || !r.transcriptPath) return json(res, 404, { error: 'no transcript' });
     const agent = url.searchParams.get('agent');
     if (agent) { if (!/^[a-z0-9]+$/.test(agent)) return json(res, 400, { error: 'bad agent id' }); const d = subagents.agentDetail(r.transcriptPath, agent); return json(res, d.error ? 404 : 200, d); }
     return json(res, 200, subagents.forSession(r.transcriptPath));
@@ -863,8 +867,8 @@ async function api(req, res, url) {
     res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'no-store' }); return res.end(r.png);
   }
   if (m === 'GET' && parts[0] === 'file' && parts[1]) { // README / CLAUDE.md preview
-    const p = proj(parts[1]); const f = decodeURIComponent(parts[2] || 'README.md');
-    if (!p || !/^[\w.-]+$/.test(f)) return json(res, 400, { error: 'bad' });
+    const p = proj(parts[1]); const f = decodeSeg(parts[2] || 'README.md');
+    if (!p || f === null || !/^[\w.-]+$/.test(f)) return json(res, 400, { error: 'bad' });
     try { return json(res, 200, { text: fs.readFileSync(path.join(p.path, f), 'utf8').slice(0, 200000) }); } catch { return json(res, 404, { error: 'missing' }); }
   }
   if (parts[0] === 'hook') { // Claude Code hook events (bin/claude-hook.sh); payload may carry a big tool_input
@@ -878,7 +882,7 @@ async function api(req, res, url) {
   if (m === 'GET' && parts[0] === 'temps') return json(res, 200, sys.tempsHistory(Number(url.searchParams.get('days')) || 1));
   if (m === 'GET' && parts[0] === 'recap') { const off = Math.max(0, Math.min(6, +(url.searchParams.get('day') || 0))); return json(res, 200, await recap.recap(off, projects, usage.files(), cwd => rt.attributeTo(projects, cwd))); }
   if (m === 'GET' && parts[0] === 'claude' && parts[1] === 'sessions') return json(res, 200, claude.all());
-  if (m === 'GET' && parts[0] === 'checkpoints' && parts[1]) { const name = decodeURIComponent(parts[1]); return json(res, 200, { items: checkpoints.items(name), busy: checkpoints.IN_TURN.has(claude.get(name)?.state) }); }
+  if (m === 'GET' && parts[0] === 'checkpoints' && parts[1]) { const name = decodeSeg(parts[1]); if (name === null) return json(res, 400, { error: 'bad name' }); return json(res, 200, { items: checkpoints.items(name), busy: checkpoints.IN_TURN.has(claude.get(name)?.state) }); }
   if (m === 'GET' && parts[0] === 'checkpoint-diff') {
     const q = k => url.searchParams.get(k) || '';
     const r = await checkpoints.diff(q('session'), q('id'), q('top'), q('file')); return json(res, r.error ? 404 : 200, r);
@@ -910,7 +914,8 @@ async function api(req, res, url) {
     const t = transcript.tool(file, id); return json(res, t.error ? 404 : 200, t);
   }
   if (m === 'GET' && parts[0] === 'transcript' && parts[1]) { // last N turns of a Claude session, by tmux name
-    const r = claude.get(decodeURIComponent(parts[1])); if (!r) return json(res, 200, { ...transcript.tail('', 1), touched: [], cwd: null, sessionId: null, noHooks: true });
+    const sess = decodeSeg(parts[1]); if (sess === null) return json(res, 400, { error: 'bad name' });
+    const r = claude.get(sess); if (!r) return json(res, 200, { ...transcript.tail('', 1), touched: [], cwd: null, sessionId: null, noHooks: true });
     return json(res, 200, { ...transcript.tail(r.transcriptPath || '', Math.min(200, +url.searchParams.get('n') || 40)), touched: r.touched || [], cwd: r.cwd, sessionId: r.sessionId });
   }
   if (m === 'GET' && parts[0] === 'transcript') { // any past conversation by transcript file (from search)
@@ -981,7 +986,6 @@ async function api(req, res, url) {
     if (m !== 'POST') return json(res, 405, { error: 'POST audio' });
     const ready = await whisper.ready(url.searchParams.get('retry') === '1');
     if (!ready.ok) { req.resume(); return json(res, 503, ready); }
-    const http = require('http');
     const up = http.request({ host: '127.0.0.1', port: 8790, method: 'POST', path: '/transcribe' + (url.search || ''), headers: { 'content-type': 'application/octet-stream', 'content-length': req.headers['content-length'] || 0 }, timeout: 120000 }, r2 => { res.writeHead(r2.statusCode, { 'content-type': 'application/json', 'cache-control': 'no-store' }); r2.pipe(res); });
     up.on('error', e => { if (!res.headersSent) json(res, 503, { error: 'whisper: ' + e.message }); });
     up.on('timeout', () => up.destroy(new Error('timeout')));
@@ -1194,7 +1198,7 @@ async function api(req, res, url) {
       if (!b.dry && checkpoints.IN_TURN.has(claude.get(name)?.state)) return json(res, 409, { ok: false, error: 'Claude is working in this session — wait until it is done' });
       const r = await checkpoints.restore(name, id, { dry: !!b.dry, top: typeof b.top === 'string' ? b.top : null });
       if (!r) return json(res, 500, { ok: false, error: 'undo failed' });
-      if (!b.dry) refreshGit(false).then(() => pushState(false));
+      if (!b.dry) refreshGit(false).then(() => pushState(false)).catch(e => console.error('checkpoint-restore:', e.message));
       return json(res, r.ok || r.undo ? 200 : 409, r);
     }
     case 'claude-label': {
@@ -1209,7 +1213,7 @@ async function api(req, res, url) {
     case 'savefile': { // editor save; refuses if the file changed since it was loaded
       const p = await roots.rootOf(b.id); if (!p) return json(res, 404, { error: 'no project' });
       if (typeof b.path !== 'string' || typeof b.text !== 'string') return json(res, 400, { error: 'path + text' });
-      const r = files.save(p.path, b.path, b.text, +b.mtime || 0); if (r.ok) refreshGitOne(p.isGit ? p.id : p.parent).then(() => pushState(false)); return json(res, r.ok ? 200 : 409, r);
+      const r = files.save(p.path, b.path, b.text, +b.mtime || 0); if (r.ok) refreshGitOne(p.isGit ? p.id : p.parent).then(() => pushState(false)).catch(e => console.error('savefile:', e.message)); return json(res, r.ok ? 200 : 409, r);
     }
     case 'send': { // type into a tmux session (quick reply from the card / phone)
       if (typeof b.session !== 'string' || typeof b.text !== 'string') return json(res, 400, { error: 'session + text' });
@@ -1318,8 +1322,6 @@ async function api(req, res, url) {
       return json(res, 200, { ok: true, id: p ? p.id : null, path: c.target, rel: c.rel.split(path.sep).join('/'), account: c.account });
     }
     case 'rescan': { await rescan(); await tick(); pushState(true); return json(res, 200, { ok: true, count: projects.length }); }
-    case 'refresh-git': { await refreshGit(true); pushState(true); return json(res, 200, { ok: true }); }
-    case 'clear-recent': { const runs = rt.loadRuns(); for (const k of Object.keys(runs)) if (runs[k].endedAt) delete runs[k]; rt.saveRuns(runs); setTimeout(tick, 100); return json(res, 200, { ok: true }); }
     default: return json(res, 404, { error: 'not found' });
   }
 }
