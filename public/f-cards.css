@@ -110,3 +110,11 @@ body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rail-card { backdrop
   .fp2-panel, #term-ws, .cv-main, .modal .box.ibx { background: var(--glass-solid); }
   .wtx-pop, .ns-pick, .fp2-drop, .fp2-sh, .rv-pill, .conn, .cupd, .qacts, .wp-pop, .qchip-list, .qpin, .fp-pick { background: var(--glass-solid); }
 }
+.tile[data-k="cpu"], .tile[data-k="mem"], .tile[data-k="gpu"], .tile[data-k="net"], .tile[data-k="claude"] { padding-bottom: 74px; }
+.tile canvas, .tile[data-k="claude"] canvas { display: block; height: 66px; opacity: 1; }
+.tile[data-k="disk"] canvas, .tile[data-k="up"] canvas, .tile[data-k="bat"] canvas, .tile[data-k="limits"] canvas, .tile.hogs canvas { display: none; }
+.sa-lplot { height: 124px; }
+@media (max-width: 900px) {
+  .tile[data-k="cpu"], .tile[data-k="mem"], .tile[data-k="gpu"], .tile[data-k="net"], .tile[data-k="claude"] { padding-bottom: 56px; }
+  .tile canvas, .tile[data-k="claude"] canvas { height: 50px; }
+}

@@ -796,15 +796,16 @@ function renderHeader() {
 
 // ---------- stats ----------
 const spark = {};
-function sparkline(canvas, data, color, max = 100, fill = true) {
+function sparkline(canvas, data, color, max = 100, fill = true, span = 180) {
   const dpr = window.devicePixelRatio || 1; const W = canvas.clientWidth, H = canvas.clientHeight; if (!W) return;
-  if (canvas.width !== W * dpr) { canvas.width = W * dpr; canvas.height = H * dpr; }
+  if (canvas.width !== Math.floor(W * dpr) || canvas.height !== Math.floor(H * dpr)) { canvas.width = W * dpr; canvas.height = H * dpr; }
   const ctx = canvas.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
-  const n = Math.max(data.length, 2); const step = W / (180 - 1);
-  const x = i => W - (data.length - 1 - i) * step; const y = v => H - 2 - Math.min(1, (v || 0) / max) * (H - 6);
-  ctx.beginPath(); data.forEach((v, i) => i ? ctx.lineTo(x(i), y(v)) : ctx.moveTo(x(i), y(v)));
-  ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
-  if (fill && data.length > 1) { ctx.lineTo(x(data.length - 1), H); ctx.lineTo(x(0), H); ctx.closePath(); const glow = ctx.createLinearGradient(0, 0, 0, H); glow.addColorStop(0, color.replace(')', ',.55)').replace('rgb', 'rgba')); glow.addColorStop(1, color.replace(')', ',0)').replace('rgb', 'rgba')); ctx.fillStyle = glow; ctx.fill(); }
+  const step = W / (span - 1);
+  const x = i => W - (data.length - 1 - i) * step; const y = v => H - 3 - Math.min(1, (v || 0) / max) * (H - 12);
+  const peak = data.length ? Math.min(...data.map(y)) : H;
+  const stroke = () => { ctx.beginPath(); data.forEach((v, i) => i ? ctx.lineTo(x(i), y(v)) : ctx.moveTo(x(i), y(v))); };
+  if (fill && data.length > 1) { stroke(); ctx.lineTo(x(data.length - 1), H); ctx.lineTo(x(0), H); ctx.closePath(); const glow = ctx.createLinearGradient(0, peak, 0, H); glow.addColorStop(0, color.replace(')', ',.6)').replace('rgb', 'rgba')); glow.addColorStop(1, color.replace(')', ',.04)').replace('rgb', 'rgba')); ctx.fillStyle = glow; ctx.fill(); }
+  stroke(); ctx.strokeStyle = color; ctx.lineWidth = 2.25; ctx.lineJoin = 'round'; ctx.shadowColor = color; ctx.shadowBlur = 8; ctx.stroke(); ctx.shadowBlur = 0;
 }
 const usd = v => v == null ? '–' : v < 10 ? '$' + v.toFixed(2) : '$' + v.toFixed(0);
 // "claude-opus-5[1m]" -> "Opus 5 · 1M", "claude-fable-5-1" -> "Fable 5.1", "claude-haiku-4-5-20251001" -> "Haiku 4.5"
@@ -996,9 +997,9 @@ function hogsTile(s) {
 }
 function drawSparks() {
   const H = S.hist; const u = S.claude?.usage;
-  const map = { cpu: [H.cpu, 'rgb(79,212,255)', 100], mem: [H.mem, 'rgb(183,148,255)', 100], gpu: [H.gpu, 'rgb(75,227,154)', 100], net: [H.net.map(x => x[0] + x[1]), 'rgb(255,160,90)', Math.max(1e5, ...H.net.map(x => x[0] + x[1]))] };
-  if (u) { const series = u.days.map((_, i) => u.personal.series[i] + u.company.series[i]); map.claude = [series, 'rgb(255,138,196)', Math.max(1, ...series)]; }
-  for (const [k, [data, color, max]] of Object.entries(map)) { const c = $(`.tile[data-k="${k}"] canvas`); if (c) sparkline(c, data, color, max); }
+  const map = { cpu: [H.cpu, 'rgb(79,212,255)', Math.max(20, ...H.cpu.map(v => v * 1.2))], mem: [H.mem, 'rgb(183,148,255)', 100], gpu: [H.gpu, 'rgb(75,227,154)', Math.max(20, ...H.gpu.map(v => v * 1.2))], net: [H.net.map(x => x[0] + x[1]), 'rgb(255,160,90)', Math.max(1e5, ...H.net.map(x => x[0] + x[1]))] };
+  if (u) { const series = u.days.map((_, i) => u.personal.series[i] + u.company.series[i]); map.claude = [series, 'rgb(255,138,196)', Math.max(1, ...series), series.length]; }
+  for (const [k, [data, color, max, span]] of Object.entries(map)) { const c = $(`.tile[data-k="${k}"] canvas`); if (c) sparkline(c, data, color, max, true, span); }
 }
 
 // ---------- agents (home page: every Claude session as a card, needs-you first) ----------

@@ -490,7 +490,6 @@ input[type=checkbox] { accent-color: var(--accent); }
 .cores.big { margin-top: 12px; } .cores.big i { height: 8px; }
 .tile .ring { position: absolute; right: 12px; top: 12px; z-index: 1; width: 46px; height: 46px; }
 .tile .v { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tile[data-k="claude"] canvas { display: none; }
 .tile .ring .rt { fill: var(--text); font-family: var(--sans); font-size: var(--fs-sm); font-weight: 600; }
 .tile[data-k="disk"] canvas { display: none; } .tile[data-k="disk"] .s, .tile[data-k="disk"] .v { padding-right: 52px; } .tile[data-k="disk"] .k .temp { margin-right: 52px; }
 .tile[data-k="limits"] canvas { display: none; }
