@@ -1111,7 +1111,7 @@ function sessMenu(ev, name) {
   const mac = copyAttach(name);
   const proj = sess && byId()[sess.project]; const git = proj && gitOf(proj);
   const dirty = git && !git.error ? git.dirty + git.untracked : 0;
-  const upgrading = CLAUDE_UPGRADING; const upd = cl && S.claude?.update;
+  const upd = cl && S.claude?.update; const upgrading = CLAUDE_UPGRADING || !!upd?.installing; const updHow = upd?.via === 'native' ? 'claude update' : 'mise upgrade claude';
   const wt = cl && cl.worktree; const where = !cl ? '' : wt ? wt.name + (cl.branch && cl.branch !== wt.name ? ' · ' + cl.branch : '') : cl.branch ? cl.branch : '';
   const title = sessTitle(sess || { name });
   openMenu(ev, [
@@ -1127,7 +1127,7 @@ function sessMenu(ev, name) {
     chat && FEAT.session?.move ? { label: 'Move to folder…', icon: ico('folder', 15), disabled: !idle, title: 'same conversation, Claude continues in another project or folder (only when idle)', onclick: () => FEAT.session.move(name) } : null,
     proj ? { label: 'Project details…', sub: dirty ? dirty + ' changes' : '', icon: ico('folder', 15), title: 'project details — changes, files, logs, branches, docker', onclick: () => openDrawer(proj.id, dirty ? 'changes' : 'overview') } : null,
     (cl && cl.hooked) || muted ? { label: muted ? 'Unmute notifications' : 'Mute notifications', sub: muted ? 'muted now' : '', icon: ico(muted ? 'bell' : 'bellOff', 15), onclick: () => api('claude-mute', { session: name, muted: !muted }).then(r => toast(r.muted.includes(name) ? 'muted' : 'unmuted')).catch(e => toast(e.message, 'err')) } : null,
-    upd ? { label: upgrading ? 'Installing update…' : 'Update Claude Code', sub: upgrading ? '' : upd.version, icon: ico('refresh', 15), disabled: upgrading, title: upgrading ? 'mise upgrade claude is running…' : `Claude Code ${upd.version} is out — install it (mise upgrade claude), then restart this session (same conversation, --resume)`, onclick: () => updateClaude({ name, project: sess?.project }) } :
+    upd ? { label: upgrading ? 'Installing update…' : 'Update Claude Code', sub: upgrading ? '' : upd.version, icon: ico('refresh', 15), disabled: upgrading, title: upgrading ? `${updHow} is running…` : upd.via === 'native' ? `Claude Code ${upd.version} is out — install it (${updHow})` : `Claude Code ${upd.version} is out — install it (${updHow}), then restart this session (same conversation, --resume)`, onclick: () => updateClaude({ name, project: sess?.project }) } :
     cl && needsRestart(cl) ? { label: 'Restart on new version', sub: wantVersion(cl), icon: ico('refresh', 15), title: `running Claude Code ${cl.version} — restart on ${wantVersion(cl)} (same conversation)`, onclick: () => restartSession({ name, project: sess?.project }) } : null,
     ...feat('sessMenu', name, sess, cl),
     'sep',
@@ -1168,14 +1168,15 @@ function bgText(bg) {
 // mise install (Omarchy): Claude Code only says "Run: mise upgrade claude" — do that, then restart this session (it = null: just install).
 // One at a time: the download takes a while, and every extra click used to queue one more restart of the session.
 async function updateClaude(it) {
-  const v = S.claude?.update?.version; if (!v) return;
-  if (CLAUDE_UPGRADING) { toast('mise upgrade claude is still running…'); return; }
-  if (!confirm(`Update Claude Code to ${v}${it ? ` and restart ${it.name}` : ''}?\n\nRuns mise upgrade claude${it ? ', then restarts this chat on it (same conversation)' : ''}. Other sessions get a restart button. Takes up to a minute.`)) return;
+  const upd = S.claude?.update; const v = upd?.version; if (!v) return;
+  const native = upd.via === 'native'; const how = native ? 'claude update' : 'mise upgrade claude';
+  if (CLAUDE_UPGRADING || upd.installing) { toast(how + ' is still running…'); return; }
+  if (!native && !confirm(`Update Claude Code to ${v}${it ? ` and restart ${it.name}` : ''}?\n\nRuns mise upgrade claude${it ? ', then restarts this chat on it (same conversation)' : ''}. Other sessions get a restart button. Takes up to a minute.`)) return;
   CLAUDE_UPGRADING = true; renderTermPanel();
-  toast('mise upgrade claude …');
-  const r = await act('mise upgrade claude → ' + v, api('claude-upgrade', {})).catch(() => null);
+  toast(how + ' …');
+  const r = await act(how + ' → ' + v, api('claude-upgrade', {})).catch(() => null);
   CLAUDE_UPGRADING = false; renderTermPanel();
-  if (it && r?.ok) restartChatNow(it);
+  if (it && !native && r?.ok) restartChatNow(it);
 }
 async function restartSession(it) {
   const want = claudeOf(it.name)?.wantVersion || S.claude?.installed;
@@ -1294,6 +1295,15 @@ function renderBanner() {
       cv.using ? ` — chat sessions run on ${cv.using}. Terminal sessions use ${cv.current}. ` : ' — no earlier working version is kept, chat sessions may not start. ', h('span', { class: 'dim mono', style: 'font-size:11.5px' }, cv.error)),
       h('span', { style: 'flex:1' }), recheck, cv.pin ? unpin : h('button', { class: 'btn sm ghost', title: 'run chat sessions on this version even though the check failed', onclick: () => act('Use Claude ' + cv.current, api('claude-version', { op: 'pin', version: cv.current })) }, `Use ${cv.current} anyway`)));
     else parts.push(h('div', { class: 'ban' }, h('span', null, h('b', null, gl(`📌 Chat sessions are pinned to Claude Code ${cv.pin}`)), cv.current && cv.current !== cv.pin ? ` (installed: ${cv.current})` : ''), h('span', { style: 'flex:1' }), unpin));
+  }
+  const upd = S.claude?.update;
+  if (upd && UI.view === 'home') {
+    const busy = CLAUDE_UPGRADING || upd.installing;
+    const update = h('button', { class: 'btn sm primary', onclick: () => updateClaude(null) }, upd.error ? 'Try again' : 'Update');
+    parts.push(h('div', { class: 'ban' + (upd.error ? ' err' : ''), role: 'status' }, h('span', null,
+      h('b', null, ico('arrowUp', 14), busy ? ` Installing Claude Code ${upd.version}…` : upd.error ? ` Claude Code ${upd.version} did not install` : ` Claude Code ${upd.version} is out`),
+      busy ? '' : upd.error ? h('span', { class: 'dim mono', style: 'font-size:11.5px' }, ' ' + upd.error) : ` — you are on ${S.claude.installed || 'an older version'}.`),
+      h('span', { style: 'flex:1' }), busy ? null : update));
   }
   const newVer = cv && !cv.error && !cv.checking && cv.current && cv.using === cv.current ? cv.current : null;
   const oldTerms = newVer ? S.runtime.sessions.filter(x => x.claude && x.claude.mode !== 'chat' && x.claude.sessionId && x.claude.version && x.claude.version !== newVer) : [];
@@ -2756,6 +2766,7 @@ function settingsModal() {
       sect('Sessions',
         row('Auto-restore after reboot', 'claude --resume in the same folders as soon as the dashboard starts', sw(!!s.autoRestore, { id: 'set-autorestore' })),
         row('Messages while Claude works', 'chat sessions, this device · ' + (IS_PHONE ? 'the send button does this, the second button the other' : 'Enter does this, Alt+Enter the other'), h('span', { class: 'seg' }, [['steer', 'Send now'], ['queue', 'After the turn']].map(([v, l]) => h('button', { class: 'segb' + (followUp() === v ? ' on' : ''), title: v === 'steer' ? 'goes into the running turn — Claude reads it at its next step' : 'waits in the queue and goes out when the turn is over', onclick: ev => { FEAT.queue?.setFollowUp(v); for (const b of ev.currentTarget.parentElement.children) b.classList.toggle('on', b === ev.currentTarget); renderChatPane(true); } }, l)))),
+        row('Update Claude Code automatically', 'checks every hour and installs a new release. If that fails, Home shows an Update button', sw(s.claudeAutoUpdate !== false, { id: 'set-claudeupdate' })),
         row('Move chats to a new Claude Code', 'when a new version passes the start check, chat sessions restart on it one by one (idle now, busy ones after their turn)', sw(s.chatAutoUpgrade !== false, { id: 'set-chatupgrade' }))),
       sect('Plans',
         row('Plans', 'Agents keep plans outside repos; show them on sessions', sw(!!s.plans, { id: 'set-plans' }))),
@@ -2769,7 +2780,7 @@ function settingsModal() {
         row('Dev root', 'folder scanned for projects', txt('devRoot')),
         row('Scan depth', '', txt('scanDepth', { type: 'number', class: 'txt sm' }))),
       hidden.length ? sect('Hidden projects', ...hidden.map(id => row(id, '', h('button', { class: 'btn sm', onclick: () => api('project', { id, hidden: false }).then(() => { m.classList.add('hidden'); toast('unhidden'); }) }, 'Unhide')))) : null),
-    h('div', { class: 'foot' }, h('button', { class: 'btn ghost', onclick: () => m.classList.add('hidden') }, 'Cancel'), h('button', { class: 'btn primary', onclick: async () => { const patch = { autoExpose: auto.checked, autoRestore: !!box.querySelector('#set-autorestore')?.checked, chatAutoUpgrade: !!box.querySelector('#set-chatupgrade')?.checked, plans: !!box.querySelector('#set-plans')?.checked, notify: { ...(s.notify || {}) } }; for (const i of box.querySelectorAll('input[data-n]')) patch.notify[i.dataset.n] = i.checked; for (const i of box.querySelectorAll('input[data-q]')) patch.notify[i.dataset.q] = i.value; for (const i of box.querySelectorAll('input[data-k]')) patch[i.dataset.k] = i.type === 'number' ? +i.value : i.value.trim(); patch.accountLabels = { ...(s.accountLabels || {}) }; for (const i of box.querySelectorAll('input[data-acct]')) patch.accountLabels[i.dataset.acct] = i.value.trim() || i.dataset.acct; await act('Settings saved', api('settings', patch)); m.classList.add('hidden'); } }, 'Save')));
+    h('div', { class: 'foot' }, h('button', { class: 'btn ghost', onclick: () => m.classList.add('hidden') }, 'Cancel'), h('button', { class: 'btn primary', onclick: async () => { const patch = { autoExpose: auto.checked, autoRestore: !!box.querySelector('#set-autorestore')?.checked, chatAutoUpgrade: !!box.querySelector('#set-chatupgrade')?.checked, claudeAutoUpdate: !!box.querySelector('#set-claudeupdate')?.checked, plans: !!box.querySelector('#set-plans')?.checked, notify: { ...(s.notify || {}) } }; for (const i of box.querySelectorAll('input[data-n]')) patch.notify[i.dataset.n] = i.checked; for (const i of box.querySelectorAll('input[data-q]')) patch.notify[i.dataset.q] = i.value; for (const i of box.querySelectorAll('input[data-k]')) patch[i.dataset.k] = i.type === 'number' ? +i.value : i.value.trim(); patch.accountLabels = { ...(s.accountLabels || {}) }; for (const i of box.querySelectorAll('input[data-acct]')) patch.accountLabels[i.dataset.acct] = i.value.trim() || i.dataset.acct; await act('Settings saved', api('settings', patch)); m.classList.add('hidden'); } }, 'Save')));
   m.replaceChildren(box);
   m.onclick = e => { if (e.target === m) m.classList.add('hidden'); };
 }
@@ -3080,7 +3091,7 @@ function paletteItems() {
     { kind: 'action', label: 'Projects', sub: 'all projects, filters, search', icon: '▤', hay: 'projects view page', run: () => goView('projects'), rank: 29 },
     { kind: 'action', label: 'Home', sub: 'stats · agents · running', icon: '⌂', hay: 'home dashboard', run: () => goView('home'), rank: 28 });
   items.push(...feat('paletteItems'));
-  if (S.claude?.update) items.push({ kind: 'action', label: 'Update Claude Code', sub: `${S.claude.installed || '?'} → ${S.claude.update.version} (mise upgrade claude)`, icon: 'arrowUp', hay: 'update upgrade claude code version mise', run: () => updateClaude(null), rank: 0 });
+  if (S.claude?.update) items.push({ kind: 'action', label: 'Update Claude Code', sub: `${S.claude.installed || '?'} → ${S.claude.update.version} (${S.claude.update.via === 'native' ? 'claude update' : 'mise upgrade claude'})`, icon: 'arrowUp', hay: 'update upgrade claude code version mise', run: () => updateClaude(null), rank: 0 });
   if ((S.claude?.restorable || []).length) items.push({ kind: 'action', label: 'Restore Claude sessions', sub: `${S.claude.restorable.length} from before the restart`, icon: '↺', hay: 'restore claude sessions resume', run: () => restoreClaude(), rank: 0 });
   const score = it => { if (!q) return 0; const hay = it.hay.toLowerCase(); if (hay.includes(q)) return 1; const w = q.split(/\s+/); return w.every(x => hay.includes(x)) ? 2 : (fuzzy(it.label.toLowerCase(), q) ? 3 : 0); };
   return items.map((it, i) => ({ ...it, s: score(it), i })).filter(it => !q || it.s).sort((a, b) => (q ? a.s - b.s : 0) || a.rank - b.rank || a.i - b.i).slice(0, 40);

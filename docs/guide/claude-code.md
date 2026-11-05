@@ -119,7 +119,14 @@ endpoint — the token is never sent anywhere else and never refreshed by the da
 
 ## Claude Code versions
 
-Claude Code updates itself, and a broken build would break every chat.
+Chat sessions run Claude Code without its interactive screen, so with only chats running nothing
+installs new releases on its own. The dashboard does it: every hour it asks which release is current
+(your `autoUpdatesChannel`, default `latest`) and runs `claude update` when a newer one is out.
+If that fails, Home shows the error with **Try again**; it also retries by itself after 6 hours.
+Turn it off with *Update Claude Code automatically* in Settings, and Home then shows an **Update**
+button instead. `DISABLE_AUTOUPDATER` has the same effect and `DISABLE_UPDATES` turns off the check too.
+
+A broken build would break every chat.
 So each new build is started once as a test (a quick start that sends no prompt); one that passes
 is kept as the *last good build* (the two latest are copied into `state/claude-lkg/`), one that
 fails raises a banner and chats keep running on the last good one. The banner offers **Check again**, **Use X anyway** (pin it) and **Unpin**.

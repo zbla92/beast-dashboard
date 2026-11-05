@@ -54,6 +54,7 @@ const TEST = process.env.BD_TEST === '1';
 if (TEST) push.notify = async () => ({ sent: 0, test: true });
 const headless = require('./lib/headless');
 const claudever = require('./lib/claudever');
+const claudeupdate = require('./lib/claudeupdate');
 claudever.init({ stateDir: STATE, versionsDir: process.env.BD_CLAUDE_VERSIONS, link: process.env.BD_CLAUDE_LINK, fake: TEST && !(process.env.BD_CLAUDE_VERSIONS && process.env.BD_CLAUDE_LINK) ? (process.env.BD_FAKE_CLAUDE || 'claude') : null, onChange: (st, prev) => { setTimeout(() => pushState(false), 0); if (st.using && st.using !== prev) setTimeout(rollChats, 0); } });
 headless.init({ port: settings.get().port, test: TEST, claudeBin: () => claudever.chatBin() });
 claude.setProjects(p => history.projectFor(p, projects));
@@ -181,7 +182,7 @@ let lastStateJson = '';
 function stateObj() {
   icons.poll(projects);
   const s = settings.get();
-  return { projects: projects.map(p => ({ ...p, git: gitStatus[p.id] || null })), wip: wip.state(), runtime: { ...snapshot, manual: expose.manual() }, settings: s, host: { nextWake: s.sleepButton ? (sleepMod.nextWake() || 0) && sleepMod.nextWake().getTime() : 0, tsIp: TS_IP, tsName: expose.tailscaleName(), tailscale: TS_INFO, chatRoll: ROLL, publicHost: s.publicHost || TS_IP || 'localhost', terminalPort: 7681, hostname: require('os').hostname(), devRoot: s.devRoot, user: process.env.USER || 'user', lastResume: LAST_RESUME, startedAt: STARTED_AT, build: build(), pushSubs: push.subscriptions().length, probe: probe.status(), stateErrors: corrupted(), claudeVer: claudever.status(), accounts: accounts() }, claude: { restorable: claude.restorable(), usage: usage.summary(), limits: limits.all(), installed: CLAUDE_VERSION, update: CLAUDE_UPDATE, schedule: schedule.all(), tasks: tasks.all() }, health: health.all(), crashes: recentCrashes(), stats: sys.latest(), statsHistory: sys.history() };
+  return { projects: projects.map(p => ({ ...p, git: gitStatus[p.id] || null })), wip: wip.state(), runtime: { ...snapshot, manual: expose.manual() }, settings: s, host: { nextWake: s.sleepButton ? (sleepMod.nextWake() || 0) && sleepMod.nextWake().getTime() : 0, tsIp: TS_IP, tsName: expose.tailscaleName(), tailscale: TS_INFO, chatRoll: ROLL, publicHost: s.publicHost || TS_IP || 'localhost', terminalPort: 7681, hostname: require('os').hostname(), devRoot: s.devRoot, user: process.env.USER || 'user', lastResume: LAST_RESUME, startedAt: STARTED_AT, build: build(), pushSubs: push.subscriptions().length, probe: probe.status(), stateErrors: corrupted(), claudeVer: claudever.status(), accounts: accounts() }, claude: { restorable: claude.restorable(), usage: usage.summary(), limits: limits.all(), installed: CLAUDE_VERSION, update: CLAUDE_UPDATE || claudeUpdater.status(), schedule: schedule.all(), tasks: tasks.all() }, health: health.all(), crashes: recentCrashes(), stats: sys.latest(), statsHistory: sys.history() };
 }
 let ACCTS = null, acctsAt = 0;
 function accounts() { if (!ACCTS || Date.now() - acctsAt > 30000) { acctsAt = Date.now(); ACCTS = ['personal', ...(fs.existsSync(path.join(require('os').homedir(), '.claude-company')) ? ['company'] : [])]; } return ACCTS; }
@@ -325,6 +326,13 @@ function detectCrashes() {
 // The native installer updates itself; a mise install (Omarchy) only prints "Run: mise upgrade claude", so there
 // CLAUDE_UPDATE = the newer release mise sees, and /api/claude-upgrade installs it.
 let CLAUDE_VERSION = null, CLAUDE_UPDATE = null, versionAt = 0, miseChecking = false, miseUpgrade = null;
+const claudeUpdater = claudeupdate.create({
+  current: () => claudever.status().current,
+  autoOn: () => settings.get().claudeAutoUpdate !== false,
+  onInstalled: async () => { claudever.refresh(); await claudeVersion(true); },
+  onChange: () => pushState(false),
+});
+if (!TEST) claudeUpdater.start();
 async function claudeVersion(force) {
   if (!force && Date.now() - versionAt < 10 * 60e3) return; versionAt = Date.now();
   try { const link = fs.readlinkSync(path.join(process.env.HOME, '.local', 'bin', 'claude')); const m = link.match(/(\d+\.\d+\.\d+)$/); if (m) { CLAUDE_VERSION = m[1]; CLAUDE_UPDATE = null; return; } } catch {}
@@ -990,6 +998,7 @@ async function api(req, res, url) {
       return json(res, 400, { error: 'op?' });
     }
     case 'claude-upgrade': { // mise install: Claude Code can't update itself there. Install the newer release; sessions then get "restart"
+      if (claudeUpdater.status()) { const r = await claudeUpdater.install(); return json(res, r.ok ? 200 : 500, r.ok ? r : { error: r.error }); }
       if (CLAUDE_UPDATE?.via !== 'mise') return json(res, 400, { error: 'no Claude Code update to install' });
       if (!miseUpgrade) miseUpgrade = run('mise', ['upgrade', 'claude'], { timeout: 5 * 60e3, cwd: process.env.HOME }).finally(() => { miseUpgrade = null; });
       const r = await miseUpgrade; if (r.ok) CLAUDE_UPDATE = null;
