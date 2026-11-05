@@ -3,7 +3,7 @@
 
 .fic-ot { flex: none; display: inline-grid; place-items: center; overflow: hidden; color: var(--org); background: color-mix(in srgb, var(--org) 15%, var(--panel)); font-weight: 700; }
 .fic-ot img { width: 100%; height: 100%; object-fit: contain; display: block; }
-.fic-ot.badge { width: 22px; height: 22px; border-radius: var(--r-sm); font-size: var(--fs-xs); }
+.fic-ot.badge { width: 22px; height: 22px; border-radius: var(--r-sm); font-size: var(--fs-xs); padding: 0; border: 0; }
 .fic-ot.badge img { padding: 1px; }
 .fic-ot.big { width: 72px; height: 72px; border-radius: var(--r-lg); font-size: var(--fs-2xl); }
 .fic-ot.big img { padding: 4px; }

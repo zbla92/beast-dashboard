@@ -17,6 +17,7 @@
 .ibx-hrow { border-top-color: rgba(255,255,255,.07); padding: 12px 6px; }
 .ibx-hrow:first-child { border-top: 0; }
 .btn.ibx-go { border-radius: var(--r-pill); height: 38px; padding: 0 18px; }
+@media (max-width: 900px) { .btn.ibx-go { height: 44px; } }
 
 .stats { gap: 14px; }
 .tile { min-height: 116px; padding: 16px 18px 14px; border-radius: var(--r-xl); border: 1px solid var(--card-edge); }
@@ -74,7 +75,6 @@
   .tabbar { background: rgba(22,24,28,.86); }
   #view-home { gap: 28px; padding-top: 12px; }
   .ibx-banner { padding: 16px 16px 10px; border-radius: var(--r-xl); }
-  .agents > * + * { border-top-color: rgba(255,255,255,.06); }
   .stats { gap: 10px; }
   .tile { min-height: 84px; padding: 12px 14px 10px; border-radius: var(--r-lg); }
   .tile .v { font-size: var(--fs-xl); margin-top: 3px; }
@@ -135,7 +135,7 @@
 
 .menu, .toast, .modal .box, .pal { border-color: var(--edge-soft); }
 .pi.on { background: rgba(255,255,255,.1); box-shadow: var(--hl-soft); }
-.modal .box .sh, .modal .box .sfoot, .modal .box .foot { border-color: rgba(255,255,255,.07); }
+.modal .box .sh, .modal .box .foot { border-color: rgba(255,255,255,.07); }
 
 @media (max-width: 900px) {
   .runtbl .cports { white-space: normal; }

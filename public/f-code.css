@@ -251,7 +251,7 @@ a.cv-ib { color: var(--dim); }
 .cvd-col { overflow-x: auto; min-width: 0; overscroll-behavior-x: contain; }
 .cvd-col + .cvd-col { box-shadow: inset 1px 0 0 var(--line); }
 .cvd-colin { display: inline-block; min-width: 100%; vertical-align: top; }
-.cvd-colin .cvl, .cvd-grid .cvl { height: 20px; }
+.cvd-colin .cvl { height: 20px; }
 .cvd-colin .cvn, .cvd-grid .cvn { box-shadow: inset -1px 0 0 var(--line); }
 
 .cvd-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }

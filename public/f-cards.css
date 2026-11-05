@@ -23,7 +23,7 @@
   --card-blur: none;
 }
 
-.tile, .runwrap, .wstrip, .tk, .card, .rc-list, .rc-empty, .tunnels, .emu-tile, .sched, .wcard, .wtx-card, .fp-grp, .fp-sec, .fp-doc, .fp2-sec, .fp2-qrow, .cdet, .chfile, .ctr, .cmdrow, .titem, .ibx-row, .ibx-banner, .sa-row, .sa-result, .rail-card, .ban, .tgbox {
+.tile, .runwrap, .wstrip, .tk, .card, .rc-list, .rc-empty, .tunnels, .emu-tile, .sched, .wtx-card, .fp-grp, .fp-sec, .fp-doc, .fp2-sec, .fp2-qrow, .cdet, .chfile, .ctr, .cmdrow, .titem, .ibx-row, .ibx-banner, .sa-row, .sa-result, .rail-card, .ban, .tgbox {
   background: var(--card-fill); border-color: var(--card-edge); box-shadow: var(--card-rim), var(--card-lift);
   backdrop-filter: var(--card-blur); -webkit-backdrop-filter: var(--card-blur);
 }

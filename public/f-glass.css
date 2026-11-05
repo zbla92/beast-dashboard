@@ -1,4 +1,4 @@
-html, body { background: var(--bg); }
+html { background: var(--bg); }
 body { background: transparent; }
 body::before {
   content: ""; position: fixed; z-index: -2; top: 0; left: 0; right: 0; height: 100lvh; pointer-events: none; transform: translateZ(0);
@@ -29,7 +29,7 @@ body::before {
 input.txt, textarea.txt, select.txt, .txt { border-radius: var(--r); background: rgba(8,8,10,.42); border-color: var(--line); }
 input.txt:focus, textarea.txt:focus, select.txt:focus, .txt:focus { border-color: color-mix(in srgb, var(--accent) 60%, transparent); background: rgba(8,8,10,.6); }
 
-.agent, .tile, .card, .sched, .rc-list, .rc-empty, .runwrap, .tk, .tunnels, .wcard, .wstrip, .wtx-card, .emu-tile, .fp-grp, .fp-sec, .fp2-sec, .cdet, .chfile, .ctr, .cmdrow {
+.tile, .card, .sched, .rc-list, .rc-empty, .runwrap, .tk, .tunnels, .wstrip, .wtx-card, .emu-tile, .fp-grp, .fp-sec, .fp2-sec, .cdet, .chfile, .ctr, .cmdrow {
   background: var(--panel); border-color: var(--line); border-radius: var(--r-lg); box-shadow: var(--hl-soft);
 }
 .titem { border-radius: var(--r); }
@@ -70,6 +70,7 @@ body.term-open .rail .navb.on { box-shadow: none; }
 .rproj em { color: var(--dim); font-style: normal; font-weight: 400; }
 .rproj .av.sm { width: 20px; height: 20px; border-radius: 6px; font-size: 10px; }
 .rproj .av.sm .g svg { width: 12px; height: 12px; }
+.rproj .av.sm .oi { width: 11px; height: 11px; font-size: 6.5px; right: -3px; bottom: -3px; display: grid; place-items: center; line-height: 1; }
 .rrow { position: relative; align-items: center; gap: 9px; min-height: 40px; margin-bottom: 6px; padding: 7px 8px 7px 9px; border: 1px solid var(--card-edge); border-radius: var(--r); background: var(--card-tint); }
 .rrow:hover { background: var(--card-tint-hover); }
 .rrow.on { background: rgba(190,200,215,.17); border-color: var(--line2); }
@@ -83,8 +84,10 @@ body.term-open .rail .navb.on { box-shadow: none; }
 .rav { position: relative; flex: none; margin: 0; }
 .rav .av.sm { width: 24px; height: 24px; border-radius: 7px; font-size: 10px; }
 .rav .av.sm .g svg { width: 14px; height: 14px; }
+.rav .av.sm .oi { width: 11px; height: 11px; font-size: 6.5px; right: -3px; bottom: -3px; display: grid; place-items: center; line-height: 1; }
 .rrow .rdot { position: static; flex: none; box-sizing: border-box; width: 7px; height: 7px; margin: 0 1px; border: 0; }
 .rrow .rav .rdot { position: absolute; top: -2px; right: -2px; margin: 0; box-shadow: 0 0 0 2px var(--glass-solid); }
+.rrow.st-ended .rav .rdot, .rrow.st-unknown .rav .rdot { box-shadow: inset 0 0 0 1.5px var(--dim), 0 0 0 2px var(--glass-solid); }
 .rtx { flex: 1; min-width: 0; display: block; }
 .rnm { font-size: var(--fs-sm); line-height: 18px; }
 .rnm b { font-weight: 450; color: var(--text); }
@@ -92,7 +95,7 @@ body.term-open .rail .navb.on { box-shadow: none; }
 .rrow.settled:hover, .rrow.settled.on { opacity: 1; }
 .rrow.settled .rnm b { color: var(--muted); }
 .rnm em { color: var(--dim); font-style: normal; }
-.rnm .racc { display: inline-grid; place-items: center; width: 14px; height: 14px; margin-left: 2px; border-radius: 4px; background: var(--fill2); color: var(--muted); font-size: 10px; font-weight: 600; font-style: normal; vertical-align: 1px; }
+.rnm .racc { display: inline-grid; place-items: center; align-self: center; width: 15px; height: 15px; margin-left: 2px; border-radius: 4px; background: var(--fill2); color: var(--muted); font: 600 10px/1 var(--sans); }
 .rln2 { display: block; }
 .rsub { display: block; font-size: var(--fs-xs); line-height: 15px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rsub.mono { font-size: 11px; color: var(--st-work); }
