@@ -1,22 +1,22 @@
 :root {
-  --card-tint: rgba(255,255,255,.045);
-  --card-tint-hover: rgba(255,255,255,.075);
+  --card-tint: rgba(125,140,170,.13);
+  --card-tint-hover: rgba(125,140,170,.2);
   --card-sheen: none;
   --card-fill: var(--card-sheen), var(--card-tint);
   --card-fill-hover: var(--card-sheen), var(--card-tint-hover);
-  --card-edge: rgba(255,255,255,.085);
+  --card-edge: rgba(255,255,255,.09);
   --card-rim: inset 0 1px 0 rgba(255,255,255,.04);
   --card-lift: 0 0 transparent;
   --card-blur: blur(20px);
-  --bar-tint: rgba(17,17,17,.72);
+  --bar-tint: rgba(11,16,28,.58);
   --bar-blur: blur(24px);
   --tb-h: 47px;
   --chat-inset: 0px;
 }
 
 .drawer, .modal .box, .pal, .menu, .fp2-panel, .fp2-sh {
-  --card-tint: rgba(255,255,255,.055);
-  --card-tint-hover: rgba(255,255,255,.09);
+  --card-tint: rgba(125,140,170,.12);
+  --card-tint-hover: rgba(125,140,170,.2);
   --card-fill: var(--card-tint);
   --card-fill-hover: var(--card-tint-hover);
   --card-lift: 0 0 transparent;
@@ -60,17 +60,17 @@ body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rail-card { backdrop
 .turn.user .tqa, .ttext .tqa, .ttext .ttodo, .turn.user.queued, .turn.ask .ttext.askplan { backdrop-filter: none; -webkit-backdrop-filter: none; }
 
 @media (max-width: 900px) {
-  :root { --card-blur: blur(18px); --tb-h: 48px; --bar-tint: rgba(17,17,17,.78); }
+  :root { --card-blur: blur(18px); --tb-h: 48px; --bar-tint: rgba(11,16,28,.66); }
   body.kb-open { --tb-h: 0px; }
   .chatpane > .cscroll { padding-top: calc(12px + var(--chat-inset)); }
   .cv-sec { background: var(--card-fill); backdrop-filter: var(--card-blur); -webkit-backdrop-filter: var(--card-blur); }
 }
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  :root { --card-tint: #232323; --card-tint-hover: #2e2e2e; --bar-tint: #1c1c1c; --chat-bubble: #282828; }
+  :root { --card-tint: #1b212e; --card-tint-hover: #242b3c; --bar-tint: #161a24; --chat-bubble: #1f2534; }
 }
 @media (prefers-reduced-transparency: reduce) {
-  :root { --card-tint: #232323; --card-tint-hover: #2e2e2e; --card-blur: none; --bar-tint: #1c1c1c; --bar-blur: none; }
+  :root { --card-tint: #1b212e; --card-tint-hover: #242b3c; --card-blur: none; --bar-tint: #161a24; --bar-blur: none; }
 }
 
 .tile[data-k="cpu"] { --tile: var(--cyan); }
@@ -88,9 +88,9 @@ body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rail-card { backdrop
 .limrow.hot .lb b { background: var(--red); box-shadow: none; }
 .fp2-bar.full > i { background: var(--green); box-shadow: none; }
 .sa-stack { height: 10px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.06); }
-.fp2-panel, #term-ws { background: rgba(16,16,16,.42); backdrop-filter: var(--blur-1); -webkit-backdrop-filter: var(--blur-1); }
+.fp2-panel, #term-ws { background: rgba(12,15,21,.42); backdrop-filter: var(--blur-1); -webkit-backdrop-filter: var(--blur-1); }
 @media (max-width: 900px) {
-  .modal .box.ibx { background: rgba(16,16,16,.46); backdrop-filter: var(--blur-2); -webkit-backdrop-filter: var(--blur-2); }
+  .modal .box.ibx { background: rgba(12,15,21,.46); backdrop-filter: var(--blur-2); -webkit-backdrop-filter: var(--blur-2); }
   body.ibx-open .tabbar { background: var(--glass-3); }
 }
 @media (prefers-reduced-transparency: reduce) {
@@ -100,7 +100,7 @@ body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rail-card { backdrop
   .modal .box.ibx { background: var(--glass-solid); backdrop-filter: none; -webkit-backdrop-filter: none; }
 }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  :root { --sheet: #131313; }
+  :root { --sheet: #0f1219; }
   .fp2-panel, #term-ws, .cv-main, .modal .box.ibx { background: var(--glass-solid); }
   .wtx-pop, .ns-pick, .fp2-drop, .fp2-sh, .rv-pill, .conn, .cupd, .qacts, .wp-pop, .qchip-list, .qpin, .fp-pick { background: var(--glass-solid); }
 }

@@ -2,9 +2,7 @@ html, body { background: var(--bg); }
 body { background: transparent; }
 body::before {
   content: ""; position: fixed; z-index: -2; top: 0; left: 0; right: 0; height: 100lvh; pointer-events: none; transform: translateZ(0);
-  background-color: #111111;
-  background-repeat: no-repeat;
-  background-image: radial-gradient(70vw 46vh at 62% -8%, rgba(255,255,255,.055), transparent 72%);
+  background: var(--bg) url('earth.jpg') center / cover no-repeat;
 }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -28,8 +26,8 @@ body::before {
 .chip:hover { background: var(--fill2); }
 .chip.on { background: var(--panel3); border-color: var(--line2); color: var(--text); box-shadow: var(--hl-soft); }
 .badge { border-radius: var(--r-pill); }
-input.txt, textarea.txt, select.txt, .txt { border-radius: var(--r); background: rgba(9,9,9,.42); border-color: var(--line); }
-input.txt:focus, textarea.txt:focus, select.txt:focus, .txt:focus { border-color: color-mix(in srgb, var(--accent) 60%, transparent); background: rgba(9,9,9,.6); }
+input.txt, textarea.txt, select.txt, .txt { border-radius: var(--r); background: rgba(7,8,12,.42); border-color: var(--line); }
+input.txt:focus, textarea.txt:focus, select.txt:focus, .txt:focus { border-color: color-mix(in srgb, var(--accent) 60%, transparent); background: rgba(7,8,12,.6); }
 
 .agent, .tile, .card, .sched, .rc-list, .rc-empty, .runwrap, .tk, .tunnels, .wcard, .wstrip, .wtx-card, .emu-tile, .fp-grp, .fp-sec, .fp2-sec, .cdet, .chfile, .ctr, .cmdrow {
   background: var(--panel); border-color: var(--line); border-radius: var(--r-lg); box-shadow: var(--hl-soft);
@@ -47,7 +45,7 @@ input.txt:focus, textarea.txt:focus, select.txt:focus, .txt:focus { border-color
 .termframes { background: transparent; }
 .termbar { background: rgba(255,255,255,.025); }
 .chatpane { background: transparent; }
-.termside { background: rgba(9,9,9,.18); }
+.termside { background: rgba(7,8,12,.18); }
 
 .brand { gap: 9px; padding: 2px 6px 10px; }
 .brand .logo { width: 26px; height: 26px; border-radius: var(--r-sm); }
@@ -128,19 +126,20 @@ body.term-open .maincol { visibility: hidden; }
   body::after {
     content: ""; position: fixed; z-index: -1; inset: var(--glass-gap); pointer-events: none;
     border-radius: var(--r-2xl); background: var(--sheet);
+    backdrop-filter: blur(10px) saturate(130%); -webkit-backdrop-filter: blur(10px) saturate(130%);
     box-shadow: var(--hl), inset 0 0 0 1px var(--edge-soft), var(--shadow-pane);
   }
   .rail { left: var(--glass-gap); top: var(--glass-gap); bottom: var(--glass-gap); width: calc(var(--rail-w) - var(--glass-gap)); padding: 14px 10px 10px; background: transparent; border-right: 1px solid var(--line); border-radius: var(--r-2xl) 0 0 var(--r-2xl); }
-  .rail::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none; background: rgba(13,13,13,.42); backdrop-filter: var(--blur-1); -webkit-backdrop-filter: var(--blur-1); }
+  .rail::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none; background: rgba(10,15,27,.22); backdrop-filter: var(--blur-1); -webkit-backdrop-filter: var(--blur-1); }
   .maincol { position: fixed; top: var(--glass-gap); right: var(--glass-gap); bottom: var(--glass-gap); left: var(--rail-w); margin: 0; min-height: 0; padding-bottom: 0; overflow-x: hidden; overflow-y: auto; border-radius: 0 var(--r-2xl) var(--r-2xl) 0; }
-  .top { height: 52px; padding: 0 16px 0 22px; gap: 12px; background: rgba(18,18,18,.42); border-bottom: 1px solid var(--line); box-shadow: var(--hl); backdrop-filter: var(--blur-1); -webkit-backdrop-filter: var(--blur-1); }
+  .top { height: 52px; padding: 0 16px 0 22px; gap: 12px; background: rgba(14,17,23,.42); border-bottom: 1px solid var(--line); box-shadow: var(--hl); backdrop-filter: var(--blur-1); -webkit-backdrop-filter: var(--blur-1); }
   .vtitle { min-width: 0; font-size: var(--fs-md); }
   .search { height: 30px; max-width: 320px; margin-left: auto; border-radius: var(--r-pill); background: var(--fill); }
   .topbtns { margin-left: 0; }
   .kbtn { height: 30px; border: 1px solid var(--line); background: var(--fill); border-radius: var(--r-pill); }
   main { padding: 18px 22px 40px; }
   .banner { margin-top: 14px; }
-  .termpanel { top: var(--glass-gap); right: var(--glass-gap); bottom: var(--glass-gap); height: auto; background: rgba(11,11,11,.2); border-radius: 0 var(--r-2xl) var(--r-2xl) 0; overflow: hidden; }
+  .termpanel { top: var(--glass-gap); right: var(--glass-gap); bottom: var(--glass-gap); height: auto; background: rgba(9,10,14,.2); border-radius: 0 var(--r-2xl) var(--r-2xl) 0; overflow: hidden; }
   body.focus .termpanel { left: var(--glass-gap); border-radius: var(--r-2xl); }
   .termbar { box-shadow: var(--hl); }
   .conn { top: var(--glass-gap); right: var(--glass-gap); border-radius: 0 var(--r-2xl) 0 0; }
@@ -166,10 +165,10 @@ body.term-open .maincol { visibility: hidden; }
 @media (max-width: 900px) {
   :root {
     --tab-h: 70px;
-    --panel: rgba(27,27,27,.66); --panel2: rgba(39,39,39,.72); --panel3: rgba(54,54,54,.8);
+    --panel: rgba(21,25,35,.66); --panel2: rgba(30,36,51,.72); --panel3: rgba(42,50,70,.8);
     --blur-1: blur(22px) saturate(150%); --blur-2: blur(26px) saturate(160%); --blur-3: blur(32px) saturate(170%);
   }
-  body::before { background-image: radial-gradient(120vw 40vh at 60% -6%, rgba(255,255,255,.06), transparent 72%); }
+  body::before { background-image: linear-gradient(rgba(7,11,20,.3), rgba(7,11,20,.44)), url('earth.jpg'); background-position: 58% center; }
   .top { background: var(--glass-2); border-bottom: 1px solid var(--line); box-shadow: var(--hl-soft); backdrop-filter: var(--blur-1); -webkit-backdrop-filter: var(--blur-1); }
   .tabbar { left: 12px; right: 12px; bottom: max(10px, calc(env(safe-area-inset-bottom) - 12px)); height: 60px; padding: 4px; border: 0; border-radius: var(--r-pill); background: var(--glass-3); box-shadow: var(--hl), inset 0 0 0 1px var(--edge-soft), var(--shadow-float); backdrop-filter: var(--blur-2); -webkit-backdrop-filter: var(--blur-2); }
   .tb { border-radius: var(--r-pill); min-height: 44px; }
@@ -181,23 +180,23 @@ body.term-open .maincol { visibility: hidden; }
   body.ibx-open #modal { bottom: 0; }
   body.ibx-open .modal .box.ibx { padding-bottom: calc(var(--tab-h) + env(safe-area-inset-bottom)); }
   body.ibx-open.ibx-kb .modal .box.ibx { padding-bottom: 0; }
-  .termpanel { background: rgba(11,11,11,.34); }
+  .termpanel { background: rgba(9,10,14,.34); }
   .termside { background: transparent; }
   .termbar { background: var(--glass-solid); }
   .drawer { background: var(--glass-solid); }
-  .drawer.open { background: rgba(16,16,16,.68); backdrop-filter: var(--blur-2); -webkit-backdrop-filter: var(--blur-2); }
+  .drawer.open { background: rgba(12,15,21,.68); backdrop-filter: var(--blur-2); -webkit-backdrop-filter: var(--blur-2); }
   .btn, .segb, .chip { min-height: 36px; }
   .btn.icon { min-width: 40px; min-height: 40px; }
 }
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  :root { --glass-1: #161616; --glass-2: #1a1a1a; --glass-3: var(--glass-solid); --panel: rgba(255,255,255,.05); }
+  :root { --glass-1: #11141d; --glass-2: #141822; --glass-3: var(--glass-solid); --panel: rgba(255,255,255,.05); }
   .top { background: var(--glass-2); }
 }
 @media (prefers-reduced-transparency: reduce) {
-  :root { --sheet: #161616; --glass-1: #161616; --glass-2: #1a1a1a; --glass-3: var(--glass-solid); --panel: #1f1f1f; --panel2: #282828; --panel3: #323232; --fill: #222222; --fill2: #2b2b2b; --blur-1: none; --blur-2: none; --blur-3: none; --scrim: rgba(6,6,6,.82); }
+  :root { --sheet: #11141d; --glass-1: #11141d; --glass-2: #141822; --glass-3: var(--glass-solid); --panel: #181d28; --panel2: #1f2534; --panel3: #272e41; --fill: #1b202c; --fill2: #222838; --blur-1: none; --blur-2: none; --blur-3: none; --scrim: rgba(5,6,8,.82); }
   body::before { background-image: none; }
   .top { background: var(--glass-2); backdrop-filter: none; -webkit-backdrop-filter: none; }
   .scrim { backdrop-filter: none; -webkit-backdrop-filter: none; }
-  .tabbar, .menu, .toast, .modal .box, .pal, .drawer.open, .rail::before { backdrop-filter: none; -webkit-backdrop-filter: none; }
+  body::after, .tabbar, .menu, .toast, .modal .box, .pal, .drawer.open, .rail::before { backdrop-filter: none; -webkit-backdrop-filter: none; }
 }

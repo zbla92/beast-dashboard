@@ -40,7 +40,7 @@ body[data-view="code"] .maincol { padding-bottom: 0; }
   -webkit-backdrop-filter: var(--blur-1); backdrop-filter: var(--blur-1);
   box-shadow: var(--hl), inset 0 0 0 1px var(--edge-soft), var(--shadow-pane);
 }
-.cv-main { background: rgba(16,16,16,.42); }
+.cv-main { background: rgba(12,15,21,.42); }
 
 .cv-grip { position: relative; cursor: col-resize; touch-action: none; border-radius: var(--r-pill); }
 .cv-grip::after { content: ""; position: absolute; left: 4px; top: 50%; width: 2px; height: 36px; margin-top: -18px; border-radius: 2px; background: var(--line); opacity: 0; transition: opacity .15s; }
