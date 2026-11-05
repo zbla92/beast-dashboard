@@ -718,15 +718,17 @@ function renderTermPanel(force) {
     h('button', { class: 'btn sm ghost icon desk' + (TERM.focus ? ' on' : ''), title: TERM.focus ? 'show the rail again' : 'focus mode — hide the rail with every session (screen sharing)', onclick: () => setFocus(!TERM.focus) }, ico('sidebar', 15)),
     h('span', { class: 'tid desk' }, act ? avatar(act.project, 'sm') : null,
       h('span', { class: 'tname' + (cl ? ' can-rename' : ''), title: cl ? 'click to rename · ' + TERM.active : TERM.active, onclick: cl ? () => renameDialog(TERM.active) : null }, actName, instOf(act || { name: TERM.active }).n ? h('span', { class: 'grp' }, ' #' + instOf(act).n) : null),
+      cl && (cl.worktree?.name || cl.branch) ? h('span', { class: 'tcrumb' + (cl.worktree?.name ? ' wt' : ''), title: cl.worktree?.name ? 'git worktree' + (cl.branch ? ' · branch ' + cl.branch : '') : 'branch' }, ico('chevronRight', 12), h('span', { class: 'tcrumb-b' }, cl.worktree?.name || cl.branch)) : null,
       IS_PHONE ? null : accTag()),
     cl && !IS_PHONE ? stateBadge(cl) : null,
     h('span', { class: 'sp' }),
     logOn ? h('button', { class: 'btn sm', title: 'you are looking at the runner log — back to the conversation', onclick: () => setMode('chat') }, ico('chat', 13), 'Back to chat') : null,
     cl && cl.state === 'limit' && act ? h('button', { class: 'btn sm primary', title: 'start the other account in this folder with a summary of where this one stopped', onclick: () => handoff({ name: TERM.active, account: cl.account, project: act.project }) }, gl('⇄ Hand off')) : null,
     ...feat('termBar', TERM.active),
-    cl ? ctxMeter(TERM.active, cl) : null,
+    cl && !chatMode(TERM.active) ? ctxMeter(TERM.active, cl) : null,
     h('button', { class: 'btn sm tmore', title: 'session options — model, folder, project, update, new chat, compact, rename, kill…', onclick: ev => sessMenu(ev, TERM.active) }, ico('sliders', 15), h('span', { class: 'desk' }, 'Options'), ico('chevronDown', 13), updatePending ? h('i', { class: 'tdot' }) : null));
   else barAdd(h('span', { class: 'dim' }, 'Pick a session.'), h('span', { class: 'sp' }));
+  fillCtx($('#term-chat'));
 }
 // remember what gets started per project (dev commands, compose, Claude account) -> "▶▶ Start all" brings it all up next time
 function noteBundle(p, entry) { const b = (S.settings.projects?.[p.id]?.bundle || []).filter(x => !(x.kind === entry.kind && x.name === entry.name)); b.push(entry); api('project', { id: p.id, bundle: b.slice(-8) }).catch(() => {}); }
@@ -1034,6 +1036,7 @@ function ctxRing(pct, size = 18) {
   e.innerHTML = `<circle cx="9" cy="9" r="${r}" class="rg-bg"/><circle cx="9" cy="9" r="${r}" class="rg-fg" stroke-dasharray="${(C * Math.max(pct, 2) / 100).toFixed(2)} ${C.toFixed(2)}" transform="rotate(-90 9 9)"/>`;
   return e;
 }
+const fillCtx = box => { const slot = box.querySelector(':scope > .cbox2 .cctx'); if (slot) slot.replaceChildren(...[ctxMeter(box.dataset.chat, claudeOf(box.dataset.chat))].filter(Boolean)); };
 function ctxMeter(name, cl) {
   const c = cl && cl.ctx; if (!c || !c.used) return null; const p = ctxPct(c);
   return h('button', { class: 'ctxm ' + ctxLvl(p), title: `Context: ${c.used.toLocaleString()} of ${c.window.toLocaleString()} tokens (${p}%)\nClick for compact, clear or a new chat.`, onclick: ev => ctxMenu(ev, name) },
@@ -1652,7 +1655,7 @@ function renderConversation(box, name, t, o) {
   // interrupts Claude and puts your text back in the box. Esc in the box does the same.
   const since = (lv && ((lv.turn && lv.turn.startedAt) || (lv.state === 'working' && lv.since))) || t.since || (justSent ? PENDING[name][0].ts : null);
   let liveEl = null;
-  if (busy || justSent) items.push(liveEl = h('div', { class: 'turn assistant live' }, h('div', { class: 'who' }, gl('✦ claude'), h('span', { class: 'dim' }, cl.state === 'background' ? ' waiting on background agents' : busy ? ' working' : ' starting'), since ? h('span', { class: 'dim mono' }, ' · ', h('span', { class: 'wtimer', 'data-since': since }, elapsedTxt(since))) : h('span', { class: 'dim mono' }, '…'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost stopb', title: cl.mode === 'chat' ? 'interrupt (Esc) — messages already sent stay with Claude and run next' : 'interrupt (Esc) — your message goes back into the box', onclick: C.stop }, gl('■ Stop'))), h('div', { class: 'ag-now' }, h('span', { class: 'spin' }), h('span', { class: 'mono' }, cl.state === 'background' ? bgText(cl.bg) : busy ? (cl.state === 'working' ? cl.lastTool || t.pending || 'thinking…' : t.pending || cl.lastTool || 'working…') : 'sending to Claude…')),
+  if (busy || justSent) items.push(liveEl = h('div', { class: 'turn assistant live' }, h('div', { class: 'who' }, gl('✦ claude'), h('span', { class: 'dim' }, cl.state === 'background' ? ' waiting on background agents' : busy ? ' working' : ' starting'), since ? h('span', { class: 'dim mono' }, h('span', { class: 'wtimer', 'data-since': since }, elapsedTxt(since))) : h('span', { class: 'dim mono' }, '…'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost stopb', title: cl.mode === 'chat' ? 'interrupt (Esc) — messages already sent stay with Claude and run next' : 'interrupt (Esc) — your message goes back into the box', onclick: C.stop }, gl('■ Stop'))), h('div', { class: 'ag-now' }, h('span', { class: 'spin' }), h('span', { class: 'mono' }, cl.state === 'background' ? bgText(cl.bg) : busy ? (cl.state === 'working' ? cl.lastTool || t.pending || 'thinking…' : t.pending || cl.lastTool || 'working…') : 'sending to Claude…')),
     cl.state === 'working' && cl.status ? h('div', { class: 'ag-status mono' }, cl.status) : null));   // Claude's own status line: "✻ Cooking… (2m 10s · ↓ 3.1k tokens)"
   if (liveEl && lv) { liveEl.insertBefore(h('div', { class: 'ltools' }), liveEl.children[1]); liveEl.insertBefore(h('div', { class: 'ttext ltext hidden' }), liveEl.children[2]); fillLive(liveEl, lv.turn); }
   if (lv && lv.error && !busy) items.push(h('div', { class: 'turn assistant' }, h('div', { class: 'who' }, gl('⚠ chat runner')), h('div', { class: 'mono dim' }, lv.error)));
@@ -1669,6 +1672,7 @@ function renderConversation(box, name, t, o) {
   const stk = FEAT.queue ? FEAT.queue.stack(name, { waiting: inbox.filter(m => !starts(m)), jobs: queued, C, refresh: o.refresh }) : null, oldStk = box.querySelector(':scope > .qstack');
   if (stk) { if (oldStk) oldStk.replaceWith(stk); else C.el.before(stk); } else if (oldStk) oldStk.remove();
   feat('composerShown', box);
+  fillCtx(box);
   box.classList.remove('cdrop');
   if (C.el !== keptComp) { C.grow(); if (hadFocus) C.ta.focus({ preventScroll: true }); }
   scroller.scrollTop = atBottom ? scroller.scrollHeight : prevTop;
@@ -1720,10 +1724,12 @@ function composer(box, name, cl, conv, scroller, o, busy, justSent, jobs, prevDr
   const mic = voiceButton(ta, name);
   const clock = h('button', { class: 'btn sm ghost qk csched', title: 'schedule this message for later (or a chain of messages)', onclick: () => scheduleDialog(name, ta.value) }, ico('sched', 15));
   conv.classList.toggle('focus', CHAT.focus && !box.closest('#drawer'));
-  const keys = h('div', { class: 'ckeys' }, attach, mic, clock, fileIn, ...feat('composerKeys', name),
-    sj.length ? h('span', { class: 'sjobs' }, sj.map(j => h('span', { class: 'sjob', title: j.prompts.join('\n\n') }, ico('clock', 12), ' ', j.whenFree ? 'when free' : new Date(j.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), j.prompts.length > 1 ? ` ×${j.prompts.length}` : '', j.state === 'running' || j.state === 'sent' ? ' · ' + j.state : '', h('button', { class: 'x', title: 'remove', onclick: () => api('schedule-remove', { id: j.id }) }, ico('x', 11))))) : null);
-  const el = h('div', { class: 'cbox2', 'data-k': compKey }, h('div', { class: 'cfield', onclick: ev => { if (ev.target === ev.currentTarget || ev.target.classList.contains('cfoot')) ta.focus(); } }, shBar && shBar.el, ta,
-    h('div', { class: 'cfoot' }, keys, cl.state ? modelPicker(name, cl) : null, stopBtn, sendBtn)));
+  const keys = h('div', { class: 'ckeys' }, attach, fileIn, ...feat('composerKeys', name));
+  const sjobs = sj.length ? h('span', { class: 'sjobs' }, sj.map(j => h('span', { class: 'sjob', title: j.prompts.join('\n\n') }, ico('clock', 12), ' ', j.whenFree ? 'when free' : new Date(j.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), j.prompts.length > 1 ? ` ×${j.prompts.length}` : '', j.state === 'running' || j.state === 'sent' ? ' · ' + j.state : '', h('button', { class: 'x', title: 'remove', onclick: () => api('schedule-remove', { id: j.id }) }, ico('x', 11))))) : null;
+  const acctTag = cl.account && multiAcct() ? h('span', { class: 'tacc ' + cl.account, title: 'Claude Code account: ' + acct(cl.account) }, acct(cl.account)) : null;
+  const el = h('div', { class: 'cbox2', 'data-k': compKey }, h('div', { class: 'cfield', onclick: ev => { if (ev.target === ev.currentTarget || ev.target.classList.contains('cline') || ev.target.classList.contains('cfoot')) ta.focus(); } }, shBar && shBar.el,
+    h('div', { class: 'cline' }, keys, ta, h('div', { class: 'cacts' }, mic, stopBtn, sendBtn)),
+    h('div', { class: 'cfoot' }, cl.state ? modelPicker(name, cl) : null, clock, sjobs, acctTag, h('span', { class: 'cctx' }))));
   syncAct();
   el._c = { el, ta, grow, stop, attachFiles, sync: () => syncAct(), enter: alt => { if (shellMode()) { ta.focus(); return; } (pick && alt ? second : first)(); } };
   dropZone(box, el);
@@ -1742,9 +1748,9 @@ function toolLook(t) {
   const n = t.name || '';
   if (n === 'Bash' || n === 'PowerShell') return { icon: '$', label: t.desc || t.cmd || 'command', sub: t.desc ? t.cmd : '', meta: t.bg ? 'background' : '', cat: 'cmd' };
   if (n === 'Read') return { icon: '◱', label: 'Read ' + fileBase(t.file), meta: t.image ? 'image' : t.lines ? t.lines + ' lines' : '', cat: 'read', title: t.file };
-  if (n === 'Edit' || n === 'MultiEdit') return { icon: '✎', label: 'Edit ' + fileBase(t.file), diff: t, cat: 'edit', title: t.file };
-  if (n === 'Write') return { icon: '✎', label: (t.created ? 'Create ' : 'Write ') + fileBase(t.file), diff: t, cat: 'edit', title: t.file };
-  if (n === 'NotebookEdit') return { icon: '✎', label: 'Edit ' + fileBase(t.file), cat: 'edit' };
+  if (n === 'Edit' || n === 'MultiEdit') return { icon: 'fileText', label: 'file edited: ' + fileBase(t.file), diff: t, cat: 'edit', title: t.file };
+  if (n === 'Write') return { icon: 'fileText', label: (t.created ? 'file created: ' : 'file written: ') + fileBase(t.file), diff: t, cat: 'edit', title: t.file };
+  if (n === 'NotebookEdit') return { icon: 'fileText', label: 'file edited: ' + fileBase(t.file), cat: 'edit' };
   if (n === 'Grep' || n === 'Glob') return { icon: '⌕', label: (n === 'Grep' ? 'Search ' : 'Find ') + t.pattern, meta: t.count != null ? t.count + (n === 'Glob' ? ' files' : ' hits') : '', cat: 'search' };
   if (n === 'Agent' || n === 'Task') return { icon: '✦', label: 'Agent · ' + (t.desc || 'subagent'), meta: [t.sub, t.bg ? 'background' : ''].filter(Boolean).join(' · '), cat: 'agent' };
   if (n === 'WebSearch') return { icon: '⌕', label: 'Web search · ' + t.query, cat: 'web' };
@@ -1773,7 +1779,7 @@ function toolRow(t, ctx) {
   const L = toolLook(t); const key = t.id; const open = CHAT.open.has(key);
   const st = !t.done && !t.stale ? h('span', { class: 'spin' }) : t.error ? h('span', { class: 'terrx' }, ico('x', 13)) : null;
   const body = h('div', { class: 'tr-body' });
-  const row = h('div', { class: 'trow' + (open ? ' open' : '') + (t.error ? ' err' : '') + (!t.done && !t.stale ? ' run' : '') });
+  const row = h('div', { class: 'trow t-' + L.cat + (L.sub ? '' : ' bare') + (open ? ' open' : '') + (t.error ? ' err' : '') + (!t.done && !t.stale ? ' run' : '') });
   const load = async () => {
     const cached = CHAT.detail.get(key); if (cached) { body.replaceChildren(...[toolDetailView(cached)].flat(2).filter(Boolean)); if (cached.done || !t.done && CHAT.liveAt.get(key) > Date.now() - 8000) return; }   // running: refresh at most every 8 s
     else body.replaceChildren(h('div', { class: 'dim tnone' }, 'loading…'));
@@ -1813,8 +1819,8 @@ function assistantTurn(turn, ctx) {
     run.push(st);
   }
   flush();
-  if (turn.dur) el.append(h('div', { class: 'tdur' }, 'worked ' + durTxt(turn.dur)));
-  else if (turn.stopped != null) el.append(h('div', { class: 'tdur stopped' }, 'you stopped it after ' + durTxt(turn.stopped)));
+  if (turn.dur) el.firstChild.append(h('span', { class: 'tdur' }, 'worked ' + durTxt(turn.dur)));
+  else if (turn.stopped != null) el.firstChild.append(h('span', { class: 'tdur stopped' }, 'you stopped it after ' + durTxt(turn.stopped)));
   return el;
 }
 function toggleChatFocus() {
