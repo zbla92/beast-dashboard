@@ -2,7 +2,7 @@ html, body { background: var(--bg); }
 body { background: transparent; }
 body::before {
   content: ""; position: fixed; z-index: -2; top: 0; left: 0; right: 0; height: 100lvh; pointer-events: none; transform: translateZ(0);
-  background: var(--bg) url('earth.jpg') center / cover no-repeat;
+  background: #060b1a url('earth.jpg') 76% 50% / auto 118lvh no-repeat; background-blend-mode: lighten;
 }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -168,7 +168,7 @@ body.term-open .maincol { visibility: hidden; }
     --panel: rgba(21,25,35,.66); --panel2: rgba(30,36,51,.72); --panel3: rgba(42,50,70,.8);
     --blur-1: blur(22px) saturate(150%); --blur-2: blur(26px) saturate(160%); --blur-3: blur(32px) saturate(170%);
   }
-  body::before { background-image: linear-gradient(rgba(7,11,20,.3), rgba(7,11,20,.44)), url('earth.jpg'); background-position: 58% center; }
+  body::before { background-image: linear-gradient(rgba(7,11,20,.18), rgba(7,11,20,.4)), url('earth.jpg'); background-size: 100% 100%, min(128vw, 88lvh) auto; background-position: 0 0, 50% 14%; background-blend-mode: normal, lighten; }
   .top { background: var(--glass-2); border-bottom: 1px solid var(--line); box-shadow: var(--hl-soft); backdrop-filter: var(--blur-1); -webkit-backdrop-filter: var(--blur-1); }
   .tabbar { left: 12px; right: 12px; bottom: max(10px, calc(env(safe-area-inset-bottom) - 12px)); height: 60px; padding: 4px; border: 0; border-radius: var(--r-pill); background: var(--glass-3); box-shadow: var(--hl), inset 0 0 0 1px var(--edge-soft), var(--shadow-float); backdrop-filter: var(--blur-2); -webkit-backdrop-filter: var(--blur-2); }
   .tb { border-radius: var(--r-pill); min-height: 44px; }
