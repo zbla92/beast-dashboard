@@ -1736,7 +1736,7 @@ function composer(box, name, cl, conv, scroller, o, busy, justSent, jobs, prevDr
   // 📎 attach: any file (photo / screenshot downscaled, everything else as-is) -> ~/dev/.pasted -> its path goes into the message (Claude reads it)
   const fileIn = h('input', { type: 'file', multiple: true, style: 'display:none' });
   const attachFiles = async files => { files = [...files].filter(Boolean); if (!files.length) return;
-    for (const f of files) { if (files.length > 1 || f.size > 2e6) toast('uploading ' + (f.name || 'image') + '…'); try { const p = await uploadFile(f); ta.value = (ta.value ? ta.value.replace(/\s*$/, ' ') : '') + p + ' '; grow(); } catch (e) { toast('upload failed: ' + e.message, 'err'); } }
+    for (const f of files) { if (files.length > 1 || f.size > 2e6) toast('uploading ' + (f.name || 'image') + '…'); try { const p = await uploadFile(f, { session: name }); ta.value = (ta.value ? ta.value.replace(/\s*$/, ' ') : '') + p + ' '; grow(); } catch (e) { toast('upload failed: ' + e.message, 'err'); } }
     ta.focus(); toast(files.length > 1 ? `${files.length} files attached — describe what to do with them and send` : 'attached — describe what to do with it and send', 'ok'); };
   fileIn.addEventListener('change', () => { const fs = [...fileIn.files]; fileIn.value = ''; attachFiles(fs); });
   ta.addEventListener('paste', ev => { const dt = ev.clipboardData; if (!dt) return; const txt = dt.getData('text/plain'); if (txt.length >= PASTE_AS_FILE) { ev.preventDefault(); attachFiles([new File([txt], `paste-${new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '')}.txt`, { type: 'text/plain' })]); return; } if (txt) return; const fs = [...(dt.files || [])]; if (fs.length) { ev.preventDefault(); attachFiles(fs); } });
@@ -1859,18 +1859,21 @@ function toggleChatFocus() {
 const UPLOAD_MAX_MB = 100;   // same as the server
 // images: downscaled to 1568px on the long edge (what Claude uses anyway); anything else raw, keeping its name. Returns the server path.
 const PASTE_AS_FILE = 32 * 1024;
-async function uploadFile(file, keep = false) {
-  if (file.size > UPLOAD_MAX_MB * 1e6) throw new Error(`${file.name} is ${(file.size / 1e6).toFixed(0)} MB — max ${UPLOAD_MAX_MB} MB`);
-  if (/^image\/(png|jpeg|webp)$/.test(file.type)) return uploadImage(file, keep);
+const uploadQuery = ({ keep, session, target }) => (keep ? '&keep=1' : '') + (session ? '&session=' + encodeURIComponent(session) : '') + (target ? '&target=' + encodeURIComponent(JSON.stringify(target)) : '');
+const tooBigToUpload = file => (file.size > UPLOAD_MAX_MB * 1e6 ? `${file.name} is ${(file.size / 1e6).toFixed(0)} MB — max ${UPLOAD_MAX_MB} MB` : null);
+const localPreviewUrl = file => (/^image\/(png|jpeg|gif|webp)$/.test(file.type) ? URL.createObjectURL(file) : null);
+async function uploadFile(file, where = {}) {
+  if (tooBigToUpload(file)) throw new Error(tooBigToUpload(file));
+  if (/^image\/(png|jpeg|webp)$/.test(file.type)) return uploadImage(file, where);
   const ext = (file.name.split('.').pop() || 'bin').toLowerCase();
-  const r = await fetch(`/api/paste-image?ext=${encodeURIComponent(ext)}&name=${encodeURIComponent(file.name)}${keep ? '&keep=1' : ''}`, { method: 'POST', body: file }); const j = await r.json(); if (!j.ok) throw new Error(j.error || 'upload failed'); return j.path;
+  const r = await fetch(`/api/paste-image?ext=${encodeURIComponent(ext)}&name=${encodeURIComponent(file.name)}${uploadQuery(where)}`, { method: 'POST', body: file }); const j = await r.json(); if (!j.ok) throw new Error(j.error || 'upload failed'); return j.path;
 }
-async function uploadImage(file, keep = false) {
-  const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = URL.createObjectURL(file); });
+async function uploadImage(file, where = {}) {
+  const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error(`${file.name} could not be read as an image`)); i.src = URL.createObjectURL(file); });
   const max = 1568; const k = Math.min(1, max / Math.max(img.width, img.height)); const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
   c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(img.src);
   const blob = await new Promise(res => c.toBlob(res, 'image/jpeg', 0.88));
-  const r = await fetch('/api/paste-image?ext=jpg' + (keep ? '&keep=1' : ''), { method: 'POST', body: blob }); const j = await r.json(); if (!j.ok) throw new Error(j.error || 'upload failed'); return j.path;
+  const r = await fetch('/api/paste-image?ext=jpg' + uploadQuery(where), { method: 'POST', body: blob }); const j = await r.json(); if (!j.ok) throw new Error(j.error || 'upload failed'); return j.path;
 }
 // Whisper on the server's GPU (beast-whisper service, started on demand): same engine on the laptop and the phone.
 // Falls back to the browser's own speech recognition when the service is down.
@@ -2857,19 +2860,30 @@ function runTaskMenu(ev, t) {
 function taskModal(t, projectId) {
   const m = $('#modal'); m.classList.remove('hidden');
   const files = [...(t?.files || [])];
+  const waiting = [];
   const projs = S.projects.filter(p => !p.hidden).sort((a, b) => (a.org + a.name).localeCompare(b.org + b.name));
   const sel = h('select', { class: 'txt' }, h('option', { value: '' }, '— no project —'), projs.map(p => h('option', { value: p.id, selected: p.id === (t?.project || projectId) }, `${p.org} / ${p.name}`)));
   const title = h('input', { class: 'txt', placeholder: 'What needs to happen (one line)', value: t?.title || '' });
   const body = h('textarea', { class: 'creply tkbody', rows: 10, placeholder: 'Write it like a prompt: context, what to change, where, how to verify, what not to touch. Paste screenshots here (Cmd+V) or drop files.' }); body.value = t?.body || '';
   const flist = h('div', { class: 'tk-files edit' });
-  const drawFiles = () => { flist.replaceChildren(...files.map((f, i) => h('span', { class: 'tk-file' }, /\.(png|jpe?g|gif|webp)$/i.test(f) ? h('img', { src: '/api/file?p=' + encodeURIComponent(f) }) : ico('clip', 12), f.split('/').pop(), h('button', { class: 'x', title: 'remove', onclick: () => { files.splice(i, 1); drawFiles(); } }, ico('x', 11))))); };
-  const upload = async f => { try { toast('uploading ' + f.name + '…'); const pth = await uploadFile(f, true); files.push(pth); drawFiles(); } catch (e) { toast(e.message, 'err'); } };
+  const drawFiles = () => { flist.replaceChildren(...files.map((f, i) => h('span', { class: 'tk-file' }, /\.(png|jpe?g|gif|webp)$/i.test(f) ? h('img', { src: '/api/file?p=' + encodeURIComponent(f) }) : ico('clip', 12), f.split('/').pop(), h('button', { class: 'x', title: 'remove', onclick: () => { files.splice(i, 1); drawFiles(); } }, ico('x', 11)))), ...waiting.map(w => h('span', { class: 'tk-file' }, w.url ? h('img', { src: w.url, alt: '' }) : ico('clip', 12), w.file.name, h('button', { class: 'x', title: 'remove', onclick: () => { waiting.splice(waiting.indexOf(w), 1); if (w.url) URL.revokeObjectURL(w.url); drawFiles(); } }, ico('x', 11))))); };
+  const upload = f => { if (tooBigToUpload(f)) { toast(tooBigToUpload(f), 'err'); return; } waiting.push({ file: f, url: localPreviewUrl(f) }); drawFiles(); };
+  const uploadWaiting = async () => {
+    const where = { keep: true, ...(sel.value ? { target: { kind: 'project', id: sel.value } } : {}) };
+    while (waiting.length) {
+      const next = waiting[0];
+      files.push(await uploadFile(next.file, where));
+      waiting.shift();
+      if (next.url) URL.revokeObjectURL(next.url);
+      drawFiles();
+    }
+  };
   const fileIn = h('input', { type: 'file', multiple: true, style: 'display:none', onchange: () => { for (const f of fileIn.files) upload(f); fileIn.value = ''; } });
   body.addEventListener('paste', ev => { const fs = [...(ev.clipboardData?.files || [])]; if (fs.length) { ev.preventDefault(); fs.forEach(upload); } });
   body.addEventListener('dragover', ev => ev.preventDefault()); body.addEventListener('drop', ev => { ev.preventDefault(); [...(ev.dataTransfer?.files || [])].forEach(upload); });
   for (const i of [title, body]) i.addEventListener('keydown', ev => { ev.stopPropagation(); if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) saveBtn.click(); });
   drawFiles();
-  const saveBtn = h('button', { class: 'btn primary', onclick: async () => { if (!title.value.trim()) { title.focus(); return; } const data = { title: title.value, body: body.value, project: sel.value, files }; await act(t ? 'Task updated' : 'Task added', t ? api('task-update', { id: t.id, ...data }) : api('task', data)); m.classList.add('hidden'); if (UI.view !== 'tasks') goView('tasks'); } }, t ? 'Save' : 'Add task');
+  const saveBtn = h('button', { class: 'btn primary', onclick: async () => { if (!title.value.trim()) { title.focus(); return; } saveBtn.disabled = true; try { await uploadWaiting(); } catch (e) { toast(e.message, 'err'); saveBtn.disabled = false; return; } const data = { title: title.value, body: body.value, project: sel.value, files }; await act(t ? 'Task updated' : 'Task added', t ? api('task-update', { id: t.id, ...data }) : api('task', data)); m.classList.add('hidden'); if (UI.view !== 'tasks') goView('tasks'); } }, t ? 'Save' : 'Add task');
   const box = h('div', { class: 'box settings task' },
     h('div', { class: 'sh' }, h('h3', null, t ? 'Edit task' : 'New task'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost icon', onclick: () => m.classList.add('hidden') }, ico('x', 15))),
     h('div', { class: 'sbody' },
@@ -2877,7 +2891,7 @@ function taskModal(t, projectId) {
       h('div', { class: 'sg' }, h('div', { class: 'sg-t' }, 'Title'), title),
       h('div', { class: 'sg' }, h('div', { class: 'sg-t' }, 'Details — this is what Claude gets'), body,
         h('div', { class: 'tk-attach' }, h('button', { class: 'btn sm ghost', onclick: () => fileIn.click() }, ico('clip', 14), 'Attach files'), fileIn, h('span', { class: 'hint', style: 'margin:0' }, 'screenshots, CSVs, anything — kept until you delete the task')), flist)),
-    h('div', { class: 'foot' }, h('span', { class: 'hint', style: 'margin:0 auto 0 0' }, '⌘↵ to save'), h('button', { class: 'btn ghost', onclick: () => m.classList.add('hidden') }, 'Cancel'), saveBtn));
+    h('div', { class: 'foot' }, h('span', { class: 'hint', style: 'margin:0 auto 0 0' }, '⌘↵ to save'), h('button', { class: 'btn ghost', onclick: () => { if (!saveBtn.disabled) m.classList.add('hidden'); } }, 'Cancel'), saveBtn));
   m.replaceChildren(box); m.onclick = e => { if (e.target === m) m.classList.add('hidden'); };
   setTimeout(() => (t ? body : title).focus(), 50);
 }

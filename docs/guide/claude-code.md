@@ -97,9 +97,20 @@ the right, Claude's on the left in the order it happened, tool calls folded into
 text (open one for the Edit / Write diff, the Bash command and output, an agent's answer — loaded
 only when opened), *worked 3m 12s* at the end of each turn, and while Claude works a live turn with what it is running and its
 own status line (`✻ Testing… 4m 08s · ↓ 7.5k tokens`) plus ■ Stop. *Files edited* links to the
-diffs. Drop or paste files (or tap 📎) to attach them — they land in `<devRoot>/.pasted` and their paths go into
+diffs. Drop or paste files (or tap 📎) to attach them — they land in `<devRoot>/.pasted/<project>` and their paths go into
 your message; a big paste (32 KB and more) is attached as a file instead of flooding the box. ■ Stop interrupts a turn. *Runner log* in the session's Options menu shows the runner's
 terminal output.
+
+## Uploaded files
+
+Every upload goes to the folder of the project it was sent from: `<devRoot>/.pasted/<project>/`. The server finds
+the project from the session's working directory (a worktree counts as its main repo), so a session only needs its
+own folder. Anything without a project goes to `_unsorted`. A file is removed after 30 days in a project folder and
+after 7 days in `_unsorted`; task attachments in `keep/<project>/` stay until you delete them.
+
+`bin/pasted-guard.sh` is an optional `PreToolUse` hook for Bash, Grep and Glob. It refuses a search of the whole
+`.pasted` folder or of another project's folder and still allows a file named by its full path. It catches the common
+command forms, not all of them: sessions can read the whole disk, so this prevents accidents and is not a lock.
 
 ## Scheduling
 

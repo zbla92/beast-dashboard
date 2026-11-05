@@ -22,6 +22,7 @@ const actions = require('./lib/actions');
 const SAFE_NAME = /^[\w.-]+$/;
 const claude = require('./lib/claude');
 const files = require('./lib/files');
+const pasted = require('./lib/pasted');
 const transcript = require('./lib/transcript');
 const health = require('./lib/health');
 const search = require('./lib/search');
@@ -65,6 +66,17 @@ edits.init({ entries: history.entries, live: liveOf, label: history.labelOf });
 wip.init({ projects: () => projects, sessions: () => Object.values(claude.all()), onChange: () => { gitStatus = { ...gitStatus, ...wip.gitStatus() }; pushState(false); } });
 claude.setLive(headless.live);
 const isChat = name => typeof name === 'string' && claude.get(name)?.mode === 'chat';
+async function uploadCwd(params) {
+  const session = params.get('session');
+  if (session) {
+    const record = claude.get(session);
+    if (record?.mode === 'chat' && record.cwd) return record.cwd;
+    const pane = await run('tmux', ['display-message', '-p', '-t', '=' + session + ':', '#{pane_current_path}']);
+    return (pane.ok && pane.stdout.trim()) || record?.cwd || null;
+  }
+  try { return targetCwd(JSON.parse(params.get('target'))); } catch { return null; }
+}
+
 function targetCwd(target) {
   const t = target && typeof target === 'object' ? target : {};
   const devRoot = settings.get().devRoot;
@@ -937,9 +949,11 @@ async function api(req, res, url) {
     // Any file type. `name=` keeps the original file name (csv, json, log, zip … — Claude sees what it is); a bare
     // clipboard image (no name) gets paste-<timestamp>.<ext>. Up to UPLOAD_MAX; older than 7 days is swept.
     const base = pastedDir();
-    const dir = url.searchParams.get('keep') ? path.join(base, 'keep') : base;   // keep/: task attachments, never swept
+    const folder = pasted.projectFolder(await uploadCwd(url.searchParams), settings.get().devRoot);
+    if (req.destroyed) return;
+    const dir = pasted.uploadDir(base, folder, !!url.searchParams.get('keep'));
     fs.mkdirSync(dir, { recursive: true });
-    try { for (const f of fs.readdirSync(base)) { const old = path.join(base, f); if (fs.statSync(old).isFile() && Date.now() - fs.statSync(old).mtimeMs > 7 * 86400e3) fs.unlinkSync(old); } } catch {}
+    pasted.sweep(base);
     const extRaw = (url.searchParams.get('ext') || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8) || 'png';
     let name = path.basename(url.searchParams.get('name') || '').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^[.-]+/, '').slice(0, 120);
     if (!name || name.startsWith('.')) name = `paste-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}-${Math.random().toString(36).slice(2, 6)}.${extRaw}`;

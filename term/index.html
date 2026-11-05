@@ -200,6 +200,7 @@
   }
 
   var MAX_MB = 100;   // same as the server (UPLOAD_MAX)
+  var THIS_SESSION = new URLSearchParams(location.search).get('arg');
   function upload(orig) {
     if (orig.size > MAX_MB * 1e6) { toast((orig.name || 'file') + ' is ' + (orig.size / 1e6).toFixed(0) + ' MB — max ' + MAX_MB + ' MB', true); return; }
     toast('⇧ uploading ' + (orig.name || 'image') + (orig.size > 2e6 ? ' (' + (orig.size / 1e6).toFixed(1) + ' MB)' : '') + '…');
@@ -208,7 +209,7 @@
       // Keep the original name for everything except downscaled screenshots (those are paste.png anyway)
       // — Claude then sees that it is a csv/json/log.
       var name = (file === orig && orig.name && orig.name !== 'image.png') ? orig.name : '';
-      fetch(API + '?ext=' + encodeURIComponent(ext) + (name ? '&name=' + encodeURIComponent(name) : ''), { method: 'POST', body: file })
+      fetch(API + '?ext=' + encodeURIComponent(ext) + (name ? '&name=' + encodeURIComponent(name) : '') + (THIS_SESSION ? '&session=' + encodeURIComponent(THIS_SESSION) : ''), { method: 'POST', body: file })
         .then(function (r) { return r.json(); })
         .then(function (j) {
           if (!j.path) throw new Error(j.error || 'no path');
