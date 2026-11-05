@@ -50,7 +50,6 @@
 .ban.err { background: color-mix(in srgb, var(--red) 9%, var(--card-tint)); }
 .ban.fic-ban { background: var(--card-fill); }
 
-body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rail-card { backdrop-filter: none; -webkit-backdrop-filter: none; }
 
 .termbar { position: relative; z-index: 6; flex: none; box-sizing: border-box; height: var(--tb-h); min-height: 0; background: var(--bar-tint); backdrop-filter: var(--bar-blur); -webkit-backdrop-filter: var(--bar-blur); }
 .chatpane:has(> .cscroll) { --chat-inset: var(--tb-h); top: calc(-1 * var(--tb-h)); }

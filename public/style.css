@@ -1261,36 +1261,6 @@ body.recording .ckeys > :not(.mic) { pointer-events: none; opacity: .4; }
 }
 @media (max-width: 1100px) and (min-width: 901px) { .search { max-width: 260px; } .kbtn .kl { display: none; } }
 
-@media (min-width: 901px) {
-  body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) { --rail-w: 64px; }
-  body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rail { padding: var(--sp-3) var(--sp-2) var(--sp-2); align-items: center; }
-  body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rail > * { width: 100%; }
-  body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .brand { justify-content: center; padding: 2px 0 var(--sp-3); }
-  body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .brand .bt { display: none; }
-  body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .navb { position: relative; justify-content: center; padding: 0; }
-  body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .navb .nl, body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .navb .n:not(.need) { display: none; }
-  body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .navb .n.need { position: absolute; top: 2px; right: 4px; min-width: 14px; padding: 0 4px; font-size: var(--fs-2xs); line-height: 14px; text-align: center; }
-  body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rail-head { justify-content: center; margin: var(--sp-3) 0 var(--sp-1); padding: var(--sp-2) 0 0; }
-  body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rail-t { display: none; }
-  body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rail-list { margin: 0; padding: 2px 0 var(--sp-2); }
-  body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rrow { justify-content: center; align-items: center; padding: var(--sp-2) 0; }
-  body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rrow .rtx, body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rrow .redit, body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rrow .fp2-rail, body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rempty { display: none; }
-  body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rrow .rdot { margin-top: 0; }
-  body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rrow.sub { justify-content: center; }
-  body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rav { margin-top: 0; }
-  body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rgrp-o::before, body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rgrp-p::before { display: none; }
-  body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rgrp-o > .rrow, body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rgrp-o > .rgrp-p { margin-left: 0; width: 100%; }
-  body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rorg { font-size: 0; justify-content: center; padding: var(--sp-2) 0 var(--sp-1); }
-  body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rorg em { display: none; }
-  body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rsec { font-size: 0; padding: var(--sp-2) 0 0; border-top: 1px solid var(--line); margin-top: var(--sp-2); }
-  body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rproj { justify-content: center; padding: var(--sp-2) 0 0; }
-  body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rproj b, body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rproj em { display: none; }
-  body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rail-foot { padding: var(--sp-2) 0 0; }
-  body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rm { grid-template-columns: 1fr; gap: 2px; padding: 3px 0; justify-items: center; }
-  body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rm .rk { text-align: center; }
-  body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rm i { width: 100%; }
-  body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rm .rv { display: none; }
-}
 /* ================= phone ================= */
 @media (max-width: 900px) {
   :root { --top-h: 54px; }
