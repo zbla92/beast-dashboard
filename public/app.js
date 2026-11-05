@@ -810,8 +810,8 @@ function sparkline(canvas, data, color, max = 100, fill = true, span = 180) {
   const x = i => W - (data.length - 1 - i) * step; const y = v => H - 3 - Math.min(1, (v || 0) / max) * (H - 12);
   const peak = data.length ? Math.min(...data.map(y)) : H;
   const stroke = () => { ctx.beginPath(); data.forEach((v, i) => i ? ctx.lineTo(x(i), y(v)) : ctx.moveTo(x(i), y(v))); };
-  if (fill && data.length > 1) { stroke(); ctx.lineTo(x(data.length - 1), H); ctx.lineTo(x(0), H); ctx.closePath(); const glow = ctx.createLinearGradient(0, peak, 0, H); glow.addColorStop(0, color.replace(')', ',.6)').replace('rgb', 'rgba')); glow.addColorStop(1, color.replace(')', ',.04)').replace('rgb', 'rgba')); ctx.fillStyle = glow; ctx.fill(); }
-  stroke(); ctx.strokeStyle = color; ctx.lineWidth = 2.25; ctx.lineJoin = 'round'; ctx.shadowColor = color; ctx.shadowBlur = 3; ctx.stroke(); ctx.shadowBlur = 0;
+  if (fill && data.length > 1) { stroke(); ctx.lineTo(x(data.length - 1), H); ctx.lineTo(x(0), H); ctx.closePath(); const glow = ctx.createLinearGradient(0, peak, 0, H); glow.addColorStop(0, color.replace(')', ',.16)').replace('rgb', 'rgba')); glow.addColorStop(1, color.replace(')', ',0)').replace('rgb', 'rgba')); ctx.fillStyle = glow; ctx.fill(); }
+  stroke(); ctx.strokeStyle = color; ctx.lineWidth = 1.25; ctx.lineJoin = 'round'; ctx.stroke();
 }
 const usd = v => v == null ? '–' : v < 10 ? '$' + v.toFixed(2) : '$' + v.toFixed(0);
 // "claude-opus-5[1m]" -> "Opus 5 · 1M", "claude-fable-5-1" -> "Fable 5.1", "claude-haiku-4-5-20251001" -> "Haiku 4.5"
@@ -915,8 +915,8 @@ function drawHist(c, d) {
   ctx.beginPath(); let started = false, sx = null, lx = null;   // sx/lx: where the last drawn run starts / ends
   for (const p of d) { if (p[col] == null) { started = false; continue; } const px = x(p[0]), py = y(p[col]); if (!started) { ctx.moveTo(px, py); started = true; sx = px; } else ctx.lineTo(px, py); lx = px; }
   if (sx == null) return;
-  ctx.strokeStyle = colour; ctx.lineWidth = 1.6; ctx.lineJoin = 'round'; ctx.stroke();
-  ctx.lineTo(lx, H); ctx.lineTo(sx, H); ctx.closePath(); ctx.fillStyle = colour.replace('rgb', 'rgba').replace(')', ',.12)'); ctx.fill();
+  ctx.strokeStyle = colour; ctx.lineWidth = 1.25; ctx.lineJoin = 'round'; ctx.stroke();
+  ctx.lineTo(lx, H); ctx.lineTo(sx, H); ctx.closePath(); ctx.fillStyle = colour.replace('rgb', 'rgba').replace(')', ',.06)'); ctx.fill();
 }
 function renderStats() {
   const s = S.stats; const el = $('#stats'); if (!s) return;
