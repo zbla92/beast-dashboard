@@ -1117,7 +1117,7 @@ body.term-open { overflow: hidden; }
 .mcode.tcmd { color: var(--text); max-height: 160px; }
 .mcode.terr { color: var(--text); }
 .mtbl { border-collapse: collapse; margin: 8px 0; font-size: var(--fs-md); max-width: 100%; display: block; overflow-x: auto; }
-.mtbl th, .mtbl td { border: 1px solid var(--line2); padding: 5px 9px; text-align: left; vertical-align: top; }
+.mtbl th, .mtbl td { border: 1px solid var(--line2); padding: 5px 9px; text-align: left; vertical-align: top; word-break: normal; }
 .mtbl th { background: var(--fill); font-weight: 600; }
 .mnum { color: var(--muted); font-family: var(--mono); }
 .tevent { display: flex; align-items: center; gap: 8px; align-self: center; max-width: 92%; padding: 4px 12px; border-radius: 999px; background: var(--fill); font-size: var(--fs-sm); color: var(--muted); }
