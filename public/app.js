@@ -811,7 +811,7 @@ function sparkline(canvas, data, color, max = 100, fill = true, span = 180) {
   const peak = data.length ? Math.min(...data.map(y)) : H;
   const stroke = () => { ctx.beginPath(); data.forEach((v, i) => i ? ctx.lineTo(x(i), y(v)) : ctx.moveTo(x(i), y(v))); };
   if (fill && data.length > 1) { stroke(); ctx.lineTo(x(data.length - 1), H); ctx.lineTo(x(0), H); ctx.closePath(); const glow = ctx.createLinearGradient(0, peak, 0, H); glow.addColorStop(0, color.replace(')', ',.6)').replace('rgb', 'rgba')); glow.addColorStop(1, color.replace(')', ',.04)').replace('rgb', 'rgba')); ctx.fillStyle = glow; ctx.fill(); }
-  stroke(); ctx.strokeStyle = color; ctx.lineWidth = 2.25; ctx.lineJoin = 'round'; ctx.shadowColor = color; ctx.shadowBlur = 8; ctx.stroke(); ctx.shadowBlur = 0;
+  stroke(); ctx.strokeStyle = color; ctx.lineWidth = 2.25; ctx.lineJoin = 'round'; ctx.shadowColor = color; ctx.shadowBlur = 3; ctx.stroke(); ctx.shadowBlur = 0;
 }
 const usd = v => v == null ? '–' : v < 10 ? '$' + v.toFixed(2) : '$' + v.toFixed(0);
 // "claude-opus-5[1m]" -> "Opus 5 · 1M", "claude-fable-5-1" -> "Fable 5.1", "claude-haiku-4-5-20251001" -> "Haiku 4.5"

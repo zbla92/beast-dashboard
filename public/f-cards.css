@@ -1,15 +1,15 @@
 :root {
-  --card-tint: rgba(24,30,48,.36);
-  --card-tint-hover: rgba(38,46,72,.46);
-  --card-sheen: linear-gradient(135deg, rgba(255,255,255,.1), rgba(255,255,255,.02) 36%, rgba(255,255,255,0) 62%);
+  --card-tint: rgba(255,255,255,.045);
+  --card-tint-hover: rgba(255,255,255,.075);
+  --card-sheen: none;
   --card-fill: var(--card-sheen), var(--card-tint);
   --card-fill-hover: var(--card-sheen), var(--card-tint-hover);
-  --card-edge: rgba(255,255,255,.15);
-  --card-rim: inset 0 1px 0 rgba(255,255,255,.24);
-  --card-lift: 0 18px 40px -22px rgba(0,0,0,.78);
-  --card-blur: blur(22px) saturate(190%) brightness(.94);
-  --bar-tint: rgba(14,18,32,.4);
-  --bar-blur: blur(26px) saturate(170%);
+  --card-edge: rgba(255,255,255,.085);
+  --card-rim: inset 0 1px 0 rgba(255,255,255,.04);
+  --card-lift: 0 0 transparent;
+  --card-blur: blur(20px);
+  --bar-tint: rgba(17,17,17,.72);
+  --bar-blur: blur(24px);
   --tb-h: 47px;
   --chat-inset: 0px;
 }
@@ -60,23 +60,19 @@ body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rail-card { backdrop
 .turn.user .tqa, .ttext .tqa, .ttext .ttodo, .turn.user.queued, .turn.ask .ttext.askplan { backdrop-filter: none; -webkit-backdrop-filter: none; }
 
 @media (max-width: 900px) {
-  :root { --card-blur: blur(18px) saturate(180%) brightness(.94); --tb-h: 48px; --bar-tint: rgba(14,18,32,.5); }
+  :root { --card-blur: blur(18px); --tb-h: 48px; --bar-tint: rgba(17,17,17,.78); }
   body.kb-open { --tb-h: 0px; }
   .chatpane > .cscroll { padding-top: calc(12px + var(--chat-inset)); }
   .cv-sec { background: var(--card-fill); backdrop-filter: var(--card-blur); -webkit-backdrop-filter: var(--card-blur); }
 }
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  :root { --card-tint: #1c212d; --card-tint-hover: #252b39; --bar-tint: #151a26; --chat-bubble: #1f2533; }
+  :root { --card-tint: #232323; --card-tint-hover: #2e2e2e; --bar-tint: #1c1c1c; --chat-bubble: #282828; }
 }
 @media (prefers-reduced-transparency: reduce) {
-  :root { --card-tint: #1c212d; --card-tint-hover: #252b39; --card-blur: none; --bar-tint: #151a26; --bar-blur: none; }
+  :root { --card-tint: #232323; --card-tint-hover: #2e2e2e; --card-blur: none; --bar-tint: #1c1c1c; --bar-blur: none; }
 }
 
-.tile {
-  --card-fill: radial-gradient(130% 90% at 100% 100%, color-mix(in srgb, var(--tile, var(--accent)) 24%, transparent), transparent 72%), var(--card-sheen), var(--card-tint);
-  --card-fill-hover: radial-gradient(130% 90% at 100% 100%, color-mix(in srgb, var(--tile, var(--accent)) 34%, transparent), transparent 72%), var(--card-sheen), var(--card-tint-hover);
-}
 .tile[data-k="cpu"] { --tile: var(--cyan); }
 .tile[data-k="mem"] { --tile: var(--purple); }
 .tile[data-k="gpu"] { --tile: var(--green); }
@@ -85,18 +81,16 @@ body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rail-card { backdrop
 .tile[data-k="up"], .tile[data-k="uptime"] { --tile: var(--indigo); }
 .tile[data-k="claude"] { --tile: var(--pink); }
 .tile[data-k="limits"] { --tile: var(--blue); }
-.cores i b { background: linear-gradient(180deg, var(--cyan), var(--blue)); }
-.limrow .lb b, .fp2-bar > i { background: linear-gradient(90deg, var(--cyan), var(--blue) 55%, var(--purple)); box-shadow: 0 0 10px color-mix(in srgb, var(--blue) 55%, transparent); }
-.rm i b { background: linear-gradient(90deg, var(--cyan), var(--blue)); }
-.limrow.warn .lb b { background: var(--amber); box-shadow: 0 0 10px color-mix(in srgb, var(--amber) 55%, transparent); }
-.limrow.hot .lb b { background: var(--red); box-shadow: 0 0 10px color-mix(in srgb, var(--red) 55%, transparent); }
-.fp2-bar.full > i { background: var(--green); box-shadow: 0 0 10px color-mix(in srgb, var(--green) 55%, transparent); }
+.cores i b { background: var(--cyan); }
+.limrow .lb b, .fp2-bar > i { background: var(--accent); box-shadow: none; }
+.rm i b { background: var(--accent); }
+.limrow.warn .lb b { background: var(--amber); box-shadow: none; }
+.limrow.hot .lb b { background: var(--red); box-shadow: none; }
+.fp2-bar.full > i { background: var(--green); box-shadow: none; }
 .sa-stack { height: 10px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.06); }
-.sa-stack > i { box-shadow: 0 0 12px color-mix(in srgb, var(--sa-c) 50%, transparent); }
-.fp2-panel, #term-ws { background: rgba(10,13,26,.42); backdrop-filter: var(--blur-1); -webkit-backdrop-filter: var(--blur-1); }
-.tile .ring { filter: drop-shadow(0 0 6px color-mix(in srgb, var(--tile, var(--accent)) 60%, transparent)); }
+.fp2-panel, #term-ws { background: rgba(16,16,16,.42); backdrop-filter: var(--blur-1); -webkit-backdrop-filter: var(--blur-1); }
 @media (max-width: 900px) {
-  .modal .box.ibx { background: rgba(10,13,24,.46); backdrop-filter: var(--blur-2); -webkit-backdrop-filter: var(--blur-2); }
+  .modal .box.ibx { background: rgba(16,16,16,.46); backdrop-filter: var(--blur-2); -webkit-backdrop-filter: var(--blur-2); }
   body.ibx-open .tabbar { background: var(--glass-3); }
 }
 @media (prefers-reduced-transparency: reduce) {
@@ -106,7 +100,7 @@ body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rail-card { backdrop
   .modal .box.ibx { background: var(--glass-solid); backdrop-filter: none; -webkit-backdrop-filter: none; }
 }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  :root { --sheet: #0d111b; }
+  :root { --sheet: #131313; }
   .fp2-panel, #term-ws, .cv-main, .modal .box.ibx { background: var(--glass-solid); }
   .wtx-pop, .ns-pick, .fp2-drop, .fp2-sh, .rv-pill, .conn, .cupd, .qacts, .wp-pop, .qchip-list, .qpin, .fp-pick { background: var(--glass-solid); }
 }
@@ -120,7 +114,7 @@ body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rail-card { backdrop
 }
 #term-list { padding: 4px 12px 14px; }
 .tsec { padding: 10px 6px 8px; font-size: var(--fs-xs); font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
-.titem { align-items: center; gap: 12px; margin-bottom: 8px; padding: 12px 4px 12px 14px; border-radius: 20px; }
+.titem { align-items: center; gap: 12px; margin-bottom: 8px; padding: 12px 4px 12px 14px; border-radius: var(--r-lg); }
 .titem .av { margin-top: 0; }
 .titem .tn .nm, .titem.sub .inst { font-family: inherit; font-size: 16px; font-weight: 600; letter-spacing: -.01em; }
 .titem .ts { margin-top: 3px; font-size: 13px; }
@@ -133,10 +127,13 @@ body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rail-card { backdrop
 .torg::before { display: none; }
 .torg-h { padding: 12px 6px 8px; letter-spacing: .06em; text-transform: uppercase; }
 .torg > .titem, .torg > .tgrp, .torg > .titem.sub { margin-left: 0; }
-.tgbox { margin-bottom: 8px; border: 1px solid var(--card-edge); border-radius: 20px; overflow: hidden; }
+.tgbox { margin-bottom: 8px; border: 1px solid var(--card-edge); border-radius: var(--r-lg); overflow: hidden; }
 .tgbox .tgrp { padding: 10px 6px 10px 14px; font-size: 14px; }
 .tgbox .titem.sub { margin: 0; min-height: 0; border: 0; border-top: 1px solid rgba(255,255,255,.09); border-radius: 0; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
 .tgbox .titem.sub:not(.on, .st-needs-you, .st-permission) { background: transparent; }
 .titem.claude.sub > .dot { display: none; }
 .tgbox .titem.sub { padding: 12px 4px 12px 14px; }
 .titem .tmore:hover { background: transparent; }
+.titem .ts .mdl { color: var(--muted); }
+.titem.on { border-color: var(--line2); }
+.navb.on .ico { color: var(--text); }
