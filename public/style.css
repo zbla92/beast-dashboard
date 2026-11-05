@@ -2,13 +2,13 @@
    Warm means you, cool means the machine: amber/orange = waiting on you, cyan/indigo/mint = the machine at work.
    Token names are kept from v1 so feature CSS (f-*.css) and inline styles in app.js keep working. */
 :root {
-  --bg: #0a0f1a; --bg2: #0f1522; --panel: rgba(255,255,255,.06); --panel2: rgba(255,255,255,.1); --panel3: rgba(255,255,255,.15);
+  --bg: #0c0d12; --bg2: #13141a; --panel: rgba(255,255,255,.06); --panel2: rgba(255,255,255,.1); --panel3: rgba(255,255,255,.15);
   --line: rgba(255,255,255,.09); --line2: rgba(255,255,255,.15);
   --border: var(--line); --border2: var(--line2); --hair: var(--line);
   --fill: rgba(255,255,255,.05); --fill2: rgba(255,255,255,.09);
-  --text: #f1f4f9; --muted: #bac3d1; --dim: #95a1b4;
+  --text: #f2f3f5; --muted: #bdc0c7; --dim: #979ba4;
   --accent: #4f9dff; --accent2: #86bbff;
-  --primary: #f1f4f9; --primary-hover: #ffffff; --on-primary: #0a0f1a;
+  --primary: #f2f3f5; --primary-hover: #ffffff; --on-primary: #0c0d12;
   --green: #40c977; --amber: #f5b342; --red: #fa5f5a; --cyan: #56b6f2;
   --signal: var(--amber); --on-signal: #1d1406;
   --perm: #ff9152; --on-perm: #1d1006; --orange: var(--perm);
@@ -17,12 +17,12 @@
   --org-1: #6ea4ff; --org-2: #a98bff; --org-3: #ffb066; --org-4: #55dba0; --org-5: #ff86b0; --org-6: #f0c755; --org-default: #9aa2b2;
   /* agent states */
   --st-need: var(--signal); --st-perm: var(--perm); --st-err: var(--red); --st-limit: var(--purple);
-  --st-work: var(--cyan); --st-bg: var(--indigo); --st-idle: #7f8a9c;
+  --st-work: var(--cyan); --st-bg: var(--indigo); --st-idle: #858993;
   --sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Segoe UI', Roboto, sans-serif;
   --mono: ui-monospace, 'SF Mono', Menlo, 'JetBrains Mono', monospace;
   --r-sm: 7px; --r: 10px; --r-lg: 14px; --r-xl: 16px; --r-2xl: 20px; --r-pill: 999px;
-  --sheet: rgba(9,14,26,.46); --glass-1: rgba(15,21,34,.58); --glass-2: rgba(15,21,34,.66); --glass-3: rgba(22,29,45,.8); --glass-solid: #171e2d;
-  --blur-1: blur(24px) saturate(125%); --blur-2: blur(32px) saturate(135%); --blur-3: blur(44px) saturate(140%);
+  --sheet: rgba(16,17,24,.7); --glass-1: rgba(22,23,30,.62); --glass-2: rgba(22,23,30,.7); --glass-3: rgba(30,31,38,.84); --glass-solid: #1c1d24;
+  --blur-1: blur(24px); --blur-2: blur(32px); --blur-3: blur(44px);
   --edge: rgba(255,255,255,.12); --edge-soft: rgba(255,255,255,.08);
   --hl: inset 0 1px 0 var(--edge); --hl-soft: inset 0 1px 0 var(--edge-soft);
   --shadow-pane: 0 30px 80px -16px rgba(0,0,0,.7), 0 4px 14px rgba(0,0,0,.35);
@@ -31,7 +31,7 @@
   --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px; --sp-6: 32px;
   --fs-2xs: 10.5px; --fs-xs: 11.5px; --fs-sm: 12.5px; --fs-md: 13.5px; --fs-lg: 16px; --fs-xl: 18px; --fs-2xl: 24px;
   --shadow: 0 16px 40px -10px rgba(0,0,0,.6), 0 2px 6px rgba(0,0,0,.25);
-  --scrim: rgba(5,6,8,.5); --code-bg: #0c0e14; --scroll: rgba(255,255,255,.22);
+  --scrim: rgba(6,6,7,.5); --code-bg: #0e0f12; --scroll: rgba(255,255,255,.22);
   --rail-w: 272px; --top-h: 60px; --tab-h: 58px;
   --ease: cubic-bezier(.2,.8,.2,1);
   color-scheme: dark;
@@ -1021,8 +1021,8 @@ body.focus .termpanel { left: 0; }
 .ctxm.warn .rg-fg { stroke: var(--amber); } .ctxm.warn b { color: var(--amber); }
 .ctxm.hot .rg-fg { stroke: var(--red); } .ctxm.hot b { color: var(--red); } .ctxm.hot { border-color: color-mix(in srgb, var(--red) 40%, transparent); }
 .menu .mi .ico svg { display: block; margin: 0 auto; }
-.termframes { position: relative; flex: 1; min-height: 0; background: #0b0d12; }
-.termframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: none; background: #0b0d12; }
+.termframes { position: relative; flex: 1; min-height: 0; background: #0c0e10; }
+.termframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: none; background: #0c0e10; }
 .termframe.on { display: block; }
 body.term-open { overflow: hidden; }
 /* touch: pin the document so iOS cannot scroll the page under the panel when the keyboard opens */

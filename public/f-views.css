@@ -1,5 +1,5 @@
 :root {
-  --code-fill: rgba(8,9,13,.82);
+  --code-fill: rgba(9,10,12,.82);
 }
 
 #view-home { gap: 36px; padding-top: 14px; }
@@ -10,7 +10,7 @@
 
 .ibx-banner {
   position: relative; padding: 18px 22px 8px; border: 1px solid color-mix(in srgb, var(--signal) 32%, transparent); border-left-width: 1px; border-radius: var(--r-xl);
-  background: linear-gradient(135deg, color-mix(in srgb, var(--signal) 15%, rgba(20,23,32,.7)), rgba(20,23,32,.55) 62%);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--signal) 15%, rgba(22,24,28,.7)), rgba(22,24,28,.55) 62%);
   box-shadow: var(--hl), 0 18px 40px -24px color-mix(in srgb, var(--signal) 45%, transparent);
 }
 .ibx-bt { font-size: var(--fs-xl); }
@@ -59,19 +59,19 @@
 .rc-head { padding: 0 2px 12px; }
 .rc-list, .rc-empty { border-radius: var(--r-xl); }
 .rc-p + .rc-p { border-top-color: rgba(255,255,255,.06); }
-.rc-sec { background: rgba(7,8,12,.32); }
+.rc-sec { background: rgba(8,8,10,.32); }
 .seg { box-shadow: inset 0 0 0 1px var(--card-edge); }
 
-.ban { border-radius: var(--r-lg); background: color-mix(in srgb, var(--amber) 10%, rgba(20,23,32,.6)); border-color: color-mix(in srgb, var(--amber) 26%, transparent); box-shadow: var(--hl-soft); }
-.ban.err { background: color-mix(in srgb, var(--red) 10%, rgba(20,23,32,.6)); }
+.ban { border-radius: var(--r-lg); background: color-mix(in srgb, var(--amber) 10%, rgba(22,24,28,.6)); border-color: color-mix(in srgb, var(--amber) 26%, transparent); box-shadow: var(--hl-soft); }
+.ban.err { background: color-mix(in srgb, var(--red) 10%, rgba(22,24,28,.6)); }
 .tunnels { border-radius: var(--r-xl); padding: 16px 18px; }
 .tunnels .row { border-top-color: rgba(255,255,255,.06); }
-.tunnels input { background: rgba(7,8,12,.42); border-color: var(--line); }
+.tunnels input { background: rgba(8,8,10,.42); border-color: var(--line); }
 
 @media (max-width: 900px) {
-  :root { --code-fill: rgba(8,9,13,.88); }
-  .top { background: rgba(16,19,26,.84); }
-  .tabbar { background: rgba(20,23,32,.86); }
+  :root { --code-fill: rgba(9,10,12,.88); }
+  .top { background: rgba(18,20,23,.84); }
+  .tabbar { background: rgba(22,24,28,.86); }
   #view-home { gap: 28px; padding-top: 12px; }
   .ibx-banner { padding: 16px 16px 10px; border-radius: var(--r-xl); }
   .agents > * + * { border-top-color: rgba(255,255,255,.06); }
@@ -102,14 +102,14 @@
 .card { padding: 16px 18px; border-radius: var(--r-xl); border: 1px solid var(--card-edge); gap: 13px; }
 .card.live { border-color: color-mix(in srgb, var(--green) 34%, transparent); }
 .card .badges .badge, .card .kind .badge { background: rgba(255,255,255,.08); border-color: transparent; }
-.run { background: rgba(7,8,12,.28); }
+.run { background: rgba(8,8,10,.28); }
 
 .tksec { margin: 26px 2px 12px; }
 .tklist { gap: 12px; }
 .tk { padding: 16px 18px; border-radius: var(--r-xl); border: 1px solid var(--card-edge); }
 .tk.st-doing { border-color: color-mix(in srgb, var(--cyan) 38%, transparent); }
-.tk-result { border-radius: var(--r-lg); background: color-mix(in srgb, var(--green) 10%, rgba(20,23,32,.5)); }
-.tk-result.err { background: color-mix(in srgb, var(--red) 10%, rgba(20,23,32,.5)); }
+.tk-result { border-radius: var(--r-lg); background: color-mix(in srgb, var(--green) 10%, rgba(22,24,28,.5)); }
+.tk-result.err { background: color-mix(in srgb, var(--red) 10%, rgba(22,24,28,.5)); }
 .tk-file { background: rgba(255,255,255,.08); }
 .tsempty { padding: 28px 4px; line-height: 1.6; max-width: 56ch; }
 
@@ -126,12 +126,12 @@
 .fcode.hljs, .fdiff.hljs, .chdiff.hljs { background: var(--code-fill) !important; }
 .logbox, .chdiff { border: 1px solid var(--card-edge); border-radius: var(--r-lg); }
 .dlx .fcode { background: var(--code-fill); }
-.dlx .fmedia:not(.pdf) { background: rgba(7,8,12,.5); }
+.dlx .fmedia:not(.pdf) { background: rgba(8,8,10,.5); }
 .cmt.unp { background: color-mix(in srgb, var(--amber) 8%, transparent); }
 .cdet, .chfile, .ctr { border-radius: var(--r-lg); }
 
 .sg-b, .sst { background: rgba(255,255,255,.045); }
-.schart canvas { background: rgba(7,8,12,.4); }
+.schart canvas { background: rgba(8,8,10,.4); }
 
 .menu, .toast, .modal .box, .pal { border-color: var(--edge-soft); }
 .pi.on { background: rgba(255,255,255,.1); box-shadow: var(--hl-soft); }
