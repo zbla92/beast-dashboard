@@ -7,21 +7,21 @@
   --border: var(--line); --border2: var(--line2); --hair: var(--line);
   --fill: rgba(255,255,255,.05); --fill2: rgba(255,255,255,.09);
   --text: #f4f6fa; --muted: #c0c7d4; --dim: #a8b1c1;
-  --accent: #8ebcff; --accent2: #b0d0ff;
+  --accent: #7db4ff; --accent2: #b0d0ff;
   --primary: #f4f6fa; --primary-hover: #ffffff; --on-primary: #0a0d14;
-  --green: #62d394; --amber: #f2ad57; --red: #ff7468; --cyan: #74c9f2;
+  --green: #4be39a; --amber: #ffb648; --red: #ff6b6b; --cyan: #4fd4ff;
   --signal: var(--amber); --on-signal: #1d1406;
-  --perm: #f2925a; --on-perm: #1d1006; --orange: var(--perm);
-  --pink: #e39ab2; --indigo: #9eaaf0; --blue: #84b0f7; --purple: #bda8f2;
+  --perm: #ff9152; --on-perm: #1d1006; --orange: var(--perm);
+  --pink: #ff8ac4; --indigo: #8f9dff; --blue: #6aa8ff; --purple: #b794ff;
   /* Org accents. An org is the first folder under devRoot; app.js hashes its name onto this list. */
-  --org-1: #84a4e0; --org-2: #a99be0; --org-3: #d6a877; --org-4: #7fc4a0; --org-5: #d394aa; --org-6: #cdb270; --org-default: #9aa2b2;
+  --org-1: #6ea4ff; --org-2: #a98bff; --org-3: #ffb066; --org-4: #55dba0; --org-5: #ff86b0; --org-6: #f0c755; --org-default: #9aa2b2;
   /* agent states */
   --st-need: var(--signal); --st-perm: var(--perm); --st-err: var(--red); --st-limit: var(--purple);
   --st-work: var(--cyan); --st-bg: var(--indigo); --st-idle: #7f8799;
   --sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Segoe UI', Roboto, sans-serif;
   --mono: ui-monospace, 'SF Mono', Menlo, 'JetBrains Mono', monospace;
   --r-sm: 8px; --r: 12px; --r-lg: 18px; --r-xl: 22px; --r-2xl: 28px; --r-pill: 999px;
-  --glass-1: rgba(13,17,27,.56); --glass-2: rgba(16,20,31,.66); --glass-3: rgba(20,25,37,.78); --glass-solid: #151a26;
+  --sheet: rgba(6,8,18,.3); --glass-1: rgba(13,17,27,.46); --glass-2: rgba(14,18,30,.5); --glass-3: rgba(18,23,38,.62); --glass-solid: #151a26;
   --blur-1: blur(30px) saturate(150%); --blur-2: blur(40px) saturate(170%); --blur-3: blur(60px) saturate(180%);
   --edge: rgba(255,255,255,.24); --edge-soft: rgba(255,255,255,.09);
   --hl: inset 0 1px 0 var(--edge); --hl-soft: inset 0 1px 0 var(--edge-soft);

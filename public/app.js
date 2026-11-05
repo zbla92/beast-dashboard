@@ -803,8 +803,8 @@ function sparkline(canvas, data, color, max = 100, fill = true) {
   const n = Math.max(data.length, 2); const step = W / (180 - 1);
   const x = i => W - (data.length - 1 - i) * step; const y = v => H - 2 - Math.min(1, (v || 0) / max) * (H - 6);
   ctx.beginPath(); data.forEach((v, i) => i ? ctx.lineTo(x(i), y(v)) : ctx.moveTo(x(i), y(v)));
-  ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.lineJoin = 'round'; ctx.stroke();
-  if (fill && data.length > 1) { ctx.lineTo(x(data.length - 1), H); ctx.lineTo(x(0), H); ctx.closePath(); ctx.fillStyle = color.replace(')', ',.12)').replace('rgb', 'rgba'); ctx.fill(); }
+  ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
+  if (fill && data.length > 1) { ctx.lineTo(x(data.length - 1), H); ctx.lineTo(x(0), H); ctx.closePath(); const glow = ctx.createLinearGradient(0, 0, 0, H); glow.addColorStop(0, color.replace(')', ',.55)').replace('rgb', 'rgba')); glow.addColorStop(1, color.replace(')', ',0)').replace('rgb', 'rgba')); ctx.fillStyle = glow; ctx.fill(); }
 }
 const usd = v => v == null ? '–' : v < 10 ? '$' + v.toFixed(2) : '$' + v.toFixed(0);
 // "claude-opus-5[1m]" -> "Opus 5 · 1M", "claude-fable-5-1" -> "Fable 5.1", "claude-haiku-4-5-20251001" -> "Haiku 4.5"
@@ -844,7 +844,7 @@ function limitsTile(LM) {
 }
 // donut: used share of a whole, percent in the middle (disk)
 function ring(pct, size = 58, stroke = 7) {
-  const r = (size - stroke) / 2, c = 2 * Math.PI * r; const color = pct > 90 ? 'var(--red)' : pct > 75 ? 'var(--amber)' : 'var(--muted)';
+  const r = (size - stroke) / 2, c = 2 * Math.PI * r; const color = pct > 90 ? 'var(--red)' : pct > 75 ? 'var(--amber)' : 'var(--tile, var(--accent))';
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('class', 'ring'); svg.setAttribute('width', size); svg.setAttribute('height', size); svg.setAttribute('viewBox', `0 0 ${size} ${size}`);
   const circ = (cls, dash, col) => { const e = document.createElementNS('http://www.w3.org/2000/svg', 'circle'); e.setAttribute('cx', size / 2); e.setAttribute('cy', size / 2); e.setAttribute('r', r); e.setAttribute('fill', 'none'); e.setAttribute('stroke', col); e.setAttribute('stroke-width', stroke); if (dash != null) { e.setAttribute('stroke-dasharray', `${dash} ${c}`); e.setAttribute('stroke-linecap', 'round'); e.setAttribute('transform', `rotate(-90 ${size / 2} ${size / 2})`); } e.setAttribute('class', cls); return e; };
   svg.append(circ('bg', null, 'var(--fill2)'), circ('fg', c * Math.min(100, Math.max(0, pct)) / 100, color));
@@ -996,8 +996,8 @@ function hogsTile(s) {
 }
 function drawSparks() {
   const H = S.hist; const u = S.claude?.usage;
-  const map = { cpu: [H.cpu, 'rgb(106,169,201)', 100], mem: [H.mem, 'rgb(165,151,199)', 100], gpu: [H.gpu, 'rgb(79,178,134)', 100], net: [H.net.map(x => x[0] + x[1]), 'rgb(142,162,216)', Math.max(1e5, ...H.net.map(x => x[0] + x[1]))] };
-  if (u) { const series = u.days.map((_, i) => u.personal.series[i] + u.company.series[i]); map.claude = [series, 'rgb(163,163,169)', Math.max(1, ...series)]; }
+  const map = { cpu: [H.cpu, 'rgb(79,212,255)', 100], mem: [H.mem, 'rgb(183,148,255)', 100], gpu: [H.gpu, 'rgb(75,227,154)', 100], net: [H.net.map(x => x[0] + x[1]), 'rgb(255,160,90)', Math.max(1e5, ...H.net.map(x => x[0] + x[1]))] };
+  if (u) { const series = u.days.map((_, i) => u.personal.series[i] + u.company.series[i]); map.claude = [series, 'rgb(255,138,196)', Math.max(1, ...series)]; }
   for (const [k, [data, color, max]] of Object.entries(map)) { const c = $(`.tile[data-k="${k}"] canvas`); if (c) sparkline(c, data, color, max); }
 }
 

@@ -23,7 +23,7 @@
 .tile .k { font-size: var(--fs-sm); font-weight: 500; color: var(--muted); }
 .tile .v { margin-top: 6px; font-size: 26px; font-weight: 600; letter-spacing: -.025em; }
 .tile .s { margin-top: 4px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; white-space: normal; overflow: hidden; line-height: 1.4; font-size: var(--fs-xs); color: var(--dim); }
-.tile canvas { opacity: .55; height: 34px; }
+.tile canvas { opacity: 1; height: 42px; }
 .tile .k .temp, .tile .k .bchip { border: 0; background: rgba(255,255,255,.08); color: var(--muted); border-radius: var(--r-pill); padding: 0 8px; line-height: 20px; }
 .tile .k .temp[style], .tile .k .bchip[style] { border: 0; }
 .tile[data-k="disk"] .v { white-space: nowrap; }
@@ -78,7 +78,8 @@
   .stats { gap: 10px; }
   .tile { min-height: 84px; padding: 12px 14px 10px; border-radius: var(--r-lg); }
   .tile .v { font-size: var(--fs-xl); margin-top: 3px; }
-  .tile .s, .tile canvas { display: none; }
+  .tile .s { display: none; }
+  .tile canvas { height: 30px; }
   .tile[data-k="up"] .s, .tile[data-k="claude"] .s, .tile[data-k="limits"] .s { display: -webkit-box; }
   .tile .cores { display: none; }
   .tile .ring { bottom: 10px; right: 10px; width: 32px; height: 32px; }
@@ -146,7 +147,6 @@
   .tk-acts { width: 100%; justify-content: flex-end; }
   .tk-body, .tk-files { padding-left: 0; }
   .tk-result { margin-left: 0; }
-  .drawer, .drawer.open { background: var(--glass-solid); }
   .dh { padding: 16px 16px 0; }
   .tabs { padding-bottom: 10px; }
   .tab { height: 40px; line-height: 40px; }
