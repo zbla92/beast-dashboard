@@ -182,7 +182,7 @@ let lastStateJson = '';
 function stateObj() {
   icons.poll(projects);
   const s = settings.get();
-  return { projects: projects.map(p => ({ ...p, git: gitStatus[p.id] || null })), wip: wip.state(), runtime: { ...snapshot, manual: expose.manual() }, settings: s, host: { nextWake: s.sleepButton ? (sleepMod.nextWake() || 0) && sleepMod.nextWake().getTime() : 0, tsIp: TS_IP, tsName: expose.tailscaleName(), tailscale: TS_INFO, chatRoll: ROLL, publicHost: s.publicHost || TS_IP || 'localhost', terminalPort: 7681, hostname: require('os').hostname(), devRoot: s.devRoot, user: process.env.USER || 'user', lastResume: LAST_RESUME, startedAt: STARTED_AT, build: build(), pushSubs: push.subscriptions().length, probe: probe.status(), stateErrors: corrupted(), claudeVer: claudever.status(), accounts: accounts() }, claude: { restorable: claude.restorable(), usage: usage.summary(), limits: limits.all(), installed: CLAUDE_VERSION, update: CLAUDE_UPDATE || claudeUpdater.status(), schedule: schedule.all(), tasks: tasks.all() }, health: health.all(), crashes: recentCrashes(), stats: sys.latest(), statsHistory: sys.history() };
+  return { projects: projects.map(p => ({ ...p, git: gitStatus[p.id] || null })), wip: wip.state(), runtime: { ...snapshot, manual: expose.manual() }, settings: s, host: { nextWake: s.sleepButton ? (sleepMod.nextWake() || 0) && sleepMod.nextWake().getTime() : 0, tsIp: TS_IP, tsName: expose.tailscaleName(), tailscale: TS_INFO, chatRoll: ROLL, publicHost: s.publicHost || TS_IP || 'localhost', terminalPort: 7681, hostname: require('os').hostname(), home: require('os').homedir(), devRoot: s.devRoot, user: process.env.USER || 'user', lastResume: LAST_RESUME, startedAt: STARTED_AT, build: build(), pushSubs: push.subscriptions().length, probe: probe.status(), stateErrors: corrupted(), claudeVer: claudever.status(), accounts: accounts() }, claude: { restorable: claude.restorable(), usage: usage.summary(), limits: limits.all(), installed: CLAUDE_VERSION, update: CLAUDE_UPDATE || claudeUpdater.status(), schedule: schedule.all(), tasks: tasks.all() }, health: health.all(), crashes: recentCrashes(), stats: sys.latest(), statsHistory: sys.history() };
 }
 let ACCTS = null, acctsAt = 0;
 function accounts() { if (!ACCTS || Date.now() - acctsAt > 30000) { acctsAt = Date.now(); ACCTS = ['personal', ...(fs.existsSync(path.join(require('os').homedir(), '.claude-company')) ? ['company'] : [])]; } return ACCTS; }
@@ -653,7 +653,21 @@ const deviceCache = () => (readJson(path.join(STATE, 'settings.json'), {}, false
 function uiVersion() { let v = 0; let fl = []; try { fl = fs.readdirSync(PUBLIC).filter(f => UI_FILE.test(f)); } catch {} for (const f of fl) { try { v = Math.max(v, fs.statSync(path.join(PUBLIC, f)).mtimeMs); } catch {} } return Math.round(v).toString(36); }
 // ~/Downloads on the server, browsed with the same file explorer as a project's Files tab (id "_downloads")
 const DOWNLOADS = { id: '_downloads', name: 'downloads', path: path.join(require('os').homedir(), 'Downloads'), isGit: false, parent: null, rel: '' };
-const fsRoot = async id => { if (id !== '_downloads') return roots.rootOf(id); try { fs.mkdirSync(DOWNLOADS.path, { recursive: true }); } catch {} return DOWNLOADS; };   // a fresh server may have no ~/Downloads yet
+const fsRoot = async id => {
+  if (id === '_pasted') { try { fs.mkdirSync(pastedDir(), { recursive: true }); } catch {} return { id, name: 'pasted', path: pastedDir(), isGit: false, parent: null, rel: '' }; }
+  if (id !== '_downloads') return roots.rootOf(id);
+  try { fs.mkdirSync(DOWNLOADS.path, { recursive: true }); } catch {}   // a fresh server may have no ~/Downloads yet
+  return DOWNLOADS;
+};
+const locateFile = abs => {
+  const under = base => abs.startsWith(base + path.sep);
+  if (under(DOWNLOADS.path)) return { id: '_downloads', rel: path.relative(DOWNLOADS.path, abs) };
+  if (under(pastedDir())) return { id: '_pasted', rel: path.relative(pastedDir(), abs) };
+  const hit = roots.locate(abs);
+  if (hit) return { id: hit.rootId, rel: hit.rel };
+  const owner = projects.filter(p => under(p.path)).sort((a, b) => b.path.length - a.path.length)[0];
+  return owner ? { id: owner.id, rel: path.relative(owner.path, abs) } : null;
+};
 const planSessions = () => Object.values(claude.all()).filter(r => r && !r.gone && r.cwd).map(r => ({ name: r.tmux, cwd: r.cwd }));
 async function api(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean).slice(1); // after 'api'
@@ -769,13 +783,23 @@ async function api(req, res, url) {
     const r = files.list(p.path, url.searchParams.get('path') || '', changed); r.git = !!gitRoot; r.sub = gitRoot ? path.relative(gitRoot.path, p.path) : '';
     return json(res, r.error ? 400 : 200, r);
   }
+  if (m === 'GET' && parts[0] === 'locate-file' && !parts[1]) {
+    const raw = url.searchParams.get('p') || '';
+    if (!path.isAbsolute(raw)) return json(res, 400, { error: 'bad path' });
+    const hit = locateFile(path.resolve(raw));
+    if (!hit) return json(res, 404, { error: 'not in a project, Downloads or uploads' });
+    const root = await fsRoot(hit.id); if (!root) return json(res, 404, { error: 'not in a project, Downloads or uploads' });
+    const r = files.info(root.path, hit.rel);
+    if (r.error) return json(res, 404, { error: r.error });
+    return json(res, 200, { id: hit.id, rel: r.path, name: path.basename(r.path), size: r.size, mtime: r.mtime });
+  }
   if (m === 'GET' && parts[0] === 'read' && parts[1]) { // file content for the preview / editor
     const p = await fsRoot(parts[1]); if (!p) return json(res, 404, { error: 'no project' });
     const r = files.read(p.path, url.searchParams.get('path') || ''); return json(res, r.error ? 400 : 200, r);
   }
   if (m === 'GET' && parts[0] === 'download' && parts[1]) { // raw file, as attachment (inline=1: shown in the browser — image / PDF preview)
     const p = await fsRoot(parts[1]); if (!p) return json(res, 404, { error: 'no project' });
-    return files.stream(p.path, url.searchParams.get('path') || '', res, url.searchParams.get('inline') === '1');
+    return files.stream(p.path, url.searchParams.get('path') || '', res, url.searchParams.get('inline') === '1', req.headers.range);
   }
   if (m === 'GET' && parts[0] === 'zip' && parts[1]) { // several files / folders as one zip (?path=a&path=b)
     const p = await fsRoot(parts[1]); if (!p) return json(res, 404, { error: 'no project' });

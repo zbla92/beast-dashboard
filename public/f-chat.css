@@ -65,7 +65,7 @@
 .ttext code { padding: 1px 5px; border-radius: 6px; background: var(--chat-pill); color: #cdbdf8; font-size: 12.5px; }
 .ttext .mh { margin-top: 2px; font-size: 14.5px; }
 .ttext .mli { padding-left: 12px; }
-.ttext .mh + br, .ttext .mli + br, .ttext .mcode + br { display: none; }
+.ttext .mh + br, .ttext .mli + br, .ttext .mcode-wrap + br { display: none; }
 .mcode { margin: 4px 0 8px; border: 1px solid var(--line); border-radius: 12px; background: #0e0f12; font-size: 12.5px; line-height: 1.55; }
 .mcode.hljs { background: #0e0f12; }
 .mcode.tout, .tdiff2 { background: #0e0f12; border: 1px solid var(--line); border-radius: 10px; }

@@ -1905,7 +1905,7 @@ function voiceButton(ta, chatKey) {
     box.after(ov);
   };
   const guardOutside = ev => {
-    if (ev.target.closest && ev.target.closest('.recbar, .cscroll, #term-ws, #fp2-panel')) return;
+    if (ev.target.closest && ev.target.closest('.recbar, .cscroll, #term-ws, #fp2-panel, #modal')) return;
     ev.stopPropagation();
     if (ev.type !== 'click') return;
     ev.preventDefault();
@@ -2158,23 +2158,41 @@ function scheduledStrip() {
         h('div', { class: 'sj-txt' }, j.prompts[0], j.prompts.length > 1 ? h('span', { class: 'grp' }, ` +${j.prompts.length - 1} more`) : null),
         h('button', { class: 'x', title: 'cancel', onclick: ev => { ev.stopPropagation(); if (confirm('Cancel this scheduled message?')) api('schedule-remove', { id: j.id }); } }, ico('x', 14))); })));
 }
+function chatFilePath(raw) {
+  const home = S.host?.home, dev = S.host?.devRoot; if (!home || !dev) return null;
+  const abs = raw.startsWith('~/') ? home + raw.slice(1) : raw;
+  if (!/[^/]\.[A-Za-z0-9]{1,8}$/.test(abs) || /(^|\/)\.\.(\/|$)|[\r\u2028\u2029]/.test(abs)) return null;
+  const within = root => abs.startsWith(root + '/');
+  if (within(home + '/Downloads') || within(dev + '/.pasted')) return abs;
+  return (S.projects || []).some(p => [p.path, ...(p.worktreePaths || [])].some(within)) ? abs : null;
+}
 // tiny markdown: code fences, inline code, bold, bullets, line breaks — enough for Claude's replies
 function mdLite(t) {
   const parts = t.split(/(```[\s\S]*?```|^> [^\n]*(?:\n>(?: [^\n]*)?$)*\n*)/gm);
   return parts.map(p => {
-    if (p.startsWith('```')) { const m = p.match(/^```(\w+)?\n?([\s\S]*?)```$/); const lang = m && m[1] ? (LANG[m[1]] || m[1]) : null; const code = m ? m[2] : p.slice(3, -3); return `<pre class="mcode hljs">${hlLines(code.replace(/\n$/, ''), lang).join('\n')}</pre>`; }
+    if (p.startsWith('```')) { const m = p.match(/^```(\w+)?\n?([\s\S]*?)```$/); const lang = m && m[1] ? (LANG[m[1]] || m[1]) : null; const code = m ? m[2] : p.slice(3, -3); return `<div class="mcode-wrap"><button type="button" class="mcopy" title="copy" aria-label="copy">${ico('copy', 14).outerHTML}</button><pre class="mcode hljs">${hlLines(code.replace(/\n$/, ''), lang).join('\n')}</pre></div>`; }
     let x = esc(p);
     if (x.startsWith('&gt; ')) x = '<blockquote class="mquote">\n' + x.trimEnd().replace(/^&gt; ?/gm, '') + '\n</blockquote>';
     // pipe tables: header row + separator row + body rows
     x = x.replace(/(?:^|\n)((?:\|[^\n]*\|\s*\n)+)/g, (m, block) => { const rows = block.trim().split('\n').map(r => r.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim())); if (rows.length < 2 || !rows[1].every(c => /^:?-{2,}:?$/.test(c))) return m; const head = rows[0], body = rows.slice(2); return '\n<table class="mtbl"><thead><tr>' + head.map(c => '<th>' + c + '</th>').join('') + '</tr></thead><tbody>' + body.map(r => '<tr>' + r.map(c => '<td>' + c + '</td>').join('') + '</tr>').join('') + '</tbody></table>\n'; });
     // links: [text](url) and bare URLs, http(s) only so a link can't run script here; `code` spans are matched first and left for the rule below
     const links = [];
-    x = x.replace(/(`[^`\n]+`)|\[([^\]\n]+)\]\((https?:\/\/[^\s()<`]+)\)|https?:\/\/(?:(?!&quot;|&gt;|&lt;)[^\s<`])+/g, (m, code, txt, url) => {
-      if (code) return m;
-      const a = (href, label) => '\u0000' + (links.push(`<a href="${href}" target="_blank" rel="noopener noreferrer">${label}</a>`) - 1) + '\u0000';
-      if (txt) return a(url, txt.replace(/`([^`\n]+)`/g, '<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>'));
-      let u = m; while (/[.,;:!?'*\]]$/.test(u) || (u.endsWith(')') && (u.match(/\(/g) || []).length < (u.match(/\)/g) || []).length)) u = u.slice(0, -1);   // trailing punctuation isn't part of the URL
-      return a(u, u) + m.slice(u.length);
+    const keep = html => '\u0000' + (links.push(html) - 1) + '\u0000';
+    const inlineLabel = txt => txt.replace(/`([^`\n]+)`/g, '<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');
+    const fileLink = (raw, label) => {
+      const parts = raw.match(/^([\s\S]*?)(?::(\d+)(?::\d+)?)?$/); const abs = chatFilePath(parts[1]);
+      if (!abs) return null;
+      return keep(`<a href="#" class="mpath" data-path="${abs}"${parts[2] ? ` data-line="${parts[2]}"` : ''} title="preview">${fileIcon(abs.split('/').pop()).outerHTML}${label}</a>`);
+    };
+    const trimUrlEnd = u => { while (/[.,;:!?'*\]]$/.test(u) || (u.endsWith(')') && (u.match(/\(/g) || []).length < (u.match(/\)/g) || []).length)) u = u.slice(0, -1); return u; };
+    x = x.replace(/(`[^`\n]+`)|\[([^\]\n]+)\]\((https?:\/\/[^\s()<`]+)\)|\[([^\]\n]+)\]\((~?\/[^\s()<`]+)\)|https?:\/\/(?:(?!&quot;|&gt;|&lt;)[^\s<`])+|(?<![\w/.~:#-])~?\/(?:(?!&quot;|&gt;|&lt;)[^\s<`|*,])+/g, (m, code, txt, url, fileTxt, filePath) => {
+      if (code) return fileLink(code.slice(1, -1), `<code>${code.slice(1, -1)}</code>`) || m;
+      if (txt) return keep(`<a href="${url}" target="_blank" rel="noopener noreferrer">${inlineLabel(txt)}</a>`);
+      if (fileTxt) return fileLink(filePath, inlineLabel(fileTxt)) || m;
+      const u = trimUrlEnd(m);
+      if (/^https?:/.test(m)) return keep(`<a href="${u}" target="_blank" rel="noopener noreferrer">${u}</a>`) + m.slice(u.length);
+      const link = fileLink(u, u);
+      return link ? link + m.slice(u.length) : m;
     });
     x = x.replace(/`([^`\n]+)`/g, '<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>').replace(/^(#{1,4}) (.+)$/gm, '<b class="mh">$2</b>').replace(/^[-*] (.+)$/gm, '<span class="mli">• $1</span>').replace(/^(\d+)\. (.+)$/gm, '<span class="mli"><span class="mnum">$1.</span> $2</span>');
     x = x.replace(/\u0000(\d+)\u0000/g, (m, i) => links[i] ?? '');

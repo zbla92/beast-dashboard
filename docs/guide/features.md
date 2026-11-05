@@ -57,6 +57,8 @@ your projects and it gives you:
 - **Downloads** — `~/Downloads` on the server in a file explorer: preview images / PDFs / text,
   tick files and download one, or several (and folders) as one zip. Ask Claude to "drop the
   report in Downloads" and grab it from your phone.
+- **Files named in a chat** — a path Claude prints to Downloads, an upload or a project file is a link: click it for a
+  preview (image, PDF, video, HTML, Markdown, text with the line it names). Code blocks have a copy button.
 - **Plans and progress** — a project with `docs/<topic>/PLAN.md` + `PROGRESS.md` (the way multi-step
   agent work is often tracked) gets a progress chip on its card and a Plan tab: the checklist by
   section, the next item, the plan itself.

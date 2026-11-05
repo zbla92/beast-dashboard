@@ -1,0 +1,22 @@
+.ttext a.mpath { color: var(--blue); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--blue) 45%, transparent); text-underline-offset: 3px; cursor: pointer; }
+.ttext a.mpath:hover { text-decoration-color: currentColor; }
+.ttext a.mpath code { color: inherit; }
+.ttext a.mpath .fi { display: inline-block; width: 14px; min-width: 0; height: 14px; margin: 0 3px 0 0; padding: 0; background: none; vertical-align: -2px; }
+.turn.user .ttext a.mpath { color: #cfe0ff; }
+
+.mcode-wrap { position: relative; margin: 4px 0 8px; }
+.mcode-wrap > .mcode { margin: 0; }
+.mcopy { position: absolute; top: 6px; right: 6px; z-index: 1; display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: color-mix(in srgb, #0e0f12 82%, transparent); color: var(--muted); cursor: pointer; }
+.mcopy:hover { color: var(--text); }
+.mcopy.ok { color: var(--green); }
+
+.fpv-copybuf { position: fixed; top: 0; left: 0; font-size: 16px; opacity: 0; }
+.fpv-title { display: flex; flex: 1; flex-direction: column; min-width: 0; line-height: 1.3; }
+.fpv-title b, .fpv-title span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.fpv-title span { font-size: var(--fs-xs); }
+.fpv .sh .btn.hidden { display: none; }
+.fpv-body { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; }
+.fpv-body > .fmedia.pdf { height: 100%; }
+.fpv-note { padding: 20px; }
+.fpv-md { flex: 1; min-height: 0; padding: 16px 20px; overflow: auto; }
+.fpv-line { background: color-mix(in srgb, var(--amber) 16%, transparent); }

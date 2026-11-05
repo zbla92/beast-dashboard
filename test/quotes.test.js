@@ -6,10 +6,10 @@ const vm = require('node:vm');
 
 const pub = f => fs.readFileSync(path.join(__dirname, '..', 'public', f), 'utf8');
 const appSrc = pub('app.js');
-const mdLiteSrc = appSrc.slice(appSrc.indexOf('function mdLite('), appSrc.indexOf('// A past conversation from search'));
+const mdLiteSrc = appSrc.slice(appSrc.indexOf('function chatFilePath('), appSrc.indexOf('// A past conversation from search'));
 const escSrc = appSrc.slice(appSrc.indexOf('const esc = s =>'), appSrc.indexOf('const fmtB ='));
 
-const mdCtx = vm.createContext({ LANG: {}, hlLines: code => code.split('\n').map(l => l.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]))) });
+const mdCtx = vm.createContext({ LANG: {}, S: { host: { home: '/home/u', devRoot: '/home/u/dev' }, projects: [{ path: '/home/u/dev/acme/app', worktreePaths: ['/home/u/dev/acme/app-wt'] }] }, fileIcon: () => ({ outerHTML: '<i></i>' }), ico: () => ({ outerHTML: '<i></i>' }), hlLines: code => code.split('\n').map(l => l.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]))) });
 vm.runInContext(escSrc + mdLiteSrc + ';this.mdLite = mdLite;', mdCtx);
 const mdLite = mdCtx.mdLite;
 
@@ -293,4 +293,38 @@ test('mdLite: > in the middle of a line, or without a space, is not a quote', ()
   assert.strictEqual(mdLite('a > b'), 'a &gt; b');
   assert.strictEqual(mdLite('>nope'), '&gt;nope');
   assert.strictEqual(mdLite('plain\ntext'), 'plain<br>text');
+});
+
+const fileLinks = text => [...mdLite(text).matchAll(/<a href="#" class="mpath" data-path="([^"]+)"(?: data-line="(\d+)")?/g)].map(m => m[2] ? `${m[1]}:${m[2]}` : m[1]);
+
+test('mdLite: a file path in a known place becomes a preview link', () => {
+  assert.deepStrictEqual(fileLinks('/home/u/Downloads/a.png'), ['/home/u/Downloads/a.png']);
+  assert.deepStrictEqual(fileLinks('~/Downloads/report-1.pdf.'), ['/home/u/Downloads/report-1.pdf']);
+  assert.deepStrictEqual(fileLinks('see (/home/u/dev/.pasted/teamx/b.jpg), ok'), ['/home/u/dev/.pasted/teamx/b.jpg']);
+  assert.deepStrictEqual(fileLinks('`/home/u/dev/acme/app/src/x.js:12`'), ['/home/u/dev/acme/app/src/x.js:12']);
+  assert.deepStrictEqual(fileLinks('/home/u/dev/acme/app-wt/y.md'), ['/home/u/dev/acme/app-wt/y.md']);
+  assert.deepStrictEqual(fileLinks('[the report](/home/u/Downloads/r.pdf)'), ['/home/u/Downloads/r.pdf']);
+  assert.deepStrictEqual(fileLinks('| /home/u/Downloads/t.csv | x |\n|---|---|\n| a | b |\n'), ['/home/u/Downloads/t.csv']);
+});
+
+test('mdLite: anything else stays plain text', () => {
+  for (const t of ['/etc/hosts.txt', '/api/foo.json', 'public/a.js', 'and/or', '/home/u/dev/.pasted', '/home/u/Downloads/', '/home/u/.claude/x.md', '/home/u/dev/other/z.md', '/home/u/Downloads/../.ssh/id.pem', 'https://x.io/home/u/Downloads/a.png', 'file:///home/u/Downloads/a.png']) assert.deepStrictEqual(fileLinks(t), [], t);
+  assert.ok(mdLite('```\n/home/u/Downloads/a.png\n```').includes('<pre class="mcode hljs">/home/u/Downloads/a.png</pre>'));
+});
+
+test('mdLite: a path cannot break out of its link', () => {
+  const html = mdLite('/home/u/Downloads/a"onclick="x.png /home/u/Downloads/<img>.png');
+  assert.ok(!/onclick="x/.test(html.replace(/&quot;onclick=&quot;x/g, '')));
+  assert.ok(!html.includes('<img'));
+});
+
+test('mdLite: a code block gets a copy button beside it', () => {
+  assert.strictEqual(mdLite('```\nabc\n```'), '<div class="mcode-wrap"><button type="button" class="mcopy" title="copy" aria-label="copy"><i></i></button><pre class="mcode hljs">abc</pre></div>');
+});
+
+test('mdLite: control-like line separators in a code span do not break rendering', () => {
+  for (const c of ['\r', '\u2028', '\u2029']) {
+    assert.ok(mdLite('`50%' + c + '100%` done').includes('<code>'));
+    assert.deepStrictEqual(fileLinks('`/home/u/Downloads/a' + c + 'b.png`'), []);
+  }
 });
