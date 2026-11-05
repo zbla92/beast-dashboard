@@ -582,7 +582,9 @@ function newTerminalModal() {
   renderOpts(); renderList(); if (!IS_PHONE) setTimeout(() => inp.focus(), 0);
 }
 const isNewChat = name => /^claude-chat-\d{6}-\d{4}/.test(name || '');
-const chatTitle = cl => (cl && (cl.label || cl.title || (cl.firstPrompt && (cl.firstPrompt.length > 40 ? cl.firstPrompt.slice(0, 39) + '…' : cl.firstPrompt)))) || 'New chat';
+const withoutLeadingPaths = s => s && (s.replace(/^(?:\/\S+(?:\s+|$))+/, '') || s.split('/').pop());
+const shortPrompt = s => s && (s.length > 40 ? s.slice(0, 39) + '…' : s);
+const chatTitle = cl => (cl && (cl.label || withoutLeadingPaths(cl.title) || shortPrompt(withoutLeadingPaths(cl.firstPrompt)))) || 'New chat';
 const sessTitle = s => isNewChat(s.name) ? chatTitle(s.claude) : (s.claude?.label || (s.project && byId()[s.project]?.name) || s.name);
 const newSessionModal = (tab, text, opts) => FEAT.session ? FEAT.session.open(tab, text, opts) : newTerminalModal();
 function claudeOf(name) { const s = S.runtime.sessions.find(x => x.name === name); return s && s.claude || null; }
@@ -669,8 +671,9 @@ function renderTermPanel(force) {
     const isActive = TERM.active === it.name; const opened = TERM.frames.has(it.name); const cl = it.claude; const i = kind === 'claude' ? instOf(it) : null;
     const where = i && (i.wt ? h('span', { class: 'grp wt', title: i.wt.path ? 'git worktree · ' + home(i.wt.path) : 'git worktree' }, ico('branch', 12), ' ' + i.wt.name + (i.branch && i.branch !== i.wt.name ? ' · ' + i.branch : '')) : i.branch ? h('span', { class: 'grp', title: 'branch' }, ico('branch', 12), ' ' + i.branch) : null);
     const name = kind === 'claude' ? (sub ? h('span', { class: 'inst' }, gl(i.label, 12)) : isNewChat(it.name) ? chatTitle(cl) : (cl?.label || it.project)) : kind === 'dev' ? it.project : it.name.startsWith('sh-') ? it.name : it.name;
-    const tag = kind === 'claude' ? (multiAcct() ? h('span', { class: 'badge tag acc ' + it.account }, acct(it.account)) : null) : kind === 'dev' ? h('span', { class: 'grp' }, it.label) : it.name.startsWith('sh-') ? h('span', { class: 'grp' }, 'bash') : null;
-    const line2 = cl ? [h('span', { class: 'cst mini ' + cl.state }, gico(STATE_ICON[cl.state] || '·', 10), ' ', STATE_LABEL[cl.state] || cl.state), cl.model ? h('span', { class: 'mdl' }, modelName(cl.model)) : null, !sub && i && i.n ? h('span', { class: 'grp' }, '#' + i.n) : null]
+    const acctTag = kind === 'claude' && multiAcct() && it.account !== 'personal' ? h('span', { class: 'badge tag acc ' + it.account }, acct(it.account)) : null;
+    const tag = kind === 'claude' ? null : kind === 'dev' ? h('span', { class: 'grp' }, it.label) : it.name.startsWith('sh-') ? h('span', { class: 'grp' }, 'bash') : null;
+    const line2 = cl ? [h('span', { class: 'cst mini ' + cl.state }, gico(STATE_ICON[cl.state] || '·', 10), ' ', STATE_LABEL[cl.state] || cl.state), cl.model ? h('span', { class: 'mdl' }, modelName(cl.model)) : null, !sub && i && i.n ? h('span', { class: 'grp' }, '#' + i.n) : null, acctTag]
       : [h('span', { class: 'grp' }, [it.group, it.org].filter(Boolean).join(' · ') || home(it.cwd)), h('span', { class: 'grp' }, `${ago(it.started)} · ${it.cpu.toFixed(0)}% · ${fmtB(it.mem)}`)];
     const others = cl && isNewChat(it.name) ? (cl.projects || []).filter(x => x !== it.pid).slice(0, 2).map(x => h('span', { class: 'grp pchip' }, byId()[x]?.name || x)) : [];
     const line3 = cl ? [where, ...others, isNewChat(it.name) && !sub ? (it.pid ? null : h('span', { class: 'grp' }, home(it.cwd))) : cl.title ? h('span', { class: 'ttl', title: cl.title }, cl.title) : cl.lastPrompt ? h('span', { class: 'ttl dim', title: cl.lastPrompt }, ico('prompt', 12), ' ' + cl.lastPrompt) : null] : null;
@@ -681,10 +684,14 @@ function renderTermPanel(force) {
         h('div', { class: 'ts' }, ...line2.filter(Boolean)),
         line3 && line3.some(Boolean) ? h('div', { class: 't3' }, ...line3.filter(Boolean)) : null),
       ...feat('termItem', it.name),
-      h('div', { class: 'tacts' },
-        kind === 'claude' && !sub && it.pid ? h('button', { class: 'x plus', title: 'another Claude on this project', onclick: ev => plusClaude(ev, it.pid) }, ico('plus', 15)) : null,
-        cl ? h('button', { class: 'x', title: 'rename this session', onclick: ev => { ev.stopPropagation(); renameDialog(it.name); } }, ico('pencil', 14)) : null,
-        h('button', { class: 'x', title: 'open in new tab', onclick: ev => { ev.stopPropagation(); openTermTab(it.name); } }, ico('ext', 15))));
+      h('button', { class: 'x tmore', title: 'session actions', 'aria-label': 'session actions', onclick: ev => {
+        ev.stopPropagation(); const btn = ev.currentTarget;
+        openMenu(ev, [
+          kind === 'claude' && !sub && it.pid ? { label: 'Another Claude on this project', icon: 'plus', onclick: () => plusClaude({ currentTarget: btn, stopPropagation() {} }, it.pid) } : null,
+          cl ? { label: 'Rename', icon: 'pencil', onclick: () => renameDialog(it.name) } : null,
+          { label: 'Open in new tab', icon: 'ext', onclick: () => openTermTab(it.name) },
+        ].filter(Boolean));
+      } }, ico('dots', 16)));
   };
   const section = (title, arr, kind) => arr.length ? [h('div', { class: 'tsec' }, title, h('span', { class: 'n' }, arr.length)), ...arr.map(it => item(it, kind))] : [];
   // Claude: one row per session; a project with several Claudes gets a header row and its sessions indented under it (tabs)
@@ -693,8 +700,7 @@ function renderTermPanel(force) {
     const rows = [];
     for (const g of claudeGroups(og.items)) {
       if (g.items.length === 1) { rows.push(item(g.items[0], 'claude')); continue; }
-      rows.push(h('div', { class: 'tgrp', style: `--org:${orgColor(g.org)}` }, avatar(g.pid, 'sm'), h('span', { class: 'tgn' }, g.project), h('span', { class: 'n' }, g.items.length), h('span', { class: 'sp' }), g.pid ? h('button', { class: 'x plus', title: 'another Claude on this project', onclick: ev => plusClaude(ev, g.pid) }, ico('plus', 13)) : null));
-      for (const it of g.items) rows.push(item(it, 'claude', true));
+      rows.push(h('div', { class: 'tgbox' }, h('div', { class: 'tgrp', style: `--org:${orgColor(g.org)}` }, avatar(g.pid, 'sm'), h('span', { class: 'tgn' }, g.project), h('span', { class: 'n' }, g.items.length), h('span', { class: 'sp' }), g.pid ? h('button', { class: 'x plus', title: 'another Claude on this project', onclick: ev => plusClaude(ev, g.pid) }, ico('plus', 13)) : null), ...g.items.map(it => item(it, 'claude', true))));
     }
     if (og.items.length < 2 || !og.org) { claudeRows.push(...rows); continue; }
     claudeRows.push(h('div', { class: 'torg', style: `--org:${orgColor(og.org)}` }, h('div', { class: 'torg-h' }, h('i', null), og.org, h('span', { class: 'n' }, og.items.length)), ...rows));

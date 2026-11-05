@@ -1067,9 +1067,6 @@ body.term-open { overflow: hidden; }
 .titem.sub .inst { font-family: var(--mono); font-weight: 600; }
 .titem.opened .tn .nm::after { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-left: 6px; vertical-align: middle; }
 .titem .tnum { font-family: var(--mono); font-size: var(--fs-2xs); color: var(--dim); border: 1px solid var(--line2); border-radius: 4px; padding: 0 4px; }
-.titem .tacts { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 2px; opacity: 0; transition: opacity .15s; }
-.titem:hover .tacts { opacity: 1; }
-@media (hover: none) { .titem .tacts { opacity: .75; } .titem .tt { padding-right: 34px; } }
 .titem .x, .tgrp .x { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: var(--r-sm); background: none; color: var(--dim); cursor: pointer; }
 .titem .x:hover, .tgrp .x:hover { color: var(--text); background: var(--fill2); }
 .titem .x .ico, .tgrp .x .ico { width: 15px; height: 15px; }

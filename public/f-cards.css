@@ -23,7 +23,7 @@
   --card-blur: none;
 }
 
-.tile, .runwrap, .wstrip, .tk, .card, .rc-list, .rc-empty, .tunnels, .emu-tile, .sched, .wcard, .wtx-card, .fp-grp, .fp-sec, .fp-doc, .fp2-sec, .fp2-qrow, .cdet, .chfile, .ctr, .cmdrow, .titem, .ibx-row, .ibx-banner, .sa-row, .sa-result, .rail-card, .ban {
+.tile, .runwrap, .wstrip, .tk, .card, .rc-list, .rc-empty, .tunnels, .emu-tile, .sched, .wcard, .wtx-card, .fp-grp, .fp-sec, .fp-doc, .fp2-sec, .fp2-qrow, .cdet, .chfile, .ctr, .cmdrow, .titem, .ibx-row, .ibx-banner, .sa-row, .sa-result, .rail-card, .ban, .tgbox {
   background: var(--card-fill); border-color: var(--card-edge); box-shadow: var(--card-rim), var(--card-lift);
   backdrop-filter: var(--card-blur); -webkit-backdrop-filter: var(--card-blur);
 }
@@ -118,3 +118,25 @@ body.term-open:has(.termmain.fp2-open, #term-frames.ws-on) .rail-card { backdrop
   .tile[data-k="cpu"], .tile[data-k="mem"], .tile[data-k="gpu"], .tile[data-k="net"], .tile[data-k="claude"] { padding-bottom: 56px; }
   .tile canvas, .tile[data-k="claude"] canvas { height: 50px; }
 }
+#term-list { padding: 4px 12px 14px; }
+.tsec { padding: 10px 6px 8px; font-size: var(--fs-xs); font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+.titem { align-items: center; gap: 12px; margin-bottom: 8px; padding: 12px 4px 12px 14px; border-radius: 20px; }
+.titem .av { margin-top: 0; }
+.titem .tn .nm, .titem.sub .inst { font-family: inherit; font-size: 16px; font-weight: 600; letter-spacing: -.01em; }
+.titem .ts { margin-top: 3px; font-size: 13px; }
+.titem .ts .badge { flex: none; }
+.titem .t3 { margin-top: 3px; font-size: 13px; }
+.titem .t3 .grp { flex: 0 1 auto; max-width: 100%; }
+.titem .t3 .ttl.dim { font-family: inherit; }
+.titem .fp2-rail { align-self: center; margin: 0; }
+.titem .tmore { flex: none; align-self: stretch; width: 36px; height: auto; min-height: 44px; margin: -6px 0; color: var(--muted); }
+.torg::before { display: none; }
+.torg-h { padding: 12px 6px 8px; letter-spacing: .06em; text-transform: uppercase; }
+.torg > .titem, .torg > .tgrp, .torg > .titem.sub { margin-left: 0; }
+.tgbox { margin-bottom: 8px; border: 1px solid var(--card-edge); border-radius: 20px; overflow: hidden; }
+.tgbox .tgrp { padding: 10px 6px 10px 14px; font-size: 14px; }
+.tgbox .titem.sub { margin: 0; min-height: 0; border: 0; border-top: 1px solid rgba(255,255,255,.09); border-radius: 0; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+.tgbox .titem.sub:not(.on, .st-needs-you, .st-permission) { background: transparent; }
+.titem.claude.sub > .dot { display: none; }
+.tgbox .titem.sub { padding: 12px 4px 12px 14px; }
+.titem .tmore:hover { background: transparent; }

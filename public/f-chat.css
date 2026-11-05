@@ -198,9 +198,6 @@ body.recording .cfield .qk:not(.mic) { pointer-events: none; opacity: .4; }
 .titem.on { border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: var(--panel2); }
 .titem .tn { font-size: 15px; }
 .titem .fp2-rail { margin-right: 0; }
-.titem:has(.fp2-rail) .tacts { right: 34px; }
-@media (hover: none) { .titem:has(.fp2-rail) .tt { padding-right: 62px; } .titem .fp2-rail { position: absolute; right: 12px; top: 50%; margin-top: -9px; } }
-@media (hover: hover) { .titem:has(.fp2-rail):hover .fp2-rail { visibility: visible; } }
 .rrow:has(.fp2-rail) .redit { right: 26px; }
 
 .box.ibx { background: var(--glass-3); }
