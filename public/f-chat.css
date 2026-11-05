@@ -185,6 +185,10 @@ textarea:has(+ .recbar:not(.leaving)) { display: none; }
 .recbar.finishing .recbar-dot::after { animation: none; opacity: 0; }
 .recbar.finishing .recbar-dot { background: var(--muted); }
 .recbar.finishing .recbar-time { color: var(--muted); }
+.recbar.failed { flex-wrap: wrap; row-gap: 6px; padding-block: 8px; }
+.recbar.failed .recbar-stop, .recbar.failed .recbar-lang, .recbar.failed .recbar-st { display: none; }
+.recbar.failed .recbar-text { flex: 1 1 150px; }
+.recbar-acts { flex: none; display: flex; gap: 6px; margin-left: auto; }
 .recbar-writing { color: transparent; background: linear-gradient(90deg, var(--muted) 30%, var(--text) 50%, var(--muted) 70%) 0 0 / 220% 100%; -webkit-background-clip: text; background-clip: text; animation: recbar-shine 1.5s linear infinite; }
 @keyframes recbar-shine { from { background-position: 110% 0; } to { background-position: -110% 0; } }
 body.recording .cfoot { opacity: .4; pointer-events: none; transition: opacity .2s ease; }

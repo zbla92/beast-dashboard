@@ -60,6 +60,15 @@ const USAGE = `usage: plan <command> [args] [flags]
 
 flags: --plan <topic>  --repo <path>  --session <name>   (-- ends the flags: the rest is text)
 exit: 0 ok, 1 refused, 2 usage, 3 no plan
+
+plan.md, at the path from plan path. Add phases and task cards by hand, then run plan validate:
+
+## Phase 1 — Name
+
+- [ ] T1 Title · Opus
+  The task card, indented by two spaces: goal, files it owns, files it must not touch, the command that must pass.
+
+Task status changes only through the commands above. Full format: docs/guide/plans.md in the Beast Dash repo.
 `;
 
 const SETTINGS_FILE = path.join(__dirname, '..', 'state', 'settings.json');

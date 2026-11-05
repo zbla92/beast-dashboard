@@ -58,10 +58,23 @@
 .turn.user .tqa, .ttext .tqa, .ttext .ttodo, .turn.user.queued, .turn.ask .ttext.askplan { backdrop-filter: none; -webkit-backdrop-filter: none; }
 
 @media (max-width: 900px) {
-  :root { --card-blur: blur(18px) saturate(50%); --tb-h: 48px; --bar-tint: rgba(15,17,23,.66); }
+  :root { --card-blur: blur(18px) saturate(50%); --tb-h: calc(48px + env(safe-area-inset-top, 0px)); --bar-tint: var(--glass-solid); --bar-blur: none; }
   body.kb-open { --tb-h: 0px; }
   .chatpane > .cscroll { padding-top: calc(12px + var(--chat-inset)); }
   .cv-sec { background: var(--card-fill); backdrop-filter: var(--card-blur); -webkit-backdrop-filter: var(--card-blur); }
+  .top { padding-top: calc(6px + env(safe-area-inset-top, 0px)); }
+  .drawer, .termside { padding-top: env(safe-area-inset-top, 0px); }
+  .modal .box.dlx .sh { padding-top: env(safe-area-inset-top, 0px); }
+  .termbar { padding-top: calc(4px + env(safe-area-inset-top, 0px)); }
+
+  .termmain:has(> .termframes > .chatpane:not(.hidden) > .cscroll) > .termbar { align-items: flex-start; padding: calc(4px + env(safe-area-inset-top, 0px)) 8px 0; border-bottom: 0; background: none; box-shadow: none; overflow: visible; pointer-events: none; }
+  body.kb-open .termbar { visibility: hidden; }
+  .termmain:has(> .termframes > .chatpane:not(.hidden) > .cscroll) > .termbar > * { pointer-events: auto; }
+  .termmain:has(> .termframes > .chatpane:not(.hidden) > .cscroll) > .termbar > .sp { flex: 1 1 0; pointer-events: none; }
+  .termmain:has(> .termframes > .chatpane:not(.hidden) > .cscroll) > .termbar > .btn, .termmain:has(> .termframes > .chatpane:not(.hidden) > .cscroll) > .termbar > .msess { height: 40px; border: 1px solid var(--line2); border-radius: 20px; background: var(--glass-solid); box-shadow: 0 2px 10px rgba(0,0,0,.45); color: var(--text); }
+  .termmain:has(> .termframes > .chatpane:not(.hidden) > .cscroll) > .termbar > :is(.btn.icon, .tmore, .cvfiles) { width: 40px; min-width: 40px; padding: 0; justify-content: center; }
+  .termmain:has(> .termframes > .chatpane:not(.hidden) > .cscroll) > .termbar > .msess { flex: 0 1 auto; min-width: 0; max-width: 52%; padding: 0 12px 0 6px; font-size: var(--fs-md); }
+  .termbar .msess .cst { flex: none; padding: 0; background: none; font-size: var(--fs-xs); }
 }
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {

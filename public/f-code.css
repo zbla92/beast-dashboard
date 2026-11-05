@@ -338,7 +338,7 @@ a.cv-ib { color: var(--dim); }
 }
 
 @media (max-width: 900px) {
-  .cv-root { height: calc(100dvh - var(--top-h) - var(--tab-h) - env(safe-area-inset-bottom)); padding: 0; }
+  .cv-root { height: calc(100dvh - var(--top-h) - var(--tab-h) - env(safe-area-inset-bottom) - env(safe-area-inset-top)); padding: 0; }
   .cv-pane { border-radius: 0; box-shadow: none; background: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
   .cv-vh { padding-left: 6px; }
   .cv-vbody { padding: 0 8px 8px; }

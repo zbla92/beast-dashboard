@@ -10,8 +10,9 @@ UI share. Parser, serializer and validator: [`lib/planfile.js`](../../lib/planfi
 - `events.jsonl` next to it is an append-only log (the timeline). It never decides state.
 - Agents change status only through `plan` (it validates and logs each change). Content
   (task cards, notes, new tasks and phases) may be edited by hand; run `plan validate` afterwards.
-- The feature is opt-in: setting `plans` (default `false`). With it off, no hook is installed and
+- The feature is opt-in: ⚙ Settings → Plans, setting `plans` (default `false`). With it off, no hook is installed and
   the UI hides plans.
+- This page says how plans work. When an agent should make one is in the [agent rules](agent-rules.md).
 
 ## 1. `plan.md`
 

@@ -20,3 +20,10 @@
 .fpv-note { padding: 20px; }
 .fpv-md { flex: 1; min-height: 0; padding: 16px 20px; overflow: auto; }
 .fpv-line { background: color-mix(in srgb, var(--amber) 16%, transparent); }
+.fpv-close { display: none; }
+
+@media (max-width: 900px) {
+  .modal .box.fpv { position: relative; background: var(--glass-solid); backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .fpv-close { position: absolute; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); z-index: 2; display: grid; place-items: center; width: 52px; height: 52px; padding: 0; translate: -50% 0; border: 1px solid var(--line2); border-radius: 50%; background: var(--glass-solid); box-shadow: 0 4px 18px rgba(0,0,0,.55); color: var(--text); cursor: pointer; }
+  .fpv-md, .fpv .fcode { padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px)); }
+}

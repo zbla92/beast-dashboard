@@ -23,6 +23,8 @@ function home(t) {
 const read = (h, d = '.claude') => JSON.parse(fs.readFileSync(path.join(h, d, 'settings.json'), 'utf8'));
 const go = (h, o = {}) => run({ home: h, log: () => {}, ...o });
 const planHooks = s => (s.hooks.SessionStart || []).flatMap(g => g.hooks).filter(x => x.command === PLAN_CMD);
+const GUARD_BIN = path.join(ROOT, 'bin', 'pasted-guard.sh');
+const guardGroups = s => (s.hooks.PreToolUse || []).filter(g => g.hooks.some(x => x.command === GUARD_BIN));
 const cmds = (s, ev) => (s.hooks[ev] || []).flatMap(g => g.hooks).map(x => x.command);
 
 test('plans on adds a synchronous plan context hook to both accounts, keeping other hooks', t => {
@@ -165,4 +167,100 @@ test('settings are replaced atomically, through a symlinked settings.json, keepi
   assert.equal(fs.statSync(real).mode & 0o777, 0o600);
   assert.equal(planHooks(read(h)).length, 1);
   assert.deepEqual(fs.readdirSync(path.join(h, '.claude')), ['settings.json']);
+});
+
+test('the uploads guard is a blocking hook on Bash, Grep and Glob in both accounts', t => {
+  const h = home(t);
+  go(h);
+  for (const d of ['.claude', '.claude-company']) {
+    const groups = guardGroups(read(h, d));
+    assert.equal(groups.length, 1);
+    assert.equal(groups[0].matcher, 'Bash|Grep|Glob');
+    assert.equal(groups[0].hooks[0].async, undefined);
+    assert.ok(groups[0].hooks[0].timeout > 0);
+    assert.ok(cmds(read(h, d), 'PreToolUse').some(c => c.endsWith('claude-hook.sh')));
+  }
+  fs.accessSync(GUARD_BIN, fs.constants.X_OK);
+});
+
+test('the uploads guard is not added twice and moves with the repo', t => {
+  const h = home(t);
+  const f = path.join(h, '.claude', 'settings.json');
+  const s = read(h);
+  s.hooks.PreToolUse = [{ matcher: 'Bash|Grep|Glob', hooks: [{ type: 'command', command: '/old/place/bin/pasted-guard.sh', timeout: 5 }] }];
+  fs.writeFileSync(f, JSON.stringify(s));
+  go(h);
+  go(h);
+  const after = read(h);
+  assert.equal(guardGroups(after).length, 1);
+  assert.ok(!cmds(after, 'PreToolUse').includes('/old/place/bin/pasted-guard.sh'));
+});
+
+test('pastedGuard false takes the guard out and keeps a hook of the user in the same group', t => {
+  const h = home(t);
+  const f = path.join(h, '.claude', 'settings.json');
+  go(h);
+  const s = read(h);
+  guardGroups(s)[0].hooks.push({ type: 'command', command: '/opt/my-check.sh' });
+  fs.writeFileSync(f, JSON.stringify(s));
+  go(h, { pastedGuard: false });
+  const after = read(h);
+  assert.equal(guardGroups(after).length, 0);
+  assert.ok(cmds(after, 'PreToolUse').includes('/opt/my-check.sh'));
+  assert.ok(cmds(after, 'PreToolUse').some(c => c.endsWith('claude-hook.sh')));
+});
+
+test('--remove takes the guard out, a plans toggle leaves it alone', t => {
+  const h = home(t);
+  go(h);
+  syncPlans(false, true, { home: h, log: () => {} });
+  assert.equal(guardGroups(read(h)).length, 1);
+  syncPlans(true, false, { home: h, log: () => {} });
+  assert.equal(guardGroups(read(h)).length, 1);
+  go(h, { remove: true });
+  assert.equal(read(h).hooks.PreToolUse, undefined);
+});
+
+test('a plans toggle on a fresh account does not install the guard', t => {
+  const h = home(t);
+  go(h, { plans: true, planOnly: true });
+  assert.equal(guardGroups(read(h)).length, 0);
+});
+
+for (const [name, content] of [['hooks as a string', '{"hooks":"x"}'], ['an event as an object', '{"hooks":{"PreToolUse":{}}}'], ['a null group', '{"hooks":{"PreToolUse":[null]}}'], ['group hooks as a string', '{"hooks":{"Stop":[{"hooks":"x"}]}}'], ['null', 'null'], ['an array', '[]'], ['hooks as an array', '{"hooks":[]}']]) {
+  test(`settings with ${name} are skipped and left as they are, the other login still gets the hooks`, t => {
+    const h = home(t);
+    fs.mkdirSync(path.join(h, '.claude-company'), { recursive: true });
+    const f = path.join(h, '.claude', 'settings.json');
+    fs.writeFileSync(f, content);
+    const logs = [];
+    run({ home: h, log: m => logs.push(m) });
+    assert.equal(fs.readFileSync(f, 'utf8'), content);
+    assert.ok(logs.some(l => l.startsWith(`skip ${f}`)));
+    assert.ok(read(h, '.claude-company').hooks.Stop);
+  });
+}
+
+test('a plan link left dangling by a moved repo is replaced, a link elsewhere is not', t => {
+  const h = home(t);
+  const bin = path.join(h, '.local', 'bin');
+  fs.mkdirSync(bin, { recursive: true });
+  const link = path.join(bin, 'plan');
+  fs.symlinkSync('/gone/beast-dash/bin/plan', link);
+  go(h, { plans: true, binDir: bin });
+  assert.equal(fs.readlinkSync(link), PLAN_BIN);
+  fs.unlinkSync(link);
+  fs.symlinkSync('/gone/someone-else/tool', link);
+  go(h, { plans: true, binDir: bin });
+  assert.equal(fs.readlinkSync(link), '/gone/someone-else/tool');
+});
+
+test('turning plans off also removes a dangling plan link of a moved repo', t => {
+  const h = home(t);
+  const bin = path.join(h, '.local', 'bin');
+  fs.mkdirSync(bin, { recursive: true });
+  const link = path.join(bin, 'plan');
+  fs.symlinkSync('/gone/beast-dash/bin/plan', link);
+  go(h, { plans: false, binDir: bin });
+  assert.equal(fs.lstatSync(link, { throwIfNoEntry: false }), undefined);
 });

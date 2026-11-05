@@ -5,8 +5,6 @@ After=network.target
 [Service]
 Type=simple
 ExecStart=__REPO__/whisper/run.sh
-Restart=on-failure
-RestartSec=5
 
 [Install]
 WantedBy=default.target

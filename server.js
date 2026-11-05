@@ -4,7 +4,8 @@ const zlib = require('zlib');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
-const { run, readBody, corrupted, readJson, STATE } = require('./lib/util');
+const { run, readBody, corrupted, readJson, STATE, ROOT } = require('./lib/util');
+const { createWhisper } = require('./lib/whisper');
 const settings = require('./lib/settings');
 const discovery = require('./lib/discovery');
 const newproject = require('./lib/newproject');
@@ -654,10 +655,8 @@ const proj = id => projects.find(p => p.id === id);
 // ---- Whisper on demand ----
 let whisperInfo = null;   // last /health answer: { idle, exitIn } — shown in the recording sheet
 function whisperHealth() { return new Promise(res => { const r = require('http').get({ host: '127.0.0.1', port: 8790, path: '/health', timeout: 800 }, up => { let d = ''; up.on('data', x => d += x); up.on('end', () => { try { whisperInfo = JSON.parse(d); } catch { whisperInfo = null; } res(up.statusCode === 200); }); }); r.on('error', () => { whisperInfo = null; res(false); }); r.on('timeout', () => { r.destroy(); res(false); }); }); }
-let whisperStarting = null;
-const whisperInstalled = () => fs.existsSync(path.join(require('os').homedir(), '.config', 'systemd', 'user', 'beast-whisper.service'));
-function whisperStart() { if (!whisperStarting) { whisperStarting = run('systemctl', ['--user', 'start', 'beast-whisper'], { timeout: 10000 }).finally(() => setTimeout(() => { whisperStarting = null; }, 5000)); } return whisperStarting; }
-async function whisperEnsure(ms = 45000) { whisperStart(); const t0 = Date.now(); while (Date.now() - t0 < ms) { if (await whisperHealth()) return true; await new Promise(r => setTimeout(r, 400)); } return false; }
+const whisper = createWhisper({ root: ROOT, home: require('os').homedir(), run, health: whisperHealth });
+if (!process.env.BD_TEST) whisper.stopOrphan().catch(e => console.error('whisper stopOrphan:', e.message));
 // UI build version = newest mtime of the files the page is made of. Open pages poll /api/version and reload
 // themselves (when idle) once it changes, so a phone never runs an old index.html against a new app.js.
 const UI_FILE = /^(index\.html|app\.js|style\.css|sw\.js|f-[\w-]+\.(js|css))$/;   // f-*.js / f-*.css = feature modules
@@ -976,14 +975,12 @@ async function api(req, res, url) {
   // it exits by itself 1 min after the last use so the GPU isn't held at ~9 W all day.
   if (parts[0] === 'transcribe') {
     if (m === 'GET') {
-      if (!whisperInstalled()) return json(res, 200, { ok: false, installed: false });   // no bin/setup-whisper.sh yet: the mic uses the browser's speech recognition
-      const up = await whisperHealth();
-      if (!up && url.searchParams.get('warm') === '1') whisperStart();
-      return json(res, 200, { ok: true, loaded: up, onDemand: true, exitIn: up ? whisperInfo?.exitIn ?? null : null, starting: !up && !!whisperStarting });
+      const current = await whisper.status(url.searchParams.get('warm') === '1');
+      return json(res, 200, current.loaded ? { ...current, exitIn: whisperInfo?.exitIn ?? null } : current);
     }
     if (m !== 'POST') return json(res, 405, { error: 'POST audio' });
-    if (!whisperInstalled()) { req.resume(); return json(res, 503, { error: 'Whisper is not installed (bin/setup-whisper.sh)' }); }
-    if (!(await whisperHealth()) && !(await whisperEnsure())) { req.resume(); return json(res, 503, { error: 'whisper did not start' }); }
+    const ready = await whisper.ready(url.searchParams.get('retry') === '1');
+    if (!ready.ok) { req.resume(); return json(res, 503, ready); }
     const http = require('http');
     const up = http.request({ host: '127.0.0.1', port: 8790, method: 'POST', path: '/transcribe' + (url.search || ''), headers: { 'content-type': 'application/octet-stream', 'content-length': req.headers['content-length'] || 0 }, timeout: 120000 }, r2 => { res.writeHead(r2.statusCode, { 'content-type': 'application/json', 'cache-control': 'no-store' }); r2.pipe(res); });
     up.on('error', e => { if (!res.headersSent) json(res, 503, { error: 'whisper: ' + e.message }); });

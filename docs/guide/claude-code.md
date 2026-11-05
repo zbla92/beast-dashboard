@@ -108,9 +108,12 @@ the project from the session's working directory (a worktree counts as its main 
 own folder. Anything without a project goes to `_unsorted`. A file is removed after 30 days in a project folder and
 after 7 days in `_unsorted`; task attachments in `keep/<project>/` stay until you delete them.
 
-`bin/pasted-guard.sh` is an optional `PreToolUse` hook for Bash, Grep and Glob. It refuses a search of the whole
+`bin/install-hooks.js` installs `bin/pasted-guard.sh` as a `PreToolUse` hook for Bash, Grep and Glob. It refuses a search of the whole
 `.pasted` folder or of another project's folder and still allows a file named by its full path. It catches the common
 command forms, not all of them: sessions can read the whole disk, so this prevents accidents and is not a lock.
+To turn it off, also for later installs, run `node bin/install-hooks.js --no-pasted-guard`; `--pasted-guard` turns it back on.
+
+The hook only stops the search. To have agents follow the same rule from the start, add the [agent rules](agent-rules.md).
 
 ## Scheduling
 

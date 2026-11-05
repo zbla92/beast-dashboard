@@ -41,6 +41,6 @@ test('a missing file is just the fallback; writeJson round-trips', () => {
   assert.ok(!wasCorrupt(file));
   writeJson(file, { a: 'č' });
   assert.deepStrictEqual(readJson(file, null), { a: 'č' });
-  assert.ok(!fs.existsSync(file + '.tmp'));
+  assert.deepStrictEqual(fs.readdirSync(dir), ['x.json']);
   fs.rmSync(dir, { recursive: true });
 });

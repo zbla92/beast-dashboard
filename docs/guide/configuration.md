@@ -25,6 +25,8 @@ Everything lives in `state/` (gitignored) and is edited through ⚙ Settings, wh
 | `serverName` | hostname | name in system push titles (*"myserver CPU 92 °C"*) |
 | `voiceLangs` | `[]` | languages the mic toggles between, e.g. `["en", "de"]` (first = default); empty = auto |
 | `deviceCache` | `true` | over HTTPS, phones and laptops keep the app files and open without waiting for the network; `false` clears that cache on every device (read on each request, no restart) |
+| `plans` | `false` | agents keep plans outside your repos and sessions show them; turning it on links the `plan` command and adds its hook — see [Plans](plans.md) |
+| `pastedGuard` | `true` | the hook that stops a search of the whole upload folder or another project's folder; change it with `node bin/install-hooks.js --no-pasted-guard` or `--pasted-guard` — see [Uploaded files](claude-code.md#uploaded-files) |
 
 Per-project overrides (hide, rename, custom commands, pin) are set from the card's ⋯ menu.
 
@@ -108,4 +110,9 @@ recording is buffered), and it exits a minute after the last use, so the GPU isn
   box for you to fix and send. One pass over the full audio is more accurate than re-transcribing a
   half-finished recording, and the GPU only works for that one pass.
 
-Without it the mic uses the browser's own speech recognition (Safari / Chrome).
+Without it the mic uses the browser's own speech recognition (Safari / Chrome), right away.
+
+If Whisper is installed but can't start (a broken venv, a model that fails to load), Stop no longer waits it out. The
+dashboard notices the service failed and stops it, and the recording stays in the bar with **Try again**, **Say it
+again** (browser speech) and **Discard**. For the next 5 minutes the mic uses the browser; **Try again** always tries
+Whisper. The unit doesn't restart itself, the dashboard starts it when it is needed.

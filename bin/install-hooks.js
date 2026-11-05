@@ -11,6 +11,21 @@ const path = require('path');
 const EVENTS = { SessionStart: { async: true }, UserPromptSubmit: { async: true }, PreToolUse: { async: true }, PermissionRequest: { async: true }, Notification: { async: true }, Stop: { async: true }, StopFailure: { async: true }, SessionEnd: { timeout: 3 } };
 const isOurs = h => h && h.type === 'command' && typeof h.command === 'string' && h.command.includes('claude-hook.sh');
 const isPlanHook = h => h && h.type === 'command' && typeof h.command === 'string' && h.command.replace(/"/g, '').endsWith('/bin/plan context');
+const GUARD_MATCHER = 'Bash|Grep|Glob';
+const isGuard = h => h && h.type === 'command' && typeof h.command === 'string' && h.command.replace(/"/g, '').endsWith('/bin/pasted-guard.sh');
+
+const isPlain = v => !!v && typeof v === 'object' && !Array.isArray(v);
+
+function hooksProblem(s) {
+  if (!isPlain(s)) return 'not a JSON object';
+  if (s.hooks === undefined) return null;
+  if (!isPlain(s.hooks)) return 'hooks is not an object';
+  for (const ev of Object.keys(EVENTS)) {
+    const groups = s.hooks[ev];
+    if (groups !== undefined && !(Array.isArray(groups) && groups.every(g => isPlain(g) && (g.hooks === undefined || Array.isArray(g.hooks))))) return `hooks.${ev} has an unexpected shape`;
+  }
+  return null;
+}
 
 function stripFrom(groups, pred) {
   return (groups || []).map(g => ({ ...g, hooks: (g.hooks || []).filter(h => !pred(h)) })).filter(g => g.hooks.length);
@@ -23,16 +38,19 @@ function lstatOrNull(file) {
 function linkPlan(binDir, planBin, wanted, log) {
   const link = path.join(binDir, 'plan');
   const st = lstatOrNull(link);
+  const target = st && st.isSymbolicLink() ? fs.readlinkSync(link) : null;
+  const movedRepo = target !== null && target !== planBin && target.endsWith('/bin/plan') && !fs.existsSync(link);
   if (!wanted) {
-    if (st && st.isSymbolicLink() && fs.readlinkSync(link) === planBin) { fs.unlinkSync(link); log(`removed ${link}`); }
+    if (target === planBin || movedRepo) { fs.unlinkSync(link); log(`removed ${link}`); }
     else if (st) log(`kept ${link}: not our symlink`);
     return;
   }
-  if (st) {
-    if (st.isSymbolicLink() && fs.readlinkSync(link) === planBin) return;
+  if (target === planBin) return;
+  if (st && !movedRepo) {
     log(`warning: ${link} already exists and is not our symlink, left alone`);
     return;
   }
+  if (movedRepo) fs.unlinkSync(link);
   fs.mkdirSync(binDir, { recursive: true });
   fs.symlinkSync(planBin, link);
   log(`linked ${link} -> ${planBin}`);
@@ -48,19 +66,27 @@ function readSettings(f) {
   } catch (e) { return { error: e.message }; }
 }
 
-function writeSettings(f, text) {
+function writeFileAtomic(f, text) {
   const st = lstatOrNull(f);
   const target = st ? fs.realpathSync(f) : f;
   const mode = st ? fs.statSync(target).mode & 0o777 : 0o644;
+  if (!(mode & 0o200)) throw new Error('the file is read-only');
   fs.mkdirSync(path.dirname(target), { recursive: true });
   const tmp = `${target}.tmp-${process.pid}`;
   try {
     fs.writeFileSync(tmp, text, { mode });
+    fs.chmodSync(tmp, mode);
     fs.renameSync(tmp, target);
   } catch (e) {
     fs.rmSync(tmp, { force: true });
     throw e;
   }
+}
+
+function accountDirs(home) {
+  const dirs = [path.join(home, '.claude')];
+  if (fs.existsSync(path.join(home, '.claude-company'))) dirs.push(path.join(home, '.claude-company'));
+  return dirs;
 }
 
 function run(opts = {}) {
@@ -73,12 +99,16 @@ function run(opts = {}) {
   const script = path.join(root, 'bin', 'claude-hook.sh');
   const planBin = path.join(root, 'bin', 'plan');
   const planCmd = /\s/.test(planBin) ? `"${planBin}" context` : `${planBin} context`;
-  const files = [path.join(home, '.claude', 'settings.json')];
-  if (fs.existsSync(path.join(home, '.claude-company'))) files.push(path.join(home, '.claude-company', 'settings.json'));
+  const guard = !remove && opts.pastedGuard !== false;
+  const guardBin = path.join(root, 'bin', 'pasted-guard.sh');
+  const guardCmd = /\s/.test(guardBin) ? `"${guardBin}"` : guardBin;
+  const files = accountDirs(home).map(d => path.join(d, 'settings.json'));
   for (const f of files) {
     const loaded = readSettings(f);
     if (loaded.error) { log(`skip ${f}: ${loaded.error}`); continue; }
     const s = loaded.settings;
+    const problem = hooksProblem(s);
+    if (problem) { log(`skip ${f}: ${problem}`); continue; }
     s.hooks = s.hooks || {};
     if (!planOnly) {
       for (const [ev, extra] of Object.entries(EVENTS)) {
@@ -86,6 +116,9 @@ function run(opts = {}) {
         if (!remove) groups.push({ hooks: [{ type: 'command', command: script, ...extra }] });
         if (groups.length) s.hooks[ev] = groups; else delete s.hooks[ev];
       }
+      const pre = stripFrom(s.hooks.PreToolUse, isGuard);
+      if (guard) pre.push({ matcher: GUARD_MATCHER, hooks: [{ type: 'command', command: guardCmd, timeout: 5 }] });
+      if (pre.length) s.hooks.PreToolUse = pre; else delete s.hooks.PreToolUse;
     }
     const start = stripFrom(s.hooks.SessionStart, isPlanHook);
     if (plans) start.push({ hooks: [{ type: 'command', command: planCmd, timeout: 5 }] });
@@ -95,7 +128,7 @@ function run(opts = {}) {
     if (text === loaded.text) { log(`unchanged ${f}`); continue; }
     if (loaded.text === null && !Object.keys(s).length) continue;
     try {
-      writeSettings(f, text);
+      writeFileAtomic(f, text);
       log(`${remove ? 'removed from' : 'installed in'} ${f}`);
     } catch (e) {
       log(`warning: could not write ${f}: ${e.message}`);
@@ -110,10 +143,13 @@ function syncPlans(before, after, opts = {}) {
   return true;
 }
 
-module.exports = { run, syncPlans };
+module.exports = { run, syncPlans, accountDirs, writeFileAtomic };
 
 if (require.main === module) {
   const argv = process.argv.slice(2);
-  const plans = argv.includes('--plans') ? true : argv.includes('--no-plans') ? false : !!require('../lib/settings').get().plans;
-  run({ remove: argv.includes('--remove'), plans });
+  const settings = require('../lib/settings');
+  const plans = argv.includes('--plans') ? true : argv.includes('--no-plans') ? false : !!settings.get().plans;
+  if (argv.includes('--no-pasted-guard')) settings.update({ pastedGuard: false });
+  if (argv.includes('--pasted-guard')) settings.update({ pastedGuard: true });
+  run({ remove: argv.includes('--remove'), plans, pastedGuard: settings.get().pastedGuard });
 }

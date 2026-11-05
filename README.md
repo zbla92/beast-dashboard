@@ -72,6 +72,7 @@ Type what you want. The project is guessed from your words.
 <tr><td width="33%">▶️ <b>Run anything</b><br><sub>dev servers, tests, docker compose, live logs</sub></td><td width="33%">⌨️ <b>Terminal</b><br><sub>a real shell in the browser, phone keys included</sub></td><td width="33%">🌐 <b>Tunnels</b><br><sub><code>localhost:5173</code> reachable from any of your devices</sub></td></tr>
 <tr><td width="33%">📋 <b>Tasks</b><br><sub>a backlog that hands work to Claude</sub></td><td width="33%">⏰ <b>Schedule</b><br><sub>send a prompt later, or when Claude is free</sub></td><td width="33%">📊 <b>Recap & cost</b><br><sub>what happened today, per project, per model</sub></td></tr>
 <tr><td width="33%">🔥 <b>System</b><br><sub>CPU, GPU, memory, the processes eating them</sub></td><td width="33%">📁 <b>Downloads</b><br><sub>grab what Claude made, from your phone</sub></td><td width="33%">🤖 <b>Android emulator</b><br><sub>screen and touch, in a sheet</sub></td></tr>
+<tr><td width="33%">🗺 <b>Plans</b><br><sub>agents keep multi-step work outside your repos, you watch it live</sub></td><td width="33%">📎 <b>Uploads by project</b><br><sub>one project's files stay out of another's session</sub></td><td width="33%">📜 <b>Agent rules</b><br><sub>a ready <code>CLAUDE.md</code> block for how agents should work</sub></td></tr>
 </table>
 
 One Node process. **Zero npm dependencies.** No accounts, no cloud. Nothing leaves your tailnet.
@@ -88,12 +89,16 @@ Open the URL it prints (`http://<tailscale-ip>:8787`), set your projects folder 
 Needs Linux with systemd, Node 18+ and tmux; Tailscale to reach it from your devices.
 **Read [Access](docs/guide/access.md) before you expose it.** Prefer to let an agent set it up? Hand it [AGENT-SETUP.md](AGENT-SETUP.md).
 
+To update: `git pull && ./install.sh`, then reload the page.
+
 ## Learn more
 
 [**Features & tour**](docs/guide/features.md) ·
 [Install](docs/guide/install.md) ·
 [Access & phone](docs/guide/access.md) ·
 [Claude Code](docs/guide/claude-code.md) ·
+[Plans](docs/guide/plans.md) ·
+[Agent rules](docs/guide/agent-rules.md) ·
 [Everyday use](docs/guide/everyday-use.md) ·
 [Configuration](docs/guide/configuration.md) ·
 [How it works](docs/guide/architecture.md) ·

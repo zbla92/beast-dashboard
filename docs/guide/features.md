@@ -59,9 +59,14 @@ your projects and it gives you:
   report in Downloads" and grab it from your phone.
 - **Files named in a chat** — a path Claude prints to Downloads, an upload or a project file is a link: click it for a
   preview (image, PDF, video, HTML, Markdown, text with the line it names). Code blocks have a copy button.
-- **Plans and progress** — a project with `docs/<topic>/PLAN.md` + `PROGRESS.md` (the way multi-step
-  agent work is often tracked) gets a progress chip on its card and a Plan tab: the checklist by
-  section, the next item, the plan itself.
+- **Uploads by project** — a file you attach goes to that project's own folder, so sessions of different projects
+  don't see each other's uploads by accident. See [Uploaded files](claude-code.md#uploaded-files).
+- **Plans** — turn on ⚙ Settings → Plans and agents keep multi-step work in a plan outside the repo, through the
+  `plan` command. The session shows phases, tasks, what is next and what waits on you, live, and you answer from there.
+  See [Plans](plans.md). A repo that still has `docs/<topic>/PLAN.md` + `PROGRESS.md` keeps its progress chip and Plan
+  tab; `plan import` copies it into the store.
+- **Agent rules** — a ready block for `CLAUDE.md`: uploads, which model does what, plans, when to stop and ask.
+  `./install.sh` offers it. See [Agent rules](agent-rules.md).
 - **Git worktrees** — every worktree of a repo with ahead/behind, changes, which Claude works in it;
   diff, merge into the base branch (aborts on conflict), remove, prune.
 - **Subagents and cost by model** — the agents a session spawned (type, model, prompt, steps, cost)

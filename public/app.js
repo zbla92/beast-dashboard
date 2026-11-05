@@ -425,11 +425,11 @@ function openTermTab(session) { window.open(termUrl(session), '_blank'); }
 let clientLogN = 0; setInterval(() => { clientLogN = 0; }, 60000);
 function clientLog(msg) {
   if (clientLogN++ > 5) return;
-  const where = `view=${UI.view} term=${TERM.open} list=${TERM.showList} active=${TERM.active} drawer=${UI.drawer} modal=${!$('#modal').classList.contains('hidden')} vv=${window.visualViewport ? Math.round(window.visualViewport.height) + '/' + Math.round(window.visualViewport.offsetTop) : '-'} standalone=${!!navigator.standalone}`;
+  const where = `view=${UI.view} term=${TERM.open} list=${TERM.showList} active=${TERM.active} drawer=${UI.drawer} modal=${!$('#modal').classList.contains('hidden')} vv=${window.visualViewport ? Math.round(window.visualViewport.height) + '/' + Math.round(window.visualViewport.offsetTop) : '-'} standalone=${!!navigator.standalone} screen=${screen.width}x${screen.height} inner=${innerWidth}x${innerHeight}`;
   try { navigator.sendBeacon ? navigator.sendBeacon('/api/clientlog', new Blob([JSON.stringify({ ua: navigator.userAgent, msg, where })], { type: 'application/json' })) : fetch('/api/clientlog', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ua: navigator.userAgent, msg, where }) }); } catch {}
 }
 window.addEventListener('error', e => clientLog(`${e.message} @ ${(e.filename || '').split('/').pop()}:${e.lineno}`));
-window.addEventListener('unhandledrejection', e => clientLog('rejection: ' + (e.reason && (e.reason.stack || e.reason.message || e.reason))));
+window.addEventListener('unhandledrejection', e => clientLog('rejection: ' + (e.reason && [e.reason.message, e.reason.stack].filter(Boolean).join(' | ') || e.reason)));
 // the files on the server changed: reload now unless the user is typing (then a banner offers it)
 function newBuild() { reloadPending = true; maybeReload(); }
 let reloadPending = false;
@@ -720,7 +720,7 @@ function renderTermPanel(force) {
   const allNames = [...new Set([...S3.all.map(x => x.name), ...TERM.frames.keys()])];
   const mobName = act ? sessTitle(act) : (TERM.active || 'Sessions');
   barAdd(h('button', { class: 'btn sm ghost mob icon', title: 'back to dashboard (sessions keep running)', onclick: closeTermPanel }, ico('back', 17)),
-    h('button', { class: 'mob msess', title: 'switch session', onclick: () => { TERM.showList = true; renderTermPanel(true); } }, act ? avatar(act.project, 'sm') : null, h('span', { class: 'nm' }, mobName), accTag(), instOf(act || { name: TERM.active || '' }).n ? h('span', { class: 'grp' }, '#' + instOf(act).n) : null), cl && IS_PHONE ? stateBadge(cl, true) : null);
+    h('button', { class: 'mob msess', title: 'switch session', onclick: () => { TERM.showList = true; renderTermPanel(true); } }, act ? avatar(act.project, 'sm') : null, h('span', { class: 'nm' }, mobName), accTag(), instOf(act || { name: TERM.active || '' }).n ? h('span', { class: 'grp' }, '#' + instOf(act).n) : null, cl && IS_PHONE ? stateBadge(cl, true) : null));
   const actName = act ? sessTitle(act) : TERM.active;
   const isChatS = cl && cl.mode === 'chat'; const logOn = isChatS && TERM.view[TERM.active] === 'term';
   const updatePending = !!cl && (!!S.claude?.update || needsRestart(cl));
@@ -1880,6 +1880,7 @@ async function uploadImage(file, where = {}) {
 const WHISPER = { ok: false, at: 0 };
 let actx = null;
 function beep(freq = 880, ms = 140) { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === 'suspended') actx.resume(); const o = actx.createOscillator(), g = actx.createGain(); o.frequency.value = freq; o.connect(g); g.connect(actx.destination); const t = actx.currentTime; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.25, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + ms / 1000); o.start(t); o.stop(t + ms / 1000 + 0.02); } catch {} }
+const whisperDown = () => { WHISPER.ok = false; WHISPER.at = Date.now(); };
 async function whisperUp() { if (Date.now() - WHISPER.at < 60000) return WHISPER.ok; WHISPER.at = Date.now(); try { const r = await fetch('/api/transcribe', { cache: 'no-store' }); WHISPER.ok = r.ok && (await r.json()).ok === true; } catch { WHISPER.ok = false; } return WHISPER.ok; }
 whisperUp();
 function voiceButton(ta, chatKey) {
@@ -1957,6 +1958,7 @@ function voiceButton(ta, chatKey) {
     return rec;
   };
   const begin = () => {
+    if (ov && ov.classList.contains('failed')) { chunks = []; closeBar(); }
     active = true; clearTimeout(settle); final = ''; interim = ''; restarts = [];
     b.classList.add('rec'); document.body.classList.add('recording'); openBar();
     if (canRec && WHISPER.ok) { startWhisper(); return; }
@@ -1967,10 +1969,22 @@ function voiceButton(ta, chatKey) {
   // the text lands in the message box to check / fix / send. No live preview: re-transcribing a half-finished
   // recording every few seconds showed wrong words and kept the GPU busy while you talked. ----
   let stream = null, mr = null, chunks = [], mime = '', gen = 0, whisperOn = false;
-  const whisperSend = async () => {
+  const whisperSend = async retry => {
     const blob = new Blob(chunks, { type: mime || 'audio/webm' }); if (blob.size < 2000) return null;
-    const r = await fetch('/api/transcribe?lag=' + lag + (vlang() ? '&lang=' + vlang() : ''), { method: 'POST', body: blob, headers: { 'content-type': 'application/octet-stream' } });
-    const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status); return j;
+    const r = await fetch('/api/transcribe?lag=' + lag + (vlang() ? '&lang=' + vlang() : '') + (retry ? '&retry=1' : ''), { method: 'POST', body: blob, headers: { 'content-type': 'application/octet-stream' } });
+    const j = await r.json().catch(() => ({})); if (!r.ok) throw Object.assign(new Error(j.error || 'HTTP ' + r.status), { status: r.status, installed: j.installed }); return j;
+  };
+  const sendSurvivingHiccup = retry => whisperSend(retry).catch(async e => { if (e.status) throw e; await new Promise(r => setTimeout(r, 1500)); return whisperSend(retry); });
+  const transcribeKept = async (my, retry) => {
+    try {
+      const j = await sendSurvivingHiccup(retry);
+      if (my === gen && j) { final = j.text ? j.text + ' ' : ''; interim = ''; chunks = []; WHISPER.ok = true; WHISPER.at = Date.now(); }
+      return null;
+    } catch (e) {
+      if (e.status === 503) whisperDown();
+      if (e.installed === false) return { message: 'Whisper is not installed', canRetry: false };
+      return { message: (e.status === 503 ? 'Whisper did not start' : 'Not transcribed') + ' — recording kept', canRetry: true };
+    }
   };
   let tapAt = 0, lag = 0, whisperNote = '';
   const micStatus = live => { if (!ovStatus) return; ovStatus.replaceChildren(...(live ? [] : [h('span', { class: 'spin' }), 'Starting mic…'])); if (whisperNote) ovStatus.append(' ' + whisperNote); };
@@ -2010,50 +2024,68 @@ function voiceButton(ta, chatKey) {
   // with how long until it sleeps again.
   async function wakeWhisper(my) {
     const note = t => { whisperNote = t; if (my === gen && ov) micStatus(!!(mr && mr.state === 'recording')); };
+    const turnedOff = x => { if (!x || x.ok !== false) return false; whisperDown(); note(x.installed === false ? 'Whisper is not installed' : 'Whisper did not start'); return true; };
     let j = null; try { j = await (await fetch('/api/transcribe?warm=1', { cache: 'no-store' })).json(); } catch {}
-    if (j && j.loaded) return;
+    if ((j && j.loaded) || turnedOff(j)) return;
     const w0 = Date.now(); note('Whisper waking');
     while (active && my === gen && Date.now() - w0 < 45000) {
       await new Promise(r => setTimeout(r, 400));
       try { j = await (await fetch('/api/transcribe', { cache: 'no-store' })).json(); } catch { j = null; }
       if (j && j.loaded) { note(''); return; }
+      if (turnedOff(j)) return;
     }
     if (active && my === gen) note('Whisper did not wake up');
   }
   async function stopWhisper() {
-    const my = gen; stopWave(); if (!mr) { whisperOn = false; return; }
+    const my = gen; stopWave(); if (!mr) { whisperOn = false; return null; }
     await new Promise(res => { mr.onstop = res; try { mr.state !== 'inactive' ? mr.stop() : res(); } catch { res(); } });
     stream && stream.getTracks().forEach(t => t.stop()); stream = null; mr = null;
-    // one retry after a short pause, so a hiccup (Whisper still waking, the phone switching networks) doesn't lose the recording
-    let j = null; try { j = await whisperSend(); } catch { await new Promise(r => setTimeout(r, 1500)); try { j = await whisperSend(); } catch (e) { toast('Whisper: ' + e.message + ' — recording not transcribed', 'err'); } }
-    if (my === gen && j) { final = j.text ? j.text + ' ' : ''; interim = ''; }
+    const failure = await transcribeKept(my, false);
     whisperOn = false;
+    return failure;
   }
+  const done = () => { document.body.classList.remove('recording'); closeBar(); };
+  // The box this button was made with can be gone: a re-render (Claude working, a state change, the phone waking)
+  // builds a new one. Write into the box of this chat that is on screen now; no box -> the chat's saved draft.
+  const settleText = () => {
+    if (interim) { final += interim.trim() + ' '; interim = ''; }
+    if (!final.trim()) return;
+    const box = boxNow();
+    const add = v => (v.trim() ? v.replace(/\s*$/, ' ') : '') + final;
+    if (!box) { saveDraft(chatKey, add(loadDraft(chatKey))); toast('saved in the chat\'s draft — open the chat to send it', 'ok'); return; }
+    box.value = add(box.value); box.dispatchEvent(new Event('input'));   // that box's own grow(): height + saved draft
+    box.focus({ preventScroll: true }); box.setSelectionRange(box.value.length, box.value.length); box.scrollTop = box.scrollHeight; toast('check the text, then send', 'ok');
+  };
+  const writingBar = () => {
+    clearInterval(ovTimer); ovTimer = setInterval(placeBar, 500);
+    ov.classList.remove('failed'); ov.classList.add('finishing');
+    ov.querySelector('.recbar-acts')?.remove();
+    const sb = ov.querySelector('.recbar-stop'); if (sb) { sb.disabled = true; sb.replaceChildren(h('span', { class: 'spin' })); }
+    if (ovStatus) ovStatus.replaceChildren();
+    if (ovText) ovText.replaceChildren(h('span', { class: 'recbar-writing' }, 'Writing it down…'));
+  };
+  const afterTranscribe = failure => {
+    if (!failure) { done(); settleText(); return; }
+    if (ov) { failedBar(failure); return; }
+    toast('Whisper: ' + failure.message, 'err');
+  };
+  const failedBar = failure => {
+    document.body.classList.remove('recording');
+    for (const t of ['pointerdown', 'click']) document.removeEventListener(t, guardOutside, true);
+    ov.classList.add('failed');
+    ovText.replaceChildren(h('span', null, failure.message));
+    ov.append(h('div', { class: 'recbar-acts' },
+      failure.canRetry ? h('button', { class: 'btn sm primary', title: 'send this recording to Whisper again', onclick: () => { writingBar(); transcribeKept(gen, true).then(afterTranscribe); } }, 'Try again') : null,
+      SR ? h('button', { class: 'btn sm', title: 'drop this recording and say it again with the browser\'s speech recognition', onclick: () => { chunks = []; closeBar(); begin(); } }, 'Say it again') : null,
+      h('button', { class: 'btn sm ghost', title: 'drop this recording', onclick: () => { chunks = []; done(); } }, 'Discard')));
+  };
   function finish() {
     if (!active) return; active = false;
     b.classList.remove('rec');
-    const done = () => { document.body.classList.remove('recording'); closeBar(); };
-    if (whisperOn && ov) {
-      clearInterval(ovTimer); ovTimer = setInterval(placeBar, 500);
-      ov.classList.add('finishing');
-      const sb = ov.querySelector('.recbar-stop'); if (sb) { sb.disabled = true; sb.replaceChildren(h('span', { class: 'spin' })); }
-      if (ovStatus) ovStatus.replaceChildren();
-      if (ovText) ovText.replaceChildren(h('span', { class: 'recbar-writing' }, 'Writing it down…'));
-    }
+    if (whisperOn && ov) writingBar();
     else done();
-    // The box this button was made with can be gone: a re-render (Claude working, a state change, the phone waking)
-    // builds a new one. Write into the box of this chat that is on screen now; no box -> the chat's saved draft.
-    const settleText = () => {
-      if (interim) { final += interim.trim() + ' '; interim = ''; }
-      if (!final.trim()) return;
-      const box = boxNow();
-      const add = v => (v.trim() ? v.replace(/\s*$/, ' ') : '') + final;
-      if (!box) { saveDraft(chatKey, add(loadDraft(chatKey))); toast('saved in the chat\'s draft — open the chat to send it', 'ok'); return; }
-      box.value = add(box.value); box.dispatchEvent(new Event('input'));   // that box's own grow(): height + saved draft
-      box.focus({ preventScroll: true }); box.setSelectionRange(box.value.length, box.value.length); box.scrollTop = box.scrollHeight; toast('check the text, then send', 'ok');
-    };
     // Whisper: the final pass over the whole recording. Browser engine: the last result lands a moment after stop().
-    if (whisperOn) { stopWhisper().then(() => { done(); settleText(); }); return; }
+    if (whisperOn) { stopWhisper().then(afterTranscribe); return; }
     try { rec && rec.stop(); } catch {}
     settle = setTimeout(settleText, 500);
   }

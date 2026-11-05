@@ -22,7 +22,7 @@ if (cd "$REPO" && node --test test/*.test.js > /tmp/gate-$$.unit 2>&1); then ok 
 
 echo "== boot isolated copy on 127.0.0.1:$PORT"
 TMP="$(mktemp -d /tmp/bd-gate-XXXX)"
-(cd "$REPO" && tar --exclude=./state --exclude=./state-backups --exclude=./.git -cf - .) | (cd "$TMP" && tar -xf -)
+(cd "$REPO" && tar --exclude=./state --exclude=./state-backups --exclude=./.git --exclude=./whisper/.venv -cf - .) | (cd "$TMP" && tar -xf -)
 mkdir -p "$TMP/state" && printf '{"port": %s, "autoExpose": false}\n' "$PORT" > "$TMP/state/settings.json"
 cp "$REPO/state/claude-sessions.json" "$TMP/state/" 2>/dev/null   # read-only copy: lets /api/subagents resolve the live sessions' transcripts
 PLANS="$TMP/plans-store"; cp -r "$TMP/test/fixtures/plans/store" "$PLANS"
@@ -178,6 +178,10 @@ if [ -n "$GITP" ]; then
 fi
 
 echo "== guards"
+r="$(curl -s -m 5 "$B/api/transcribe?warm=1")"
+[ "$r" = '{"ok":false,"installed":false}' ] && ok "GET transcribe without a venv -> not installed, nothing started" || fail "GET transcribe without a venv -> $r"
+r="$(curl -s -m 2 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/octet-stream' -H "Origin: http://127.0.0.1:$PORT" --data-binary 'x' "$B/api/transcribe")"
+[ "$r" = 503 ] && ok "POST transcribe without a venv -> 503 at once" || fail "POST transcribe without a venv -> $r"
 post403() { local r; r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' "$@" -d '{"id":"nope"}' "$B/api/worktree-prune")"; [ "$r" = 403 ]; }
 post403 -H "Origin: http://127.0.0.1:5173" && ok "POST from another port's Origin -> 403" || fail "POST from another port's Origin not blocked"
 post403 -H "Sec-Fetch-Site: same-site" && ok "POST with Sec-Fetch-Site same-site -> 403" || fail "same-site POST not blocked"

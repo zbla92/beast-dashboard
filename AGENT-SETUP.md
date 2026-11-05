@@ -26,6 +26,10 @@ configuration is done in the ⚙ Settings UI, which writes `state/settings.json`
    `~/.claude/settings.json` and, only if that folder exists, `~/.claude-company/settings.json`
    (a second login started with `CLAUDE_CONFIG_DIR=~/.claude-company`). If they use two, ask what
    to call them and set `accountLabels` in Settings.
+4. **Do they want plans?** Agents keep multi-step plans outside the repos and the dashboard shows them
+   live. It is off by default. See *Plans* below.
+5. **Do they want the agent rules in their `CLAUDE.md`?** See *Agent rules* below. Never add them
+   without a yes.
 
 ## Requirements
 
@@ -83,11 +87,13 @@ cd ~/beast-dash
    ufw the terminal is bound to localhost only (`ttyd -i lo`) — then reach it through `bin/enable-https.sh`
    (tailscale serve) or an SSH tunnel;
 3. registers the Claude Code hooks (`node bin/install-hooks.js`);
-4. `sudo loginctl enable-linger $USER` — **needed**, or the services die when the user logs out;
-5. adds the ufw rule if both `tailscale` and `ufw` are present, and skips it with a message if not;
-6. prints which optional tools are missing.
+4. offers the agent rules (`node bin/agent-rules.js --ask`). Without a terminal, which is your case, it
+   only prints a hint and changes nothing;
+5. `sudo loginctl enable-linger $USER` — **needed**, or the services die when the user logs out;
+6. adds the ufw rule if both `tailscale` and `ufw` are present, and skips it with a message if not;
+7. prints which optional tools are missing.
 
-Steps 4 and 5 use `sudo`. If the agent session cannot sudo, run the rest and tell the user to run
+Steps 5 and 6 use `sudo`. If the agent session cannot sudo, run the rest and tell the user to run
 those two lines themselves — don't claim the install succeeded.
 
 **Verify:**
@@ -137,9 +143,48 @@ PermissionRequest / Notification / Stop / StopFailure / SessionEnd hooks. The ho
 dashboard, which is how a card knows a session is thinking, waiting for permission, or done. It is
 idempotent and `--remove` takes it back out.
 
+The same command adds two more hooks:
+
+- `bin/pasted-guard.sh`, a blocking `PreToolUse` hook on Bash, Grep and Glob. It refuses a search of the
+  whole `.pasted` upload folder or of another project's folder, so one project's files don't end up in
+  another project's session. `--no-pasted-guard` turns it off for good, `--pasted-guard` back on.
+- `bin/plan context`, a `SessionStart` hook, only while the `plans` setting is on.
+
 **Verify:** start a Claude session from a project card (✦ Claude ▾), send it a prompt, and watch the
 card change state. If it stays blank, check `~/.claude/settings.json` really contains the hook path
 and that the path exists.
+
+## Plans (optional)
+
+If the user wants plans, have them turn on ⚙ Settings → Plans. That links `~/.local/bin/plan` and adds the
+`SessionStart` hook. A session already running does not get the hook until it restarts. Do not use
+`install-hooks.js --plans` for this: it does not change the setting, so the next `./install.sh` undoes it.
+
+**Verify:** `command -v plan`, then `plan help`. If `plan` is not found, add `~/.local/bin` to `PATH`.
+The format and commands are in [docs/guide/plans.md](docs/guide/plans.md).
+
+## Agent rules (optional)
+
+Beast Dash does not tell agents how to work: which model does what, when to make a plan, which upload
+folder they may read. [docs/guide/agent-rules.md](docs/guide/agent-rules.md) has a generic block for that.
+Show the user what it says and ask. If they agree:
+
+```bash
+node bin/agent-rules.js --install   # appends to ~/.claude/CLAUDE.md, and ~/.claude-company/CLAUDE.md if that login exists
+node bin/agent-rules.js --status    # must say "current" for each file
+```
+
+It changes nothing outside its two marker lines, and `--remove` takes it out.
+
+## Updating an existing install
+
+```bash
+git pull && ./install.sh
+```
+
+A plain `git pull` is not enough: only `install.sh` restarts the services and registers new hooks. Tell the
+user to reload the dashboard page afterwards, and run the *Agent rules* steps above if `--status` says
+`absent` or `outdated` and they want the block.
 
 ## Verification checklist
 
@@ -148,6 +193,9 @@ and that the path exists.
 - [ ] Starting a package.json script from a card produces live log output.
 - [ ] ⌨ opens a working terminal (this is ttyd — separate service, fails independently).
 - [ ] A Claude session's card reflects its state.
+- [ ] `~/.claude/settings.json` has `bin/pasted-guard.sh` under `PreToolUse`, unless the user turned it off.
+- [ ] Only if the user wanted plans: `plan help` works in a new shell.
+- [ ] Only if the user wanted the rules: `node bin/agent-rules.js --status` says `current`.
 - [ ] Only if HTTPS is set up: Settings → Push → Enable on this device, then trigger a notification.
 
 ## Things worth knowing before the user asks
@@ -159,9 +207,11 @@ and that the path exists.
 - The terminal service (`beast-term`) is only enabled when `ttyd` exists. Without it the dashboard
   works and the ⌨ buttons open a blank page — say so.
 - `bin/term.sh` and the file upload use `devRoot` from `state/settings.json`; uploads land in
-  `<devRoot>/.pasted` (swept after 7 days, `keep/` is not swept — task attachments live there).
+  `<devRoot>/.pasted/<project>/`, or `_unsorted` when there is no project. Project folders are swept after
+  30 days and `_unsorted` after 7. `keep/<project>/` is not swept — task attachments live there. Details in
+  [Uploaded files](docs/guide/claude-code.md#uploaded-files).
 - The *Usage limits* tile reads the OAuth token from `~/.claude/.credentials.json` and calls
-  Anthropic's usage endpoint every 30 min. It shows "no credentials" until Claude Code has been
+  Anthropic's usage endpoint every 15 min. It shows "no credentials" until Claude Code has been
   logged in on this machine. It never refreshes the token itself.
 - Two Claude logins: `~/.claude` and optionally `~/.claude-company` (`CLAUDE_CONFIG_DIR`). The
   hook installer only touches the second one if the folder exists. Their ids inside the code are

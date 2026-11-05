@@ -45,7 +45,7 @@ cd ~/beast-dash
 ```
 
 The installer writes two `systemd --user` units (dashboard + terminal), starts them, registers the
-Claude Code hooks, enables *linger* (so the services survive logout) and — if `tailscale` and
+Claude Code hooks, offers the [agent rules](agent-rules.md), enables *linger* (so the services survive logout) and — if `tailscale` and
 `ufw` are both present — allows the tailnet interface through the firewall. It prints the URL at
 the end, normally `http://<tailscale-ip>:8787`.
 
@@ -83,10 +83,20 @@ its verification, and what to say when something is missing. Point your agent at
 
 > Read AGENT-SETUP.md in this repo and install Beast Dash on this machine.
 
+## Update
+
+```bash
+git pull && ./install.sh
+```
+
+Then reload the page. A plain `git pull` is not enough: `install.sh` restarts the services, registers new hooks and
+offers the [agent rules](agent-rules.md). Nothing in `state/` needs migrating. See [What's new](whats-new.md).
+
 ## Uninstall
 
 ```bash
 ./install.sh --uninstall          # stops and removes the two services
-node bin/install-hooks.js --remove   # takes the hook out of Claude Code's settings
+node bin/install-hooks.js --remove   # takes our hooks out of Claude Code's settings
+node bin/agent-rules.js --remove     # takes the agent rules out of CLAUDE.md, if you added them
 ./bin/enable-https.sh off         # if you set up tailscale serve
 ```

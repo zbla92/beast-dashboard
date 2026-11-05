@@ -71,10 +71,12 @@ FEAT.preview = (() => {
         fileIcon(where.name),
         h('div', { class: 'fpv-title' }, h('b', { title: where.name }, where.name), h('span', { class: 'dim', title: abs }, shortPath(abs) + ' · ' + fmtB(where.size))),
         copyBtn,
-        h('a', { class: 'btn sm ghost icon', href: rawUrl(where, true), target: '_blank', rel: 'noopener', title: 'open in a new tab', 'aria-label': 'open in a new tab' }, gico('↗', 15)),
+        navigator.standalone ? null : h('a', { class: 'btn sm ghost icon', href: rawUrl(where, true), target: '_blank', rel: 'noopener', title: 'open in a new tab', 'aria-label': 'open in a new tab' }, gico('↗', 15)),
         h('a', { class: 'btn sm ghost icon', href: rawUrl(where, false), download: where.name, title: 'download', 'aria-label': 'download' }, ico('download', 15)),
         h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', 'aria-label': 'close', onclick: close }, ico('x', 15))),
-      body);
+      body,
+      h('button', { class: 'fpv-close', title: 'close', 'aria-label': 'close', onclick: close }, ico('x', 22)));
+    body.onclick = e => { if (e.target.matches('div.fmedia')) close(); };
     m.replaceChildren(box); m.onclick = e => { if (e.target === m) close(); };
     await fillBody(body, where, line, showCopy);
   }

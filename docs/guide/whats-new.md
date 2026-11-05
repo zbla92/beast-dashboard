@@ -1,4 +1,35 @@
-# What's new in 3.0
+# What's new
+
+## 3.8
+
+- **Plans.** Agents keep multi-step work in a plan outside your repos, through the `plan` command. Sessions show it
+  live: phases, tasks, what is next, questions you answer from the panel. Off by default, turn it on in ⚙ Settings →
+  Plans. See [Plans](plans.md).
+- **Uploads by project.** A file you attach goes to `.pasted/<project>/`, so one project's files don't turn up in
+  another project's session. Project folders are kept for 30 days and `_unsorted` for 7. Files already there stay where
+  they are and are removed after 7 days. A new hook refuses a search of the whole folder or of another project's folder.
+  See [Uploaded files](claude-code.md#uploaded-files).
+- **Agent rules.** The dashboard doesn't tell agents how to work, so there is now a ready block for your `CLAUDE.md`:
+  uploads, which model does what, plans, when to stop and ask. `./install.sh` offers it, and nothing is added without
+  your yes. See [Agent rules](agent-rules.md).
+- **Mic without Whisper.** The mic uses the browser's speech recognition right away when `bin/setup-whisper.sh` hasn't
+  been run. It used to hold the recording screen for about 90 seconds on Stop and then lose the recording, while the
+  service restarted every 5 seconds in the background. If an installed Whisper can't start, the recording stays and you
+  can try again, say it again or discard it.
+- **New look.** Dark glass over an Earth wallpaper, one line icon set, full-screen on the desktop.
+- **Code tab.** One repo at a time, stage, commit, push and branches, stacked diffs.
+- **Chat.** `!` runs a shell command, New chat takes attachments and can open empty, a file path in a message opens a
+  preview, code blocks have a copy button, Ask Claude on selected text.
+- **Phone.** In a chat, Back, the title and the buttons float over the conversation instead of a blurred bar, and the
+  gaps between them show the text. A file preview also closes with the round button at the bottom or a tap next to the
+  image.
+- **Fast open.** The app and the last known state come from the device while it connects.
+- **Claude Code stays up to date.** An hourly check, automatic install and an Update button on Home.
+
+Upgrading from 3.x: `git pull && ./install.sh`, then reload the page. Nothing in `state/` needs migrating. A plain
+`git pull` leaves out the new hook and the offer of the agent rules.
+
+## 3.0
 
 - **Chat sessions.** A session is a *chat*: a headless `claude -p` that the dashboard drives itself
   and renders as a conversation. Same account, same transcript files, same cards, inbox and push.

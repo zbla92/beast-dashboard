@@ -11,7 +11,6 @@ else $PY -m venv whisper/.venv; PIP="whisper/.venv/bin/pip install -q"; fi
 $PIP faster-whisper
 if command -v nvidia-smi >/dev/null && nvidia-smi -L >/dev/null 2>&1; then echo "NVIDIA GPU found: installing CUDA 12 libraries"; $PIP nvidia-cublas-cu12 'nvidia-cudnn-cu12==9.*'; else echo "no NVIDIA GPU: Whisper runs on the CPU (set WHISPER_MODEL='small' in whisper/whisper.env for speed)"; fi
 [ -f whisper/whisper.env ] || cp whisper/whisper.env.example whisper/whisper.env
-mkdir -p ~/.config/systemd/user
-sed -e "s#__REPO__#$REPO#g" beast-whisper.service > ~/.config/systemd/user/beast-whisper.service
+bin/whisper-unit.sh
 systemctl --user daemon-reload
 echo "done — press the mic in a chat; the first start downloads the model (~1.6 GB for large-v3-turbo)."

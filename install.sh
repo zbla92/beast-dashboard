@@ -33,9 +33,10 @@ fi
 
 log "systemd user services (node: $NODE, repo: $REPO)"
 mkdir -p ~/.config/systemd/user
-for u in beast-dash beast-term beast-whisper; do   # beast-whisper: on demand, started by beast-dash, not enabled at boot
+for u in beast-dash beast-term; do
   sed -e "s#__NODE_DIR__#$NODE_DIR#g" -e "s#__REPO__#$REPO#g" -e "s#__TTYD_BIND__#$TTYD_BIND#g" "$u.service" > ~/.config/systemd/user/"$u.service"
 done
+bin/whisper-unit.sh
 systemctl --user daemon-reload
 systemctl --user enable beast-dash.service >/dev/null
 systemctl --user restart beast-dash.service
@@ -49,6 +50,9 @@ tmux set-environment -g -u NODE_ENV 2>/dev/null || true
 
 log "Claude Code hooks (session state on the cards)"
 node bin/install-hooks.js
+
+log "agent rules for Claude Code (optional, see docs/guide/agent-rules.md)"
+node bin/agent-rules.js --ask || { rc=$?; [ "$rc" = 130 ] && exit 130; echo "agent rules skipped, see docs/guide/agent-rules.md"; }
 
 log "linger (the services keep running without an active login session)"
 sudo loginctl enable-linger "$USER"
