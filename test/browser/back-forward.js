@@ -108,7 +108,7 @@ T['desktop close chat'] = async b => {
 T['desktop overlays'] = async b => {
   const { page, ctx, errors } = await setup(b, false);
   await page.click('#nav .navb[data-view="tasks"]'); await settle(page);
-  await page.click('#btn-settings'); await settle(page);
+  await page.click('#btn-settings-rail'); await settle(page);
   check('settings open', await where(page), { modal: true });
   await back(page); check('back closes settings, stays on tasks', await where(page), { modal: false, view: 'tasks' });
   await fwd(page); check('fwd over a closed dialog: still tasks', await where(page), { modal: false, view: 'tasks' });
@@ -175,14 +175,15 @@ T['phone chats'] = async b => {
 T['phone code steps'] = async b => {
   const { page, ctx, errors } = await setup(b, true);
   await page.tap('#tabbar .tb[data-view="code"]'); await settle(page);
-  const scope = await page.$('#view-code .cvi');
+  await page.waitForSelector('#view-code .cv-row');
+  const file = await page.$('#view-code .cv-row');
   const step0 = await page.evaluate(() => FEAT.code.state.step);
   results.push(`  code step at start: ${step0}`);
-  if (scope) {
-    await scope.tap(); await settle(page);
+  if (file) {
+    await file.tap(); await settle(page);
     const s1 = await page.evaluate(() => FEAT.code.state.step);
-    results.push(`  after tapping a scope: ${s1}`);
-    await back(page); check('back -> scope step, still code', await where(page), { view: 'code' });
+    results.push(`  after tapping a file: ${s1}`);
+    await back(page); check('back -> file list, still code', await where(page), { view: 'code' });
     results.push(`  step now: ${await page.evaluate(() => FEAT.code.state.step)}`);
   }
   await back(page); check('back -> home', await where(page), { view: 'home' });
@@ -344,7 +345,8 @@ T['desktop notification while the palette is open'] = async b => {
 T['phone tab from a Code step'] = async b => {
   const { page, ctx, errors } = await setup(b, true);
   await page.tap('#tabbar .tb[data-view="code"]'); await settle(page);
-  await (await page.$('#view-code .cvi')).tap(); await settle(page);
+  await page.waitForSelector('#view-code .cv-row');
+  await (await page.$('#view-code .cv-row')).tap(); await settle(page);
   check('code list step', await where(page), { view: 'code', depth: 2 });
   await page.tap('#tabbar .tb[data-view="tasks"]'); await settle(page);
   check('tasks: the Code step entry was popped', await where(page), { view: 'tasks', depth: 2 });
