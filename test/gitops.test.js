@@ -825,3 +825,91 @@ test('safeFile and cleanRel: what the diff routes accept', async t => {
   assert.strictEqual(gitops.cleanRel('link/x'), 'link/x');
   for (const f of ['../x', 'a/../b', '/x', '', null, 'a\0b']) assert.strictEqual(gitops.cleanRel(f), null, String(f));
 });
+
+const isGone = pid => { try { process.kill(pid, 0); return false; } catch { return true; } };
+
+test('push: a mirror remote or custom push rules are refused and nothing moves', async t => {
+  const e = setup(t);
+  git(e.work, 'switch', '-q', '-c', 'keep');
+  git(e.work, 'push', '-q', 'origin', 'keep');
+  git(e.work, 'switch', '-q', 'main');
+  write(e.f('a.txt'), 'two\n');
+  git(e.work, 'commit', '-qam', 'two');
+  const before = git(e.origin, 'rev-parse', 'main').trim();
+  git(e.work, 'config', 'remote.origin.mirror', 'true');
+  await refused(e.op({ op: 'push' }), /mirror/);
+  git(e.work, 'config', '--unset', 'remote.origin.mirror');
+  git(e.work, 'config', 'remote.origin.push', '+refs/heads/*:refs/heads/*');
+  await refused(e.op({ op: 'push' }), /push rules/);
+  git(e.work, 'config', '--unset', 'remote.origin.push');
+  assert.strictEqual(git(e.origin, 'rev-parse', 'main').trim(), before);
+  assert.ok(git(e.origin, 'rev-parse', 'keep').trim());
+  await okBody(e.op({ op: 'push' }));
+  assert.strictEqual(git(e.origin, 'rev-parse', 'main').trim(), head(e.work));
+});
+
+test('push: a branch tracking another name is refused instead of landing on that branch', async t => {
+  const e = setup(t);
+  git(e.work, 'switch', '-q', '-c', 'feature', '--track', 'origin/main');
+  write(e.f('a.txt'), 'two\n');
+  git(e.work, 'commit', '-qam', 'feature work');
+  const before = git(e.origin, 'rev-parse', 'main').trim();
+  await refused(e.op({ op: 'push' }), /tracks main/);
+  assert.strictEqual(git(e.origin, 'rev-parse', 'main').trim(), before);
+});
+
+test('push: publishes to the configured push remote, not to origin', async t => {
+  const e = setup(t);
+  const fork = path.join(path.dirname(e.origin), 'fork.git');
+  git(e.work, 'init', '-q', '--bare', fork);
+  git(e.work, 'remote', 'add', 'fork', fork);
+  git(e.work, 'config', 'remote.pushDefault', 'fork');
+  git(e.work, 'switch', '-q', '-c', 'feature');
+  write(e.f('a.txt'), 'two\n');
+  git(e.work, 'commit', '-qam', 'feature work');
+  await okBody(e.op({ op: 'push' }));
+  assert.strictEqual(git(fork, 'rev-parse', 'feature').trim(), head(e.work));
+  assert.throws(() => git(e.origin, 'rev-parse', '--verify', '-q', 'refs/heads/feature'));
+});
+
+test('commit: amend refuses a commit that is on any remote branch', async t => {
+  const e = setup(t);
+  git(e.work, 'switch', '-q', '-c', 'other');
+  git(e.work, 'push', '-q', 'origin', 'other');
+  git(e.work, 'switch', '-q', '-c', 'loose');
+  const before = head(e.work);
+  await refused(e.op({ op: 'commit', message: 'rewrite', amend: true }), /already pushed/);
+  assert.strictEqual(head(e.work), before);
+});
+
+test('commit: a post-commit hook left running in the background does not hold the queue', async t => {
+  const e = setup(t);
+  hook(e.work, 'post-commit', 'sleep 20 &\necho $! > "$(git rev-parse --git-dir)/daemon-pid"');
+  write(e.f('a.txt'), 'two\n');
+  await okBody(e.op({ op: 'stage', all: true }));
+  const started = Date.now();
+  const body = await okBody(e.op({ op: 'commit', message: 'with a daemon' }));
+  assert.ok(Date.now() - started < 5000);
+  assert.ok(body.hash);
+  process.kill(+read(e.f('.git/daemon-pid')).trim());
+});
+
+test('commit: a hung hook that ignores SIGTERM is killed with its group before the next op runs', async t => {
+  const e = setup(t);
+  const pidFile = e.f('.git/hook-pid');
+  hook(e.work, 'pre-commit', `trap '' TERM\necho $$ > "${pidFile}"\nsleep 30`);
+  write(e.f('a.txt'), 'two\n');
+  await okBody(e.op({ op: 'stage', all: true }));
+  gitops.init({ hookMs: 300 });
+  t.after(() => gitops.init({ hookMs: 300000 }));
+  const before = head(e.work);
+  const started = Date.now();
+  const [slow, next] = await Promise.all([e.op({ op: 'commit', message: 'stuck' }), e.op({ op: 'stage', all: true })]);
+  assert.match(slow.body.error, /timed out/);
+  assert.strictEqual(next.body.ok, true);
+  assert.ok(Date.now() - started < 5000);
+  assert.strictEqual(head(e.work), before);
+  const pid = +read(pidFile).trim();
+  for (const i of Array.from({ length: 20 }).keys()) { if (isGone(pid)) break; await new Promise(r => setTimeout(r, 25 * (i + 1))); }
+  assert.ok(isGone(pid));
+});

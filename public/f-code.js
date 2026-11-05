@@ -203,7 +203,7 @@ FEAT.code = (() => {
   }
 
   function parseDiff(text) {
-    const out = { hunks: [], add: 0, del: 0, truncated: false, meta: [], lines: 0, top: 0, lit: null };
+    const out = { hunks: [], add: 0, del: 0, truncated: false, meta: [], lines: 0, top: 0, lit: false };
     const st = { hunk: null, o: 0, n: 0 };
     for (const l of String(text || '').split('\n')) {
       const m = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(l);
@@ -442,9 +442,9 @@ FEAT.code = (() => {
     const off = label => ({ label, off: true });
     if (n.conflicts) return off(`Resolve ${plural(n.conflicts, 'conflict')} first`);
     if (r.op) return off(`A ${r.op} is in progress. Finish it in a terminal.`);
+    if (r.detached) return off('Detached HEAD. Switch to a branch first.');
     if (n.staged) return msg ? { label: 'Commit', run: 'commit', icon: 'check' } : off('Write a commit message');
     if (n.changes) return msg ? { label: `Commit all (${n.changes})`, run: 'commitAll', icon: 'check' } : off('Write a commit message');
-    if (r.detached) return off('Detached HEAD. Switch to a branch first.');
     if (!r.upstream) return { label: 'Publish branch', run: 'push', icon: 'arrowUp' };
     if (r.ahead && r.behind) return off('Branch has diverged. Pull or rebase in a terminal.');
     if (r.ahead) return { label: `Push ${r.ahead}`, run: 'push', icon: 'arrowUp' };
@@ -473,12 +473,14 @@ FEAT.code = (() => {
 
   function make(kind) {
     const panel = kind === 'panel';
-    const C = { root: null, tab: panel ? 'changes' : PREF.tab, step: 'list', layers: 0, sess: null, ws: null, fromTerm: null, sel: null, one: null, want: null, commit: null, commitData: null, port: null, busy: null, err: null };
+    const C = { root: null, tab: panel ? 'changes' : PREF.tab, step: 'list', layers: 0, sess: null, ws: null, fromTerm: null, sel: null, one: null, want: null, commit: null, commitData: null, port: null, pin: null };
     const TREE = { open: new Set(JSON.parse(localStorage.getItem('bd.code.fopen') || '[]')), sel: null, mode: 'auto', editing: false, wide: false };
     const HIST = { root: null, sig: null, commits: [], more: false, loading: false, tok: 0, err: null };
     const D = {};
     const stamp = { tree: null, frame: null, commitTok: 0, avatar: '', arrows: '', empty: '', meta: '', wide: null, sized: false };
     const rowBusy = new Set();
+    const busyBy = new Map();
+    const errBy = new Map();
 
     const stacked = () => panel || phone();
     const layered = () => !panel && phone();
@@ -530,11 +532,11 @@ FEAT.code = (() => {
     const secOf = f => isConflict(f) ? 'conflicts' : isStaged(f) ? 'staged' : 'changes';
 
     async function run(label, fn) {
-      if (C.busy) return false;
       const id = C.root;
-      C.err = null; C.busy = label; paintCta();
-      const ok = await serial(id, fn).then(() => true, e => { C.err = e.message; return false; });
-      C.busy = null;
+      if (busyBy.has(id)) return false;
+      errBy.delete(id); busyBy.set(id, label); paintCta();
+      const ok = await serial(id, fn).then(() => true, e => { errBy.set(id, e.message); return false; });
+      busyBy.delete(id);
       await loadDetail(id, true);
       paint();
       return ok;
@@ -553,7 +555,7 @@ FEAT.code = (() => {
         clearDraft(id);
         toast(`${amend ? 'Amended' : 'Committed'} ${r.hash}`, 'ok');
         if (!push) return;
-        C.busy = 'Pushing'; paintCta();
+        busyBy.set(id, 'Pushing'); paintCta();
         await gitOp(id, { op: 'push' });
         toast('Pushed', 'ok');
       });
@@ -566,7 +568,7 @@ FEAT.code = (() => {
     const doUnstageAll = simpleOp('Unstaging', { op: 'unstage', all: true });
 
     function runSmart() {
-      if (C.busy || !detail() || detail().error) return;
+      if (busyBy.has(C.root) || !detail() || detail().error) return;
       const a = smartAction(info(), counts(), message());
       if (a.off) return;
       if (a.run === 'commit') doCommit({});
@@ -592,26 +594,27 @@ FEAT.code = (() => {
       ]);
     }
 
-    function rowOp(f, sec, body) {
-      const key = sec + ':' + f.rel; const id = C.root;
+    function rowOp(id, f, sec, body) {
+      const key = id + '|' + sec + ':' + f.rel;
       rowBusy.add(key); paintChanges();
       serial(id, () => gitOp(id, body))
-        .then(() => { C.err = null; }, e => { C.err = e.message; })
+        .then(() => { errBy.delete(id); }, e => { errBy.set(id, e.message); })
         .then(() => loadDetail(id, true))
         .then(() => { rowBusy.delete(key); paint(); });
     }
 
     async function discard(f) {
       const untracked = isUntracked(f);
+      const id = C.root;
       const yes = await confirmBox({
         title: untracked ? `Delete ${baseOf(f.rel)}?` : `Discard changes in ${baseOf(f.rel)}?`,
         text: [
-          h('p', { class: 'cv-confirm-file' }, f.rel),
+          h('p', { class: 'cv-confirm-file' }, [info()?.name, f.rel].filter(Boolean).join(' / ')),
           untracked ? `This ${isFolder(f.rel) ? 'folder' : 'file'} is untracked, so git has no copy of it. It will be deleted permanently.` : 'Your uncommitted edits to this file will be lost. Anything already staged stays staged.',
         ],
         ok: untracked ? 'Delete permanently' : 'Discard changes', danger: true,
       });
-      if (yes) rowOp(f, 'changes', { op: 'discard', files: [pathArg(f.rel)], ...(untracked ? { untracked: true } : {}) });
+      if (yes) rowOp(id, f, 'changes', { op: 'discard', files: [pathArg(f.rel)], ...(untracked ? { untracked: true } : {}) });
     }
 
     function hotFile() {
@@ -647,9 +650,9 @@ FEAT.code = (() => {
         h('span', { class: 'cv-sub' }, onTouch ? pill : null, dir ? h('span', { class: 'cv-dirn' }, dir) : null)),
       onTouch ? null : pill,
       h('span', { class: 'cv-acts' },
-        sec === 'staged' ? act('Unstage', 'minus', () => rowOp(f, sec, { op: 'unstage', files: [pathArg(f.rel)] })) : null,
-        sec === 'changes' ? act('Stage', 'plus', () => rowOp(f, sec, { op: 'stage', files: [pathArg(f.rel)] })) : null,
-        sec === 'conflicts' ? act('Mark resolved', 'check', () => rowOp(f, sec, { op: 'stage', files: [pathArg(f.rel)] })) : null,
+        sec === 'staged' ? act('Unstage', 'minus', () => rowOp(C.root, f, sec, { op: 'unstage', files: [pathArg(f.rel)] })) : null,
+        sec === 'changes' ? act('Stage', 'plus', () => rowOp(C.root, f, sec, { op: 'stage', files: [pathArg(f.rel)] })) : null,
+        sec === 'conflicts' ? act('Mark resolved', 'check', () => rowOp(C.root, f, sec, { op: 'stage', files: [pathArg(f.rel)] })) : null,
         sec === 'changes' ? act(isUntracked(f) ? 'Delete' : 'Discard', 'undo', () => discard(f), 'danger') : null,
         letter !== 'D' && !isFolder(f.rel) ? act('Open file', 'file', () => openFile(f.rel)) : null));
     }
@@ -675,7 +678,7 @@ FEAT.code = (() => {
       D.errText = h('div', { class: 'cv-errtext' });
       D.err = h('div', { class: 'cv-err', role: 'alert', hidden: true },
         h('span', { class: 'cv-erric' }, ic('alert', 15)), D.errText,
-        h('button', { class: 'cv-ib', title: 'Dismiss', 'aria-label': 'Dismiss this error', onclick: () => { C.err = null; paintCta(); } }, ic('x', 14)));
+        h('button', { class: 'cv-ib', title: 'Dismiss', 'aria-label': 'Dismiss this error', onclick: () => { errBy.delete(C.root); paintCta(); } }, ic('x', 14)));
       return h('div', { class: 'cv-commit' }, D.msg, h('div', { class: 'cv-ctarow' }, D.cta, D.ctaMore), D.onMain, D.err);
     }
 
@@ -685,7 +688,7 @@ FEAT.code = (() => {
     }
 
     function ctaState(d, r) {
-      if (C.busy) return { label: C.busy + '…', off: true };
+      if (busyBy.has(C.root)) return { label: busyBy.get(C.root) + '…', off: true };
       if (!d || d.error || !r) return { label: d?.error ? 'This repo could not be read' : 'Reading the repo…', off: true };
       return smartAction(r, counts(), message());
     }
@@ -693,14 +696,16 @@ FEAT.code = (() => {
     function paintCta() {
       const d = detail(); const r = info();
       const ready = !!d && !d.error && !!r;
+      const busy = busyBy.has(C.root);
+      const err = errBy.get(C.root);
       const a = ctaState(d, r);
       setText(D.ctaText, a.label);
       D.cta.disabled = !!a.off;
-      D.cta.classList.toggle('busy', !!C.busy);
-      D.cta.classList.toggle('off', !!a.off && !C.busy);
+      D.cta.classList.toggle('busy', busy);
+      D.cta.classList.toggle('off', !!a.off && !busy);
       D.ctaMore.classList.toggle('off', !!a.off);
-      D.ctaMore.disabled = !!C.busy || !ready;
-      const icon = C.busy ? 'spin' : a.icon || '';
+      D.ctaMore.disabled = busy || !ready;
+      const icon = busy ? 'spin' : a.icon || '';
       if (D.ctaIcon.dataset.icon !== icon) {
         D.ctaIcon.dataset.icon = icon;
         D.ctaIcon.replaceChildren(...(icon === 'spin' ? [h('span', { class: 'cv-spin' })] : icon ? [ic(icon, 16)] : []));
@@ -709,8 +714,8 @@ FEAT.code = (() => {
       const onMain = ready && (r.branch === 'main' || r.branch === 'master') && (n.staged || n.changes);
       show(D.onMain, !!onMain);
       if (onMain) setText(D.onMain, `Committing on ${r.branch}`);
-      show(D.err, !!C.err);
-      if (C.err) setText(D.errText, C.err);
+      show(D.err, !!err);
+      if (err) setText(D.errText, err);
     }
 
     function buildSection(key, title) {
@@ -731,7 +736,7 @@ FEAT.code = (() => {
       }));
       for (const row of sec.list.children) {
         row.classList.toggle('sel', C.sel === row.dataset.key);
-        row.classList.toggle('busy', rowBusy.has(row.dataset.key));
+        row.classList.toggle('busy', rowBusy.has(C.root + '|' + row.dataset.key));
       }
     }
 
@@ -1008,7 +1013,7 @@ FEAT.code = (() => {
       if (location.protocol === 'https:' && url.startsWith('http:')) { frameNote(url, 'This preview opens in its own tab', 'The dashboard is on https and this server is on http, so the browser will not show it inside the page.'); return; }
       if (new URL(url).origin === location.origin) { frameNote(url, 'This is the dashboard itself', 'It can not be shown inside its own page.'); return; }
       if (local) {
-        frameNote(url, `Port ${s.port} only listens on the server`, 'Expose it to reach it from this device.', h('button', { class: 'btn', onclick: ev => exposeChip(ev, { port: s.port, loopback: true }) }, 'Expose'));
+        frameNote(url, `Port ${s.port} only listens on the server`, 'Expose it to reach it from this device.', h('button', { class: 'btn', onclick: ev => exposeChip(ev, { port: s.port, addr: '127.0.0.1', loopback: true }) }, 'Expose'));
         return;
       }
       const frame = h('iframe', { class: 'cv-iframe', src: url, title: 'Preview of port ' + s.port, sandbox: 'allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads' });
@@ -1351,7 +1356,7 @@ FEAT.code = (() => {
 
     function select(id) {
       if (C.root === id) { paint(); return; }
-      C.root = id; C.sel = null; C.one = null; C.commit = null; C.commitData = null; C.err = null; C.port = null;
+      C.root = id; C.sel = null; C.one = null; C.commit = null; C.commitData = null; C.port = null;
       stamp.tree = null; stamp.frame = null; TREE.sel = null;
       if (!panel && id) localStorage.setItem('bd.code.root', id);
       if (D.msg) { D.msg.value = id ? localStorage.getItem(draftKey(id)) || '' : ''; sizeMsg(); }
@@ -1359,10 +1364,10 @@ FEAT.code = (() => {
     }
 
     function syncPanelSession() {
-      if (C.sess !== TERM.active) { C.sess = TERM.active; C.root = null; closeView(); }
+      if (C.sess !== TERM.active) { C.sess = TERM.active; C.root = null; C.pin = null; closeView(); }
       C.ws = wsOf(C.sess);
       const ids = sessionRoots(C.ws);
-      if (C.ws && !ids.includes(C.root)) {
+      if (C.ws && !ids.includes(C.root) && C.root !== C.pin) {
         C.root = null;
         if (ids[0]) select(ids[0]);
       }
@@ -1465,17 +1470,18 @@ FEAT.code = (() => {
     }
 
     function openPath(root, rel) {
-      C.want = { root, rel };
+      C.want = { root, rel }; C.pin = root;
       if (C.root !== root) select(root); else paint();
     }
 
     async function open(o = {}) {
       closePop();
       const fromTerm = TERM.open ? TERM.active : null;
-      const session = o.session && sessOf(o.session)?.claude ? o.session : null;
-      C.sess = session || fromTerm;
+      const live = o.session ? sessOf(o.session) : null;
+      const session = o.session && (!live || live.claude) ? o.session : null;
+      C.sess = (live && session) || fromTerm;
       if (session && !WSC.get(session)?.data) {
-        await api('workspace?session=' + enc(session)).then(ws => { WSC.set(session, { at: Date.now(), loading: false, data: ws, sig: '' }); }, () => {});
+        await api('workspace?session=' + enc(session)).then(ws => { WSC.set(session, { at: Date.now(), loading: false, data: ws, sig: '' }); }, e => toast('Could not open that chat\'s repos: ' + e.message, 'err'));
       }
       const ws = session ? WSC.get(session)?.data : null;
       const target = o.root

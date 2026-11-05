@@ -6,7 +6,7 @@
   --line: rgba(255,255,255,.09); --line2: rgba(255,255,255,.15);
   --border: var(--line); --border2: var(--line2); --hair: var(--line);
   --fill: rgba(255,255,255,.05); --fill2: rgba(255,255,255,.09);
-  --text: #f4f6fa; --muted: #c0c7d4; --dim: #a4adbd;
+  --text: #f4f6fa; --muted: #c0c7d4; --dim: #a8b1c1;
   --accent: #8ebcff; --accent2: #b0d0ff;
   --primary: #f4f6fa; --primary-hover: #ffffff; --on-primary: #0a0d14;
   --green: #62d394; --amber: #f2ad57; --red: #ff7468; --cyan: #74c9f2;

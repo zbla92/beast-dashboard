@@ -83,7 +83,7 @@ FEAT.newproj = (() => {
     }
 
     const box = h('div', { class: 'box ntbox nsbox npbox' },
-      h('div', { class: 'sh' }, h('h3', null, '＋ New project'), h('span', { class: 'sp' }), acctSeg, h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', onclick: close }, ico('x', 15))),
+      h('div', { class: 'sh' }, h('h3', null, gl('＋ New project')), h('span', { class: 'sp' }), acctSeg, h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', onclick: close }, ico('x', 15))),
       h('div', { class: 'np-body' },
         h('div', { class: 'tsec' }, 'Where'), list, orgIn,
         h('div', { class: 'tsec' }, 'Name'), nameIn, path, err),

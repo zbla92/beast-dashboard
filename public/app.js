@@ -15,7 +15,7 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '
 const fmtB = n => { if (n == null) return '–'; const u = ['B', 'K', 'M', 'G', 'T']; let i = 0; while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; } return (i >= 3 ? n.toFixed(1) : Math.round(n)) + u[i]; };
 const fmtRate = n => fmtB(n) + '/s';
 const ago = ts => { if (!ts) return ''; const s = Math.max(0, (Date.now() - ts) / 1000); if (s < 60) return Math.round(s) + 's'; if (s < 3600) return Math.round(s / 60) + 'm'; if (s < 86400) return (s / 3600).toFixed(s < 36000 ? 1 : 0) + 'h'; return Math.round(s / 86400) + 'd'; };
-const fmtUp = s => { const d = Math.floor(s / 86400), hh = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60); return (d ? d + 'd ' : '') + hh + 'h ' + m + 'm'; };
+const fmtUp = s => { const d = Math.floor(s / 86400), hh = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60); return d ? d + 'd ' + hh + 'h' : hh + 'h ' + m + 'm'; };
 // Orgs are just the top-level folders under devRoot, so their names differ per machine: hash the name
 // onto a fixed palette instead of hardcoding a map. Same folder always gets the same colour.
 const ORG_COLORS = 6;
@@ -98,13 +98,14 @@ function vscodeUrl(path) { const s = S.settings; return `vscode://vscode-remote/
 // is what makes clipboard, paste-image and the mobile keyboard fit work without workarounds; plain HTTP goes to :7681.
 function termUrl(session) { return (location.protocol === 'https:' ? '' : `http://${publicHost()}:${S.host.terminalPort || 7681}`) + `/term/?arg=${encodeURIComponent(session)}`; }
 // ---------- terminals panel (embedded ttyd, one iframe per opened session, kept alive for instant switching) ----------
-// Line icons (SF-Symbols-ish, 1.6 stroke, currentColor) instead of emoji — one look on Mac, iPhone and Linux.
+// Line icons (SF-Symbols-ish, 1.8 stroke, currentColor) instead of emoji — one look on Mac, iPhone and Linux.
 const ICONS = {
   terminal: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="m7 9 3 3-3 3M13 15h4"/>',
   chat: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1.1-4.2A8 8 0 1 1 21 12z"/>',
   bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20a2 2 0 0 0 4 0"/>',
   bellOff: '<path d="M6 16V11a6 6 0 0 1 9.3-5M18 11v5l1.5 2H7"/><path d="M10 20a2 2 0 0 0 4 0M4 4l16 16"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
+  diff: '<path d="M12 4v9M7.5 8.5h9M7.5 19h9"/>',
   pencil: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>',
   back: '<path d="m15 5-7 7 7 7"/>',
   ext: '<path d="M7 17 17 7M9 7h8v8"/>',
@@ -212,7 +213,7 @@ const GLYPH = {
   '⇣': 'download', '↓': 'arrowDown', '↑': 'arrowUp', '⬆': 'upload', '→': 'arrowRight', '←': 'arrowLeft', '🔍': 'search', '⌕': 'search', '☑': 'checkSquare', '▤': 'grid', '⎘': 'copy',
   '⧉': 'layers', '↗': 'ext', '☾': 'moon', '⇄': 'swap', '⊘': 'ban', '☁': 'cloud', '⋯': 'dots', '◇': 'diamond', '◆': 'zap', '◈': 'chip',
   '⌂': 'home', '⛶': 'full', '📱': 'phone', '🖼': 'image', '◱': 'file', '📂': 'folderOpen', '📁': 'folder', '❯': 'prompt', '$': 'prompt', '★': 'star',
-  '🔥': 'flame', '💡': 'bulb', '⚒': 'hammer', '⏰': 'clock', '−': 'minus', 'ⓘ': 'info', '+': 'plus',
+  '🔥': 'flame', '💡': 'bulb', '⚒': 'hammer', '⏰': 'clock', '−': 'minus', '－': 'minus', 'ⓘ': 'info', '+': 'plus', '＋': 'plus', '±': 'diff',
   '●': 'dot', '○': 'ring', '◐': 'halfDot', '◌': 'eyeOff', '⛓': 'link', '⚕': 'pulse', '◁': 'back', '▢': 'square', '☐': 'square', '⏎': 'enter', '⌫': 'backspace',
   '⇥': 'tab', '⇤': 'tabBack', '⏻': 'power', '⊟': 'archive', '▶▶': 'fast', '⚡': 'zap', '🗑': 'trash', '💾': 'save', '🔒': 'lock', '📄': 'fileText', '⚛': 'atom',
   '📎': 'clip', '🎤': 'mic', '⊞': 'table', '▲': 'triangle', '♪': 'music', '▸': 'chevronRight', '▾': 'chevronDown', '▴': 'chevronUp',
@@ -508,7 +509,8 @@ function fitTermPanel() {
 function fitLayer(el, open) {
   if (!el) return;
   if (!open || !VV || !TOUCH) { el.style.height = ''; el.style.top = ''; el.style.bottom = ''; return; }
-  const hgt = Math.round(VV.height), top = Math.round(VV.offsetTop);
+  const inset = el.id === 'termpanel' && matchMedia('(min-width: 901px)').matches ? parseInt(getComputedStyle(el).getPropertyValue('--glass-gap')) || 0 : 0;
+  const hgt = Math.round(VV.height) - inset * 2, top = Math.round(VV.offsetTop) + inset;
   if (!(hgt > 0)) return;
   if (el.style.height !== hgt + 'px') el.style.height = hgt + 'px';
   if (el.style.top !== top + 'px') el.style.top = top + 'px';
@@ -565,7 +567,7 @@ function newTerminalModal() {
     const r = shown();
     const onRow = p => {
       const on = runningOn(p); if (!on.length) return null;
-      return h('span', { class: 'ntrun' }, h('span', { class: 'badge tag acc ' + NT.acct }, `${on.length} running · ＋ new`), h('button', { class: 'btn sm ghost', title: 'open the running one instead: ' + on.map(x => x.name).join(', '), onclick: ev => { ev.stopPropagation(); close(); openTerm(on[0].name); } }, 'open'));
+      return h('span', { class: 'ntrun' }, h('span', { class: 'badge tag acc ' + NT.acct }, `${on.length} running · `, ico('plus', 11), ' new'), h('button', { class: 'btn sm ghost', title: 'open the running one instead: ' + on.map(x => x.name).join(', '), onclick: ev => { ev.stopPropagation(); close(); openTerm(on[0].name); } }, 'open'));
     };
     list.replaceChildren(...(r.length ? r.map(p => h('div', { class: 'ntrow', onclick: () => go(p) }, avatar(p.id, 'sm'), h('div', { class: 'ntn' }, h('div', { class: 'ntt' }, p.name), h('div', { class: 'nts' }, [p.org, p.group].filter(Boolean).join(' · '))), FEAT.worktrees?.pickerChip?.(p), onRow(p))) : [h('div', { class: 'tsempty' }, 'No project matches.')]));
   };
@@ -573,7 +575,7 @@ function newTerminalModal() {
   const orgChips = h('span', { class: 'chips sm' }, ['all', ...orgs].map(o => h('button', { class: 'chip' + (NT.org === o ? ' on' : ''), onclick: () => { NT.org = o; orgChips.querySelectorAll('.chip').forEach(c => c.classList.toggle('on', c.dataset.o === o)); renderList(); }, 'data-o': o }, o === 'all' ? 'All' : o)));
   const inp = h('input', { class: 'txt', placeholder: 'Search projects…  (Enter = first match)', oninput: e => { NT.q = e.target.value; renderList(); }, onkeydown: e => { if (e.key === 'Enter') { const r = shown()[0]; if (r) go(r); } } });
   const box = h('div', { class: 'box ntbox' },
-    h('div', { class: 'sh' }, h('h3', null, '＋ New chat'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', onclick: close }, ico('x', 15))),
+    h('div', { class: 'sh' }, h('h3', null, gl('＋ New chat')), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', onclick: close }, ico('x', 15))),
     h('button', { class: 'btn ntshell', onclick: () => { close(); newShell(); } }, ico('plus', 13), h('b', null, 'No project — just start a shell'), h('span', { class: 'dim' }, 'plain bash in the dev folder')),
     opts, inp, orgs.length > 1 ? orgChips : null, list);
   m.replaceChildren(box); m.onclick = e => { if (e.target === m) close(); };
@@ -1116,7 +1118,7 @@ function sessMenu(ev, name) {
     cl ? { label: 'Compact context', sub: c ? fmtTok(c.used) + ' · ' + ctxPct(c) + '%' : '', icon: ico('compact', 15), disabled: !canCompact(cl), title: idle ? 'summarise the conversation and continue with a smaller context' : 'only when Claude is idle', onclick: () => compactSession(name) } : null,
     cl ? { label: 'Rename…', icon: ico('pencil', 15), onclick: () => renameDialog(name) } : null,
     chat && FEAT.session?.move ? { label: 'Move to folder…', icon: ico('folder', 15), disabled: !idle, title: 'same conversation, Claude continues in another project or folder (only when idle)', onclick: () => FEAT.session.move(name) } : null,
-    proj ? { label: 'Project details…', sub: dirty ? '± ' + dirty + ' changes' : '', icon: ico('folder', 15), title: 'project details — changes, files, logs, branches, docker', onclick: () => openDrawer(proj.id, dirty ? 'changes' : 'overview') } : null,
+    proj ? { label: 'Project details…', sub: dirty ? dirty + ' changes' : '', icon: ico('folder', 15), title: 'project details — changes, files, logs, branches, docker', onclick: () => openDrawer(proj.id, dirty ? 'changes' : 'overview') } : null,
     (cl && cl.hooked) || muted ? { label: muted ? 'Unmute notifications' : 'Mute notifications', sub: muted ? 'muted now' : '', icon: ico(muted ? 'bell' : 'bellOff', 15), onclick: () => api('claude-mute', { session: name, muted: !muted }).then(r => toast(r.muted.includes(name) ? 'muted' : 'unmuted')).catch(e => toast(e.message, 'err')) } : null,
     upd ? { label: upgrading ? 'Installing update…' : 'Update Claude Code', sub: upgrading ? '' : upd.version, icon: ico('refresh', 15), disabled: upgrading, title: upgrading ? 'mise upgrade claude is running…' : `Claude Code ${upd.version} is out — install it (mise upgrade claude), then restart this session (same conversation, --resume)`, onclick: () => updateClaude({ name, project: sess?.project }) } :
     cl && needsRestart(cl) ? { label: 'Restart on new version', sub: wantVersion(cl), icon: ico('refresh', 15), title: `running Claude Code ${cl.version} — restart on ${wantVersion(cl)} (same conversation)`, onclick: () => restartSession({ name, project: sess?.project }) } : null,
@@ -2444,8 +2446,8 @@ async function tabChanges(el, p) {
     const doCommit = async (thenPush) => { const m = msg.value.trim(); if (!m) { msg.focus(); return; } if (d.staged.length === 0 && confirm('Nothing is staged. Stage ALL changes (git add -A) and commit?') === false) return; if (d.staged.length === 0) await act('stage all', api('git', { id: target.id, action: 'stage-all' })); await act('commit', api('git', { id: target.id, action: 'commit', message: m })); CMSG.delete(target.id); if (thenPush) await act('push', api('git', { id: target.id, action: 'push' })); renderDrawer(true); };
     msg.addEventListener('keydown', ev => { ev.stopPropagation(); if (ev.key === 'Enter') { ev.preventDefault(); doCommit(ev.shiftKey); } });
     box.append(h('div', { class: 'cbox' }, msg,
-      total ? h('button', { class: 'btn sm', title: 'git add -A', onclick: () => gitDo('stage-all', 'stage all') }, '＋ Stage all') : null,
-      d.staged.length ? h('button', { class: 'btn sm ghost', title: 'git reset', onclick: () => gitDo('unstage-all', 'unstage all') }, '－ Unstage') : null,
+      total ? h('button', { class: 'btn sm', title: 'git add -A', onclick: () => gitDo('stage-all', 'stage all') }, gl('＋ Stage all')) : null,
+      d.staged.length ? h('button', { class: 'btn sm ghost', title: 'git reset', onclick: () => gitDo('unstage-all', 'unstage all') }, gl('－ Unstage')) : null,
       total ? h('button', { class: 'btn sm primary', title: 'commit staged (stages everything first if nothing is staged)', onclick: () => doCommit(false) }, gl('✓ Commit')) : null,
       total ? h('button', { class: 'btn sm primary', title: 'commit, then git push', onclick: () => doCommit(true) }, gl('✓ Commit & push')) : null,
       d.ahead || !d.upstream ? h('button', { class: 'btn sm' + (d.ahead ? ' hotbtn' : ''), title: d.upstream ? 'git push' : 'git push -u origin HEAD', onclick: () => gitDo('push', 'push') }, gl(`⬆ Push${d.ahead ? ' ' + d.ahead : ''}`)) : null));
@@ -2638,7 +2640,7 @@ function tabFiles(el, p, o = {}) {
         status ? h('span', { class: 'chst s' + (status === '?' ? 'Q' : status), title: STATUS_TITLE[status] || status }, status) : null,
         h('span', { class: 'dim mono', style: 'font-size:11px' }, fmtB(content.size || e.size)),
         h('span', { class: 'sp' }),
-        status ? h('button', { class: 'btn sm' + (showDiff ? ' primary' : ''), onclick: () => { st.mode = 'diff'; showFile(e); } }, '± diff') : null,
+        status ? h('button', { class: 'btn sm' + (showDiff ? ' primary' : ''), onclick: () => { st.mode = 'diff'; showFile(e); } }, gl('± diff')) : null,
         o.select ? null : h('button', { class: 'btn sm' + (!showDiff && !st.editing ? ' primary' : ''), onclick: () => { st.mode = 'content'; st.editing = false; showFile(e); } }, gl('▤ content')),
         !o.noEdit && !content.error && !content.binary && !content.truncated ? h('button', { class: 'btn sm' + (st.editing ? ' primary' : ''), title: 'edit in place (simple text editor)', onclick: () => { st.mode = 'content'; st.editing = true; render(); } }, gl('✎ edit')) : null,
         h('a', { class: 'btn sm', href: `/api/download/${p.id}?path=${encodeURIComponent(e.path)}&inline=1`, target: '_blank', rel: 'noopener', title: 'open in a new tab' }, gl(o.select ? '↗ Open' : '↗ open')),
