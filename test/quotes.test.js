@@ -50,6 +50,18 @@ test('compose: every quote line is prefixed, blank lines too, and an empty box i
   assert.strictEqual(Q.compose([], '   '), '');
 });
 
+test('a message that opens with a file path is not a slash command: quotes go with it, and the marker keeps the CLI from holding it to the end of the turn', () => {
+  const { Q } = boot(fakeStorage());
+  Q.add('s', 'quoted');
+  Q.setAsk('s', Q.load('s')[0].id, 'why');
+  const typed = '/home/me/.pasted/shot.jpg look';
+  assert.strictEqual(Q.message('s', typed), `> quoted\n\nwhy\n\n${typed}`);
+  assert.strictEqual(Q.take('s', typed).length, 1);
+  assert.strictEqual(Q.message('s', typed), `📎 ${typed}`);
+  assert.strictEqual(Q.message('s', '/plugin:cmd arg'), '/plugin:cmd arg');
+  assert.strictEqual(Q.message('s', '/compact'), '/compact');
+});
+
 test('message: empty without chips, the quote alone with chips and an empty box', () => {
   const { Q } = boot();
   assert.strictEqual(Q.message('s', ''), '');

@@ -60,8 +60,9 @@ FEAT.quotes = (() => {
     try { if (list.length) localStorage.setItem(KEY + name, JSON.stringify(list)); else localStorage.removeItem(KEY + name); } catch {}
   };
   const has = name => load(name).length > 0;
-  const isCommand = typed => typed.startsWith('/');
-  const message = (name, typed) => compose(isCommand(typed) ? [] : load(name), typed);
+  const isCommand = typed => /^\/[^\s/]+(\s|$)/.test(typed);
+  const pathFirst = text => /^\/[^\s/]+\//.test(text);
+  const message = (name, typed) => { const text = compose(isCommand(typed) ? [] : load(name), typed); return pathFirst(text) ? '📎 ' + text : text; };
   const add = (name, text, at) => {
     const chip = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), quote: capQuote(text), ask: '', ...(Number.isFinite(at) ? { at } : {}) };
     save(name, [...load(name), chip]);
