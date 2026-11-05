@@ -184,7 +184,7 @@ body.recording .cfield .qk:not(.mic) { pointer-events: none; opacity: .4; }
 .qchips-toggle { color: var(--muted); }
 .qchip:first-child { border-top: 0; }
 .qacts { background: var(--glass-solid); border-radius: 8px; }
-.qpin { --pin-side: max(20px, 3vw, calc((100% - var(--chat-col)) / 2)); align-items: flex-start; gap: 9px; box-sizing: border-box; width: fit-content; max-width: calc(100% - var(--pin-side) * 2); margin: 8px var(--pin-side) 0 auto; padding: 7px 14px 7px 8px; border: 1px solid rgba(255,255,255,.14); border-radius: 15px; background: var(--chat-user); box-shadow: inset 0 1px 0 rgba(255,255,255,.1), 0 10px 26px -8px rgba(0,0,0,.6); color: #fff; font-size: 14px; line-height: 20px; transition: opacity .16s ease, transform .16s ease, background-color .12s ease; }
+.qpin { --pin-side: max(20px, 3vw, calc((100% - var(--chat-col)) / 2)); align-items: flex-start; gap: 9px; box-sizing: border-box; width: fit-content; max-width: calc(100% - var(--pin-side) * 2); margin: 8px var(--pin-side) 0 auto; padding: 7px 14px 7px 8px; border: 1px solid rgba(255,255,255,.14); border-radius: 15px; background: color-mix(in srgb, var(--chat-user) 78%, transparent); box-shadow: inset 0 1px 0 rgba(255,255,255,.1), 0 10px 26px -8px rgba(0,0,0,.6); color: #fff; font-size: 14px; line-height: 20px; transition: opacity .16s ease, transform .16s ease, background-color .12s ease; }
 @starting-style { .qpin { opacity: 0; transform: translateY(-6px); } }
 .qpin:hover, .qpin:focus-visible { background: color-mix(in srgb, var(--chat-user) 86%, #fff); }
 .qpin .ico { box-sizing: border-box; width: 20px; height: 20px; margin: 0; padding: 4px; border-radius: 50%; background: rgba(255,255,255,.16); color: #fff; }
