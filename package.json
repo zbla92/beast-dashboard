@@ -1,6 +1,6 @@
 {
   "name": "beast-dash",
-  "version": "3.8.0",
+  "version": "3.8.1",
   "private": true,
   "description": "Dev dashboard for the beast server — projects, processes, docker, git, tunnels.",
   "main": "server.js",
