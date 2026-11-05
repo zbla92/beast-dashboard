@@ -2,24 +2,14 @@ html, body { background: var(--bg); }
 body { background: transparent; }
 body::before {
   content: ""; position: fixed; z-index: -2; top: 0; left: 0; right: 0; height: 100lvh; pointer-events: none; transform: translateZ(0);
-  background-color: #04050d;
+  background-color: #060814;
+  background-repeat: no-repeat;
   background-image:
-    radial-gradient(1px 1px at 17px 23px, rgba(255,255,255,.9), transparent 100%),
-    radial-gradient(1px 1px at 113px 71px, rgba(255,255,255,.7), transparent 100%),
-    radial-gradient(1.6px 1.6px at 61px 149px, rgba(214,230,255,.95), transparent 100%),
-    radial-gradient(1px 1px at 199px 37px, rgba(255,255,255,.65), transparent 100%),
-    radial-gradient(1.4px 1.4px at 149px 211px, rgba(190,214,255,.85), transparent 100%),
-    radial-gradient(circle 66vmax at 84% -50vmax, #05081a 0 96.2%, #7fa8ff 97.2%, #e4eeff 97.8%, #8fb6ff 98.4%, rgba(84,120,255,.62) 100.5%, rgba(70,84,220,.28) 108%, transparent 128%),
-    radial-gradient(circle 46vmax at -14% 112%, #05081a 0 92%, #6fd8ff 94.6%, #dcf4ff 95.6%, rgba(70,180,255,.62) 97.6%, rgba(40,110,230,.26) 107%, transparent 126%),
-    linear-gradient(118deg, transparent 37%, rgba(150,186,255,.42) 37.25%, rgba(92,120,255,.2) 42%, rgba(120,84,255,.1) 49%, transparent 56%),
-    linear-gradient(118deg, transparent 63%, rgba(255,150,214,.26) 63.2%, rgba(214,84,190,.12) 67%, transparent 73%),
-    radial-gradient(52vw 44vh at 72% 16%, rgba(128,78,255,.62), transparent 72%),
-    radial-gradient(48vw 50vh at 24% 58%, rgba(28,112,255,.6), transparent 72%),
-    radial-gradient(44vw 46vh at 90% 80%, rgba(232,62,160,.46), transparent 72%),
-    radial-gradient(36vw 36vh at 8% 12%, rgba(16,190,176,.42), transparent 72%),
-    radial-gradient(44vw 34vh at 54% 100%, rgba(40,190,250,.38), transparent 72%);
-  background-size: 233px 233px, 277px 277px, 311px 311px, 379px 379px, 431px 431px, auto, auto, auto, auto, auto, auto, auto, auto, auto;
-  background-repeat: repeat, repeat, repeat, repeat, repeat, no-repeat, no-repeat, no-repeat, no-repeat, no-repeat, no-repeat, no-repeat, no-repeat, no-repeat;
+    radial-gradient(circle 66vmax at 84% -50vmax, transparent 0 96.4%, rgba(120,150,255,.2) 97.6%, rgba(84,110,240,.08) 101%, transparent 112%),
+    radial-gradient(56vw 50vh at 74% 12%, rgba(92,70,210,.3), transparent 72%),
+    radial-gradient(52vw 54vh at 20% 62%, rgba(30,84,190,.28), transparent 72%),
+    radial-gradient(44vw 44vh at 92% 86%, rgba(150,56,130,.18), transparent 72%),
+    radial-gradient(34vw 34vh at 6% 8%, rgba(20,120,130,.18), transparent 72%);
 }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -186,22 +176,10 @@ body.term-open .maincol { visibility: hidden; }
   }
   body::before {
     background-image:
-      radial-gradient(1px 1px at 17px 23px, rgba(255,255,255,.85), transparent 100%),
-      radial-gradient(1px 1px at 113px 71px, rgba(255,255,255,.6), transparent 100%),
-      radial-gradient(1.5px 1.5px at 61px 149px, rgba(214,230,255,.85), transparent 100%),
-      radial-gradient(1px 1px at 199px 37px, rgba(255,255,255,.55), transparent 100%),
-      radial-gradient(1.3px 1.3px at 149px 211px, rgba(190,214,255,.75), transparent 100%),
-      radial-gradient(circle 110vmax at 120% -100vmax, #05081a 0 96%, #8fb2ff 97.2%, rgba(96,130,255,.6) 99%, rgba(70,84,220,.24) 106%, transparent 124%),
-      radial-gradient(circle 58vmax at -30% 125%, #05081a 0 94%, #74d8ff 95.8%, rgba(70,180,255,.55) 98%, rgba(40,110,230,.22) 106%, transparent 126%),
-      linear-gradient(150deg, transparent 33%, rgba(150,186,255,.36) 33.2%, rgba(92,120,255,.16) 41%, transparent 56%),
-      linear-gradient(150deg, transparent 66%, rgba(255,150,214,.24) 66.2%, transparent 78%),
-      radial-gradient(90vw 34vh at 80% 12%, rgba(128,78,255,.62), transparent 72%),
-      radial-gradient(90vw 36vh at 14% 46%, rgba(28,112,255,.6), transparent 72%),
-      radial-gradient(84vw 34vh at 92% 74%, rgba(232,62,160,.44), transparent 72%),
-      radial-gradient(70vw 24vh at 10% 96%, rgba(40,190,250,.4), transparent 72%),
-      radial-gradient(60vw 22vh at 4% 6%, rgba(16,190,176,.4), transparent 72%);
-    background-size: 233px 233px, 277px 277px, 311px 311px, 379px 379px, 431px 431px, auto, auto, auto, auto, auto, auto, auto, auto, auto;
-    background-repeat: repeat, repeat, repeat, repeat, repeat, no-repeat, no-repeat, no-repeat, no-repeat, no-repeat, no-repeat, no-repeat, no-repeat, no-repeat;
+      radial-gradient(circle 110vmax at 120% -100vmax, transparent 0 96.4%, rgba(120,150,255,.2) 97.6%, rgba(84,110,240,.08) 101%, transparent 112%),
+      radial-gradient(90vw 34vh at 82% 10%, rgba(92,70,210,.3), transparent 72%),
+      radial-gradient(90vw 36vh at 12% 48%, rgba(30,84,190,.28), transparent 72%),
+      radial-gradient(84vw 30vh at 92% 82%, rgba(150,56,130,.18), transparent 72%);
   }
   .top { background: var(--glass-2); border-bottom: 1px solid var(--line); box-shadow: var(--hl-soft); backdrop-filter: var(--blur-1); -webkit-backdrop-filter: var(--blur-1); }
   .tabbar { left: 12px; right: 12px; bottom: max(10px, calc(env(safe-area-inset-bottom) - 12px)); height: 60px; padding: 4px; border: 0; border-radius: var(--r-pill); background: var(--glass-3); box-shadow: var(--hl), inset 0 0 0 1px var(--edge-soft), var(--shadow-float); backdrop-filter: var(--blur-2); -webkit-backdrop-filter: var(--blur-2); }
