@@ -896,7 +896,7 @@ main { padding: 8px 28px 60px; }
 .dlx .frow { min-height: 30px; padding-top: 0; padding-bottom: 0; }
 .dlx .frow.on { background: var(--fill2); }
 .dlx .frow .fsize { font-family: inherit; font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
-.dlx .frow .fico .fi, .dlx .fbar .fi { background: none; filter: grayscale(1); opacity: .75; }
+.dlx .frow .fico .fi, .dlx .fbar .fi { background: none; }
 .dlx .fbar { min-height: 44px; padding: var(--sp-1) var(--sp-2) var(--sp-1) var(--sp-4); background: none; }
 .dlx .fbar .fpath { flex: 0 1 auto; max-width: none; min-width: 0; font-family: inherit; font-size: var(--fs-md); font-weight: 500; }
 .dlx .fbar a.btn.primary { pointer-events: auto; }
@@ -919,8 +919,9 @@ main { padding: 8px 28px 60px; }
 .fi.i-json, .fi.i-npm { --ft: color-mix(in srgb, #e9a850 72%, var(--muted)); } .fi.i-md, .fi.i-doc { --ft: color-mix(in srgb, #8fb4d8 70%, var(--muted)); }
 .fi.i-css, .fi.i-gql { --ft: color-mix(in srgb, #b58af0 72%, var(--muted)); } .fi.i-html, .fi.i-rs, .fi.i-git { --ft: color-mix(in srgb, #ef8a5a 72%, var(--muted)); }
 .fi.i-py, .fi.i-go, .fi.i-docker, .fi.i-tf { --ft: color-mix(in srgb, #5ac4d8 72%, var(--muted)); } .fi.i-sh, .fi.i-csv { --ft: color-mix(in srgb, #6fd08c 72%, var(--muted)); }
-.fi.i-yml, .fi.i-env, .fi.i-java, .fi.i-rb { --ft: color-mix(in srgb, #ee7a8a 72%, var(--muted)); } .fi.i-sql, .fi.i-img { --ft: color-mix(in srgb, #4fc9b4 72%, var(--muted)); }
-.fi.i-claude { --ft: var(--accent); } .fi.i-lock, .fi.i-txt { --ft: var(--dim); }
+.fi.i-yml, .fi.i-env, .fi.i-java, .fi.i-rb { --ft: color-mix(in srgb, #ee7a8a 72%, var(--muted)); } .fi.i-sql { --ft: color-mix(in srgb, #4fc9b4 72%, var(--muted)); }
+.fi.i-img { --ft: #3ed6b6; } .fi.i-pdf { --ft: var(--red); } .fi.i-word { --ft: var(--indigo); } .fi.i-slide { --ft: var(--perm); } .fi.i-zip { --ft: var(--amber); } .fi.i-vid { --ft: var(--purple); } .fi.i-aud { --ft: var(--pink); }
+.fi.i-claude { --ft: var(--accent); } .fi.i-lock { --ft: var(--dim); } .fi.i-txt { --ft: var(--muted); }
 .caret .ico, .fcaret .ico { width: 11px; height: 11px; vertical-align: middle; }
 
 /* ================= settings-style sheets ================= */

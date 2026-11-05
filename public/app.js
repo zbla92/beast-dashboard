@@ -199,6 +199,8 @@ const ICONS = {
   table: '<rect x="4" y="5" width="16" height="14" rx="3"/><path d="M4 10h16M10 10v9"/>',
   triangle: '<path d="M12 5 20 19H4z"/>',
   fileCode: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M10 12.5l-1.8 1.8 1.8 1.8M14 12.5l1.8 1.8-1.8 1.8"/>',
+  photo: '<rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="8.5" cy="9.5" r="1.9" fill="currentColor" stroke="none"/><path d="M3.8 18.2 9.5 13l3.6 3.2 2.9-2.5 4.5 4.1a2.6 2.6 0 0 1-2.4 1.2H6a2.8 2.8 0 0 1-2.2-1.2z" fill="currentColor" fill-opacity=".3"/>',
+  video: '<rect x="3" y="5" width="18" height="14" rx="3"/><path d="m10 9 5 3-5 3z" fill="currentColor"/>',
   fileGear: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><circle cx="12" cy="15" r="2"/>',
   globe: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.4 2.4 3.6 5.2 3.6 8.5s-1.2 6.1-3.6 8.5c-2.4-2.4-3.6-5.2-3.6-8.5s1.2-6.1 3.6-8.5z"/>',
 };
@@ -2568,8 +2570,9 @@ const ICON = Object.fromEntries(Object.entries({
   'fileCode i-js': 'js mjs cjs jsx', 'fileCode i-ts': 'ts tsx', 'fileCode i-json': 'json', 'fileText i-md': 'md mdx', 'fileCode i-css': 'css scss less',
   'fileCode i-html': 'html htm xml vue svg', 'fileCode i-py': 'py', 'fileCode i-go': 'go', 'fileCode i-rs': 'rs', 'fileCode i-java': 'java kt swift dart',
   'fileCode i-rb': 'rb php', 'fileCode i-gql': 'graphql gql prisma', 'fileCode i-tf': 'tf', 'terminal i-sh': 'sh bash zsh', 'fileGear i-yml': 'yml yaml toml ini',
-  'fileGear i-env': 'env', 'table i-sql': 'sql', 'table i-csv': 'csv', 'image i-img': 'png jpg jpeg gif webp ico', 'fileText i-doc': 'pdf', 'lock i-lock': 'lock',
-  'fileText i-txt': 'txt log woff woff2 ttf', 'box i-lock': 'zip gz tgz', 'play i-img': 'mp4', 'music i-img': 'mp3',
+  'fileGear i-env': 'env', 'table i-sql': 'sql', 'photo i-img': 'png jpg jpeg gif webp ico heic heif avif bmp tif tiff', 'fileText i-pdf': 'pdf', 'lock i-lock': 'lock',
+  'fileText i-txt': 'txt log rtf woff woff2 ttf', 'fileText i-word': 'doc docx odt pages', 'table i-csv': 'csv tsv xls xlsx ods numbers', 'fileText i-slide': 'ppt pptx odp key',
+  'archive i-zip': 'zip gz tgz tar rar 7z bz2 xz', 'video i-vid': 'mp4 mov webm mkv avi m4v', 'music i-aud': 'mp3 m4a wav ogg flac aac',
 }).flatMap(([k, exts]) => exts.split(' ').map(e => [e, k.split(' ')])));
 function fileIcon(name) {
   const base = String(name || '').toLowerCase();
