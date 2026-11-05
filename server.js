@@ -1130,7 +1130,7 @@ async function api(req, res, url) {
     case 'chat-new': {
       const cwd = targetCwd(b.target);
       if (!cwd) return json(res, 400, { ok: false, error: 'unknown target' });
-      const r = await headless.startChat(cwd, b.account, b.text);
+      const r = b.empty === true ? await headless.startEmptyChat(cwd, b.account) : await headless.startChat(cwd, b.account, b.text);   // empty: no first message
       setTimeout(tick, 300);
       return json(res, r.ok ? 200 : 400, r);
     }

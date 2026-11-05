@@ -102,26 +102,34 @@
       try { const r = await api('guess-project', { text, context: ctx() }); if (n === G.seq) { G.res = r; G.for = text; renderChip(); if (!pick.classList.contains('hidden')) renderPick(); } } catch {}
     };
     const runGuess = () => { clearTimeout(G.timer); G.timer = setTimeout(guessNow, 300); };
-    ta.oninput = runGuess;
+    // nothing typed: the button opens an empty chat in the place on the chip; you write the first message in the chat
+    const renderSend = () => {
+      if (G.busy) return; const empty = !ta.value.trim();
+      sendBtn.replaceChildren(ico(empty ? 'plus' : 'send', 14), empty ? 'Open empty chat' : 'Start chat');
+      sendBtn.title = empty ? 'start Claude here without a first message — type it in the chat' : '';
+    };
+    ta.oninput = () => { runGuess(); renderSend(); };
 
     const go = async () => {
-      const text = ta.value.trim(); if (!text || G.busy) return;
+      const text = ta.value.trim(); if (G.busy) return;
       G.busy = true; sendBtn.disabled = true; sendBtn.lastChild.textContent = 'Starting…';
       if (!G.manual && G.for !== text) await guessNow();
       const c = target();
       try {
-        const r = await api('chat-new', { text, account: ST.acct, target: targetOf(c) });
+        const r = await api('chat-new', text ? { text, account: ST.acct, target: targetOf(c) } : { empty: true, account: ST.acct, target: targetOf(c) });
         localStorage.setItem('bd.ns.tab', 'new');
-        if (!r.sent) { saveDraft(r.name, text); toast('Chat started, but the first message did not arrive (' + (r.error || 'runner not ready') + '). It is in the chat box — press Send.', 'err'); }
+        if (!text) toast(`Empty chat opened in ${c.name} (${ST.acct})`, 'ok');
+        else if (!r.sent) { saveDraft(r.name, text); toast('Chat started, but the first message did not arrive (' + (r.error || 'runner not ready') + '). It is in the chat box — press Send.', 'err'); }
         else toast(`Chat started in ${c.name} (${ST.acct})`, 'ok');
         close(); openTerm(r.name);
       } catch (e) {
         status.classList.remove('hidden'); status.textContent = 'Could not start the chat: ' + e.message;
-        G.busy = false; sendBtn.disabled = false; sendBtn.lastChild.textContent = 'Start chat';
+        G.busy = false; sendBtn.disabled = false; renderSend();
       }
     };
     sendBtn.onclick = go;
-    ta.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing && ((e.metaKey || e.ctrlKey) || (!IS_PHONE && !e.shiftKey))) { e.preventDefault(); go(); } };
+    // Enter needs text: a stray Enter in the empty box must not start a Claude — the empty chat is the button only
+    ta.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing && ((e.metaKey || e.ctrlKey) || (!IS_PHONE && !e.shiftKey))) { e.preventDefault(); if (ta.value.trim()) go(); } };
 
     const newBody = h('div', { class: 'ns-new' }, ta, h('div', { class: 'ns-bar' }, chip, h('span', { class: 'sp' }), voiceButton(ta, '_new'), sendBtn), hint, pick, status);
 
@@ -173,6 +181,7 @@
     m.replaceChildren(box); m.onclick = e => { if (e.target === m) close(); };
     renderAcct(); renderTabs(); renderChip(); renderBody();
     if (text && ST.tab === 'new') { ta.value = String(text).slice(0, 100000); runGuess(); }
+    renderSend();
   }
 
   function move(name) {
