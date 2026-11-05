@@ -2247,6 +2247,7 @@ function navTo() {
   if (busy()) { if (!LAYERS.queue.includes('nav')) LAYERS.queue.push('nav'); return; }   // decided once the step lands
   const top = LAYERS.hist[LAYERS.depth];
   if (top && sameLoc(top.loc, curLoc())) return;
+  if (top && top.loc && top.loc.t === '' && curLoc().t) { writeEntry('nav', false); return; }
   // an overlay closed without popping its entry (openFromUrl, Code taking over the drawer): this page takes it over
   if (top && !(LAYERS.modal && !modalOpen()) && OVERLAY_OPEN[top.bd] && !OVERLAY_OPEN[top.bd]()) { writeEntry('nav', false); return; }
   pushLayer('nav');

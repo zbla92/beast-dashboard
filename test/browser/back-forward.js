@@ -164,9 +164,7 @@ T['phone chats'] = async b => {
   await (await page.$$('#term-list .titem'))[1].tap(); await settle(page);
   const B = (await where(page)).term;
   await back(page); check('back -> A', await where(page), { term: A });
-  await back(page); check('back -> list', await where(page), { term: 'LIST' });
   await back(page); check('back -> home', await where(page), { view: 'home', term: null });
-  await fwd(page); check('fwd -> list', await where(page), { term: 'LIST' });
   await fwd(page); check('fwd -> A', await where(page), { term: A });
   await fwd(page); check('fwd -> B', await where(page), { term: B });
   if (errors.length) results.push('  errors: ' + errors.join(' | '));
@@ -282,8 +280,7 @@ T['phone close chat with the back arrow'] = async b => {
   await page.evaluate(() => closeTermPanel()); await settle(page);   // the bar's back arrow
   check('closed -> tasks, the page before the chats', await where(page), { view: 'tasks', term: null, depth: 1 });
   await back(page); check('back -> home', await where(page), { view: 'home', term: null });
-  await fwd(page); await fwd(page); check('fwd fwd -> the list', await where(page), { term: 'LIST' });
-  await fwd(page); check('fwd -> A', await where(page), { term: A });
+  await fwd(page); await fwd(page); check('fwd fwd -> A', await where(page), { term: A });
   if (errors.length) results.push('  errors: ' + errors.join(' | '));
   await ctx.close();
 };
@@ -296,7 +293,6 @@ T['phone code from a chat'] = async b => {
   check('code list', await where(page), { view: 'code', term: null });
   results.push(`  step: ${await page.evaluate(() => FEAT.code.state.step + ' layers ' + FEAT.code.state.layers)}`);
   await back(page); check('back -> the chat', await where(page), { term: A });
-  await back(page); check('back -> list', await where(page), { term: 'LIST' });
   await back(page); check('back -> home', await where(page), { view: 'home', term: null });
   if (errors.length) results.push('  errors: ' + errors.join(' | '));
   await ctx.close();
