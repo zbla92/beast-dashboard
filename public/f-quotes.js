@@ -2,7 +2,7 @@
 FEAT.quotes = (() => {
   const CAP = 4000, KEY = 'bd.quotes.', MARK = 'bd-quote', GAP = 8, DOCK_ROOM = 80, SETTLE_MS = 120, CLICK_WAIT_MS = 300, LONG_QUOTE = 60;
   const store = new Map();
-  const ui = { cur: null, pressing: false, dragging: false, timer: 0, frame: 0, marks: 0, pill: null, down: false, afterUp: null };
+  const ui = { cur: null, pressing: false, dragging: false, timer: 0, frame: 0, marks: 0, pill: null, down: false, afterUp: null, reveal: null };
 
   const clean = s => String(s ?? '').replace(/\r\n?/g, '\n').replace(/ /g, ' ').replace(/\n{3,}/g, '\n\n').replace(/^(?:[ \t]*\n)+/, '').trimEnd();
   const capQuote = s => {
@@ -12,11 +12,15 @@ FEAT.quotes = (() => {
     return (nl > 0 ? head.slice(0, nl).trimEnd() : head.replace(/[\uD800-\uDBFF]$/, '')) + '…';
   };
   const blockquote = q => q.split('\n').map(l => '> ' + l).join('\n');
-  const compose = (chips, text) => [...chips.flatMap(c => [blockquote(c.quote), String(c.ask ?? '').trim()]), String(text ?? '').trim()].filter(Boolean).join('\n\n');
+  const answerMark = plan => `> Plan ${plan.topic}, ${plan.q}: `;
+  const RECORD_LINE = 'Record each answer above with plan answer <qN> "<that answer>" --plan <its plan>, then carry on with the plan.';
+  const chipQuote = c => c.plan ? `${answerMark(c.plan)}${c.quote.slice(c.plan.q.length + 2)}` : blockquote(c.quote);
+  const compose = (chips, text) => [...chips.flatMap(c => [chipQuote(c), String(c.ask ?? '').trim()]), chips.some(c => c.plan && String(c.ask ?? '').trim()) ? RECORD_LINE : '', String(text ?? '').trim()].filter(Boolean).join('\n\n');
+  const planOf = c => c.plan && typeof c.plan.id === 'string' && typeof c.plan.topic === 'string' && typeof c.plan.q === 'string' ? { plan: { id: c.plan.id, topic: c.plan.topic, q: c.plan.q } } : {};
   const parse = raw => {
     try {
       const v = JSON.parse(raw);
-      return Array.isArray(v) ? v.filter(c => c && typeof c.id === 'string' && typeof c.quote === 'string' && c.quote).map(c => ({ id: c.id, quote: c.quote, ask: typeof c.ask === 'string' ? c.ask : '', ...(Number.isFinite(c.at) ? { at: c.at } : {}) })) : [];
+      return Array.isArray(v) ? v.filter(c => c && typeof c.id === 'string' && typeof c.quote === 'string' && c.quote).map(c => ({ id: c.id, quote: c.quote, ask: typeof c.ask === 'string' ? c.ask : '', ...(Number.isFinite(c.at) ? { at: c.at } : {}), ...planOf(c) })) : [];
     } catch { return []; }
   };
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(v, hi));
@@ -41,6 +45,11 @@ FEAT.quotes = (() => {
   };
 
   const quotesLabel = n => n === 1 ? '1 quote' : n + ' quotes';
+  const answersLabel = n => n === 1 ? '1 answer' : n + ' answers';
+  const trayLabel = list => {
+    const answers = list.filter(c => c.plan).length, quotes = list.length - answers;
+    return [answers ? answersLabel(answers) : '', quotes ? quotesLabel(quotes) : ''].filter(Boolean).join(' · ');
+  };
   const squeeze = s => String(s ?? '').replace(/\s+/g, '');
   const needleOf = quote => squeeze(String(quote ?? '').replace(/…$/, ''));
   const nearestMatch = (text, needle, at) => {
@@ -68,6 +77,17 @@ FEAT.quotes = (() => {
     save(name, [...load(name), chip]);
     paint(name);
     return chip;
+  };
+  const addAnswer = (name, { quote, ask, plan }) => {
+    const chip = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), quote: capQuote(quote), ask, plan };
+    save(name, [...load(name), chip]);
+    paint(name);
+    return chip;
+  };
+  const answerOf = (name, id, q) => load(name).find(c => c.plan && c.plan.id === id && c.plan.q === q) || null;
+  const keepAnswers = (name, keep) => {
+    const list = load(name), kept = list.filter(c => !c.plan || keep(c));
+    if (kept.length !== list.length) { save(name, kept); paint(name); }
   };
   const setAsk = (name, id, ask) => { save(name, load(name).map(c => c.id === id ? { ...c, ask } : c)); boxesOf(name).forEach(mount); };
   const remove = (name, id) => { save(name, load(name).filter(c => c.id !== id)); paint(name); };
@@ -126,7 +146,7 @@ FEAT.quotes = (() => {
   function chipEl(name, chip) {
     const box = () => input.closest('[data-chat]');
     const input = h('input', {
-      class: 'qchip-ask', type: 'text', placeholder: 'Ask about this…', 'aria-label': 'Question about this quote', enterkeyhint: 'send', autocomplete: 'off', autocapitalize: 'sentences', spellcheck: 'true',
+      class: 'qchip-ask', type: 'text', placeholder: chip.plan ? 'Your answer…' : 'Ask about this…', 'aria-label': chip.plan ? 'Answer to this question' : 'Question about this quote', enterkeyhint: 'send', autocomplete: 'off', autocapitalize: 'sentences', spellcheck: 'true',
       oninput: () => setAsk(name, chip.id, input.value),
       onkeydown: ev => {
         ev.stopPropagation();
@@ -152,9 +172,9 @@ FEAT.quotes = (() => {
 
   const shownChip = (host, list) => list.find(c => c.id === host._active) || (list.length === 1 ? list[0] : null);
   function paintHead(host, list) {
-    const { count, peek, toggle, drop } = host._head, open = host.classList.contains('open'), one = shownChip(host, list);
+    const { count, peek, toggle, drop } = host._head, open = host.classList.contains('open'), one = shownChip(host, list), label = trayLabel(list);
     const text = (one || list[list.length - 1] || { quote: '' }).quote.replace(/\s+/g, ' ').trim();
-    if (count.textContent !== quotesLabel(list.length)) count.textContent = quotesLabel(list.length);
+    if (count.textContent !== label) count.textContent = label;
     if (peek.textContent !== text) peek.textContent = text;
     drop.classList.toggle('hidden', open || !one);
     toggle.setAttribute('aria-expanded', String(open));
@@ -216,6 +236,12 @@ FEAT.quotes = (() => {
     c.sync();
     if (pinned && list.length !== shown) sc.scrollTop = sc.scrollHeight;
   }
+
+  const reveal = name => {
+    const host = boxesOf(name).map(box => box.querySelector(':scope > .qchips')).find(Boolean);
+    ui.reveal = host ? null : name;
+    if (host) reshape(name, host, () => host.classList.add('open'));
+  };
 
   const selected = () => {
     const sel = getSelection();
@@ -300,5 +326,5 @@ FEAT.quotes = (() => {
     paint(name);
   });
 
-  return { capQuote, blockquote, compose, parse, pillPos, dockPos, quotesLabel, needleOf, nearestMatch, pointAt, chipEl, load, has, message, add, setAsk, remove, take, restore, composerShown(box) { mount(box); schedule(); marksSoon(); } };
+  return { capQuote, blockquote, compose, parse, pillPos, dockPos, quotesLabel, trayLabel, needleOf, nearestMatch, pointAt, chipEl, load, has, message, add, addAnswer, answerOf, answerMark, keepAnswers, setAsk, remove, take, restore, reveal, composerShown(box) { mount(box); if (ui.reveal === box.dataset.chat) reveal(ui.reveal); schedule(); marksSoon(); } };
 })();

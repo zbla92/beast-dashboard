@@ -354,6 +354,11 @@ Plans are read from the store (`BEAST_PLANS_DIR`, default `~/.beast/plans`); leg
 The task in `now` may carry `steps: [{ c, s }]` — the mapped session's latest TodoWrite list
 (`c` = text, `s` = `pending` | `in_progress` | `completed`), added by the server (phase 3).
 
+- **Answering in the dashboard** — when the plan's live session is a chat, an answer does not go
+  out on its own: it joins the stack above that chat's message box, like an Ask Claude quote, and one
+  Send delivers them all with the instruction to record each with `plan answer`. A terminal session
+  gets one message per answer. With no live session the answer is saved through the endpoint below.
+
 - `POST /api/plan-answer` `{ id, q, text }` — answers an open question of a live plan, the same
   as `plan answer` (the dashboard's Save to plan, used when no live session runs the plan). It runs
   this checkout's `bin/plan` (`answer --repo <repo> --plan <topic> -- <q> <text>`) with no shell,

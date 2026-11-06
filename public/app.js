@@ -1683,10 +1683,10 @@ function composer(box, name, cl, conv, scroller, o, busy, justSent, jobs, prevDr
   const shellMode = () => cl.mode === 'chat' && !!FEAT.shell && FEAT.shell.is(ta.value);
   let shelling = false;
   const runShell = async () => { if (shelling) return; const v = ta.value; shelling = true; ta.value = ''; grow(); try { if (!(await FEAT.shell.run(name, v))) { if (!ta.value) { ta.value = v; grow(); } ta.focus(); } } finally { shelling = false; } };
-  const send = async () => { if (shellMode()) return runShell(); const typed = ta.value.trim(), v = FEAT.quotes ? FEAT.quotes.message(name, typed) : typed; if (!v) return; if ((claudeOf(name) || {}).menu) { toast('Claude is asking something — pick an option above first', 'err'); return; } const chips = FEAT.quotes?.take(name, typed); ta.value = ''; grow();
+  const send = async () => { if (shellMode()) return runShell(); const typed = ta.value.trim(), v = FEAT.quotes ? FEAT.quotes.message(name, typed) : typed; if (!v) return; if ((claudeOf(name) || {}).menu) { toast('Claude is asking something — pick an option above first', 'err'); return; } const chips = FEAT.quotes?.take(name, typed); FEAT.plan2?.answersSent(chips); ta.value = ''; grow();
     const pm = { text: v, ts: Date.now() }; (PENDING[name] = PENDING[name] || []).push(pm);
     conv.append(h('div', { class: 'turn user pending' }, h('div', { class: 'who' }, gl('❯ you'), h('span', { class: 'dim' }, ' sending…')), userBody(v))); scroller.scrollTop = scroller.scrollHeight;
-    try { const r = await api('send', { session: name, text: v }); if (r && r.id) pm.id = r.id; } catch (e) { toast(e.message, 'err'); PENDING[name] = PENDING[name].filter(x => x !== pm); ta.value = typed; grow(); FEAT.quotes?.restore(name, chips); }
+    try { const r = await api('send', { session: name, text: v }); if (r && r.id) pm.id = r.id; } catch (e) { toast(e.message, 'err'); PENDING[name] = PENDING[name].filter(x => x !== pm); ta.value = typed; grow(); FEAT.quotes?.restore(name, chips); FEAT.plan2?.answersBack(chips); }
     for (const ms of [400, 1200, 2500, 5000]) setTimeout(o.refresh, ms); };
   ta.addEventListener('input', grow);
   const busyNow = cl.state === 'working' || cl.state === 'background' || cl.state === 'permission';

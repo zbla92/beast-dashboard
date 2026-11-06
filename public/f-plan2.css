@@ -105,6 +105,11 @@ body:not(.term-open) .fp2-scrim, body:not(.term-open) .fp2-panel.sheet { display
 .fp2-sh-meta { font-size: var(--fs-xs); color: var(--dim); }
 .fp2-sh-meta b { color: var(--muted); font-weight: 600; }
 .fp2-sh-sent { margin-left: 8px; padding: 1px 7px; border-radius: var(--r-sm); background: var(--fill); color: var(--muted); white-space: nowrap; }
+.fp2-sh-sent.added { background: color-mix(in srgb, var(--green) 16%, transparent); color: var(--green); }
+.fp2-sh-q.staged .fp2-wdot { background: var(--green); }
+.fp2-sh-qa { font-size: var(--fs-sm); color: var(--text); line-height: 1.45; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fp2-sh-bottom { flex: none; display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-top: 1px solid var(--line); }
+.fp2-sh-ready { flex: 1; min-width: 0; font-size: var(--fs-sm); color: var(--muted); }
 .fp2-sh-ans { display: flex; flex-direction: column; gap: 8px; padding: 0 14px 12px; }
 .fp2-sh-ta { width: 100%; min-height: 76px; max-height: 40vh; resize: vertical; padding: 10px 12px; border: 1px solid var(--line2); border-radius: var(--r); background: var(--bg); color: var(--text); font-family: var(--mono); font-size: var(--fs-md); line-height: 1.45; box-sizing: border-box; }
 .fp2-sh-ta:focus { outline: none; border-color: var(--accent); }

@@ -328,3 +328,59 @@ test('mdLite: control-like line separators in a code span do not break rendering
     assert.deepStrictEqual(fileLinks('`/home/u/Downloads/a' + c + 'b.png`'), []);
   }
 });
+
+const answerChip = (q, ask, topic = 'one') => ({ id: q, quote: `${q}: Why?`, ask, plan: { id: 'web/' + topic, topic, q } });
+
+const RECORD = 'Record each answer above with plan answer <qN> "<that answer>" --plan <its plan>, then carry on with the plan.';
+
+test('compose: answers go out quoted with their plan and question, then one line telling Claude to record them', () => {
+  const { Q } = boot();
+  assert.strictEqual(Q.compose([answerChip('q1', 'Yes'), answerChip('q2', 'No')], ' and this '),
+    `> Plan one, q1: Why?\n\nYes\n\n> Plan one, q2: Why?\n\nNo\n\n${RECORD}\n\nand this`);
+});
+
+test('compose: the same question id in two plans stays apart', () => {
+  const { Q } = boot();
+  assert.strictEqual(Q.compose([answerChip('q1', 'Yes', 'one'), answerChip('q1', 'Ok', 'two')], ''),
+    `> Plan one, q1: Why?\n\nYes\n\n> Plan two, q1: Why?\n\nOk\n\n${RECORD}`);
+});
+
+test('compose: an answer emptied in the tray goes out as a plain quote, with nothing to record', () => {
+  const { Q } = boot();
+  assert.strictEqual(Q.compose([answerChip('q1', '  ')], ''), '> Plan one, q1: Why?');
+});
+
+test('parse keeps a well formed plan tag and drops a broken one', () => {
+  const { Q } = boot();
+  const raw = JSON.stringify([answerChip('q1', 'Yes'), { id: 'x', quote: 'q', ask: '', plan: { id: 'a', topic: 7, q: 'q1' } }]);
+  assert.deepStrictEqual(plain(Q.parse(raw)), [answerChip('q1', 'Yes'), { id: 'x', quote: 'q', ask: '' }]);
+});
+
+test('addAnswer stacks with the quotes, survives a reload and is found by plan and question', () => {
+  const store = fakeStorage();
+  const first = boot(store).Q;
+  first.add('s', 'a quote');
+  first.addAnswer('s', answerChip('q1', 'Yes'));
+  const again = boot(store).Q;
+  assert.strictEqual(again.answerOf('s', 'web/one', 'q1').ask, 'Yes');
+  assert.strictEqual(again.answerOf('s', 'web/one', 'q2'), null);
+  assert.strictEqual(again.trayLabel(again.load('s')), '1 answer · 1 quote');
+  assert.strictEqual(again.trayLabel([answerChip('q1', 'a'), answerChip('q2', 'b')]), '2 answers');
+  assert.strictEqual(again.trayLabel([{ quote: 'x' }]), '1 quote');
+});
+
+test('keepAnswers drops only the answers it rejects and never a plain quote', () => {
+  const { Q } = boot();
+  Q.add('s', 'a quote');
+  Q.addAnswer('s', answerChip('q1', 'Yes'));
+  Q.addAnswer('s', answerChip('q2', 'No'));
+  Q.keepAnswers('s', c => c.plan.q === 'q2');
+  assert.deepStrictEqual(plain(Q.load('s').map(c => c.plan ? c.plan.q : c.quote)), ['a quote', 'q2']);
+});
+
+test('a slash command leaves stacked answers in place', () => {
+  const { Q } = boot();
+  Q.addAnswer('s', answerChip('q1', 'Yes'));
+  assert.deepStrictEqual(plain(Q.take('s', '/compact')), []);
+  assert.strictEqual(Q.load('s').length, 1);
+});

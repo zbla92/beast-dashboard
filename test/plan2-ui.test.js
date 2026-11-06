@@ -184,7 +184,7 @@ const fakeDom = () => {
   const listeners = [];
   const body = [];
   const node = (tag, attrs, kids) => {
-    const n = { tag, attrs: attrs || {}, kids: kids.flat(Infinity).filter(k => k != null && k !== false), classList: classes() };
+    const n = { tag, attrs: attrs || {}, kids: kids.flat(Infinity).filter(k => k != null && k !== false), classList: classes(), get childNodes() { return this.kids; } };
     n.remove = () => { const i = body.indexOf(n); if (i >= 0) body.splice(i, 1); };
     n.append = (...k) => n.kids.push(...k);
     n.listeners = {};
@@ -451,17 +451,18 @@ const lifeBoot = async ({ sums, archived = [], files = false, stored = null, pho
   };
   dom.document.getElementById = id => reg[id] || null;
   const main = { style: { setProperty() {} }, classList: { toggle() {}, remove() {} }, append() {}, prepend() {} };
-  const calls = { api: [], toast: [], feat: [], saved: [] };
+  const calls = { api: [], toast: [], feat: [], saved: [], opened: [] };
   const store = { sums, archived };
   const filesState = { on: files };
+  const FEAT = { code: { filesOn: () => filesState.on } };
   const S = { settings: { plans: true }, projects, runtime: { sessions: [{ name: active, project, claude }] } };
-  const TERM = { open: true, active };
+  const TERM = { open: true, active, view: {} };
   const p = boot({
     document: dom.document, h, ico: dom.ico, gl: dom.gl, requestAnimationFrame() {}, S,
-    FEAT: { code: { filesOn: () => filesState.on } },
+    FEAT,
     feat: (hook, ...a) => { calls.feat.push([hook, ...a]); return []; },
     localStorage: { getItem: () => stored, setItem: (k, v) => calls.saved.push(JSON.parse(v)) },
-    TERM, matchMedia: () => ({ matches: phone }),
+    TERM, matchMedia: () => ({ matches: phone }), openTerm: name => { calls.opened.push(name); TERM.showList = false; },
     window: { dispatchEvent() {} }, Event: class {}, setTimeout, clearTimeout,
     $: sel => sel === '.termmain' ? main : { after() {} },
     claudeOf: name => (S.runtime.sessions.find(x => x.name === name) || {}).claude || null,
@@ -496,7 +497,7 @@ const lifeBoot = async ({ sums, archived = [], files = false, stored = null, pho
   const footButton = () => find(byClass('fp2-foot')[0], n => n.tag === 'button')[0];
   const closeBtn = () => byClass('fp2-x').find(n => n.attrs['aria-label'] === 'close plan');
   const panelText = () => dom.text(panel());
-  return { dom, p, S, TERM, filesState, calls, store, panel, byClass, button, topic, paths, openActions, menuItems, reg, dialog, dialogButton, scrim, openList, listRow, pressArchived, footButton, closeBtn, panelText };
+  return { dom, p, S, TERM, FEAT, filesState, calls, store, panel, byClass, button, topic, paths, openActions, menuItems, reg, dialog, dialogButton, scrim, openList, listRow, pressArchived, footButton, closeBtn, panelText };
 };
 
 const optItems = t => [].concat(t.p.sessMenu(t.TERM.active, {}, t.S.runtime.sessions[0].claude) || []);
@@ -1548,4 +1549,211 @@ test('a phone ignores the right-panel hook', async () => {
   const t = await lifeBoot({ sums: ownPlan(), phone: true, detail: stepDetail() });
   t.p.rightOpen('files');
   assert.deepStrictEqual(t.calls.saved, []);
+});
+
+const fakeQuotes = () => {
+  const chips = [], revealed = [];
+  return {
+    chips, revealed,
+    answerOf: (name, id, q) => chips.find(c => c.name === name && c.plan.id === id && c.plan.q === q) || null,
+    addAnswer: (name, chip) => { chips.push({ ...chip, name, id: 'c' + chips.length }); },
+    setAsk: (name, id, ask) => { chips.find(c => c.id === id).ask = ask; },
+    remove: (name, id) => { chips.splice(chips.findIndex(c => c.id === id), 1); },
+    reveal: name => { revealed.push(name); },
+    answerMark: plan => `> Plan ${plan.topic}, ${plan.q}: `,
+    keepAnswers: (name, keep) => { for (const c of [...chips]) if (c.name === name && !keep(c)) chips.splice(chips.indexOf(c), 1); },
+  };
+};
+const questionPlan = () => [plan('web/one', 'web', { sessions: ['claude-a'], waiting: [
+  { id: 'q1', q: 'First?', blocks: [] }, { id: 'q2', q: 'Second?', blocks: ['T2'] },
+] })];
+const openSheet = async (claude = { state: 'idle', mode: 'chat' }) => {
+  const t = await lifeBoot({ sums: questionPlan(), claude, detail: { phases: [], timeline: [], waiting: [] }, post: () => ({ ok: true }) });
+  t.FEAT.quotes = fakeQuotes();
+  t.byClass('fp2-qrow')[0].attrs.onclick();
+  await tick();
+  const cards = () => find(t.dialog(), n => (n.attrs.class || '').split(' ').includes('fp2-sh-q'));
+  const pickCard = i => find(cards()[i], n => n.attrs.class === 'fp2-sh-qh')[0].attrs.onclick();
+  const box = () => find(t.dialog(), n => n.tag === 'textarea')[0];
+  const type = v => { const ta = box(); ta.value = v; ta.listeners.input(); };
+  const go = () => find(t.dialog(), n => (n.attrs.class || '').includes('fp2-sh-go'))[0];
+  return { ...t, cards, pickCard, box, type, go, Q: t.FEAT.quotes };
+};
+const sends = t => t.calls.api.filter(c => c[0] === 'send');
+const plainChips = t => t.Q.chips.map(c => ({ quote: c.quote, ask: c.ask, plan: { ...c.plan } }));
+
+test('answerChip quotes the question, cleans the answer and refuses an empty or too long one', () => {
+  const p = { id: 'web/one', topic: 'one' };
+  assert.strictEqual(JSON.stringify(plan2.answerChip(p, { id: 'q3', q: ' Two\n lines?\u0007 ' }, '  first\n\n  second ')),
+    JSON.stringify({ quote: 'q3: Two lines?', ask: 'first second', plan: { id: 'web/one', topic: 'one', q: 'q3' } }));
+  assert.strictEqual(plan2.answerChip(p, { id: 'q3', q: 'x' }, ' \n '), null);
+  assert.strictEqual(plan2.answerChip(p, { id: 'q3', q: 'x' }, 'a'.repeat(2001)), null);
+});
+
+test('a chat session stacks each answer without sending, moves to the next question and ends in the chat', async () => {
+  const t = await openSheet();
+  t.pickCard(0);
+  t.type('Yes');
+  assert.strictEqual(t.dom.text(t.go()), 'Add to message');
+  t.go().onclick();
+  assert.deepStrictEqual(plainChips(t), [{ quote: 'q1: First?', ask: 'Yes', plan: { id: 'web/one', topic: 'one', q: 'q1' } }]);
+  assert.ok(t.dom.text(t.cards()[0]).includes('in your message'));
+  assert.ok(t.dom.text(t.cards()[0]).includes('Yes'));
+  assert.strictEqual(t.dom.text(find(t.dialog(), n => n.attrs.class === 'fp2-sh-ready')[0]), '1 of 2 in your message');
+  assert.ok(t.box());
+  t.type('No');
+  t.go().onclick();
+  assert.deepStrictEqual(t.Q.chips.map(c => c.ask), ['Yes', 'No']);
+  assert.strictEqual(t.dialog(), null);
+  assert.deepStrictEqual([...t.Q.revealed], ['claude-a']);
+  assert.deepStrictEqual(sends(t), []);
+});
+
+test('moving to another question or closing keeps what was typed in the stack', async () => {
+  const t = await openSheet();
+  t.pickCard(0);
+  t.type('Typed then moved');
+  t.pickCard(1);
+  assert.deepStrictEqual(t.Q.chips.map(c => c.ask), ['Typed then moved']);
+  t.type('Typed then closed');
+  t.dom.key('Escape');
+  assert.strictEqual(t.dialog(), null);
+  assert.deepStrictEqual(t.Q.chips.map(c => c.ask), ['Typed then moved', 'Typed then closed']);
+});
+
+test('a stacked answer reopens for editing: Update changes it, Remove takes it out', async () => {
+  const t = await openSheet();
+  t.pickCard(0);
+  t.type('Old');
+  t.go().onclick();
+  t.pickCard(0);
+  assert.strictEqual(t.box().value, 'Old');
+  assert.strictEqual(t.dom.text(t.go()), 'Update');
+  t.type('New');
+  t.go().onclick();
+  assert.deepStrictEqual(t.Q.chips.map(c => c.ask), ['New']);
+  t.pickCard(0);
+  t.dialogButton('Remove').attrs.onclick();
+  assert.strictEqual(t.Q.chips.length, 0);
+  assert.ok(!t.dom.text(t.cards()[0]).includes('in your message'));
+});
+
+test('an answer over the limit is not stacked', async () => {
+  const t = await openSheet();
+  t.pickCard(0);
+  t.type('a'.repeat(2001));
+  assert.strictEqual(t.go().disabled, true);
+  t.pickCard(1);
+  assert.strictEqual(t.Q.chips.length, 0);
+});
+
+test('sent answers show as waiting for Claude, and a failed send takes that back', async () => {
+  const t = await openSheet();
+  const chips = [{ ask: 'Yes', plan: { id: 'web/one', topic: 'one', q: 'q1' } }, { ask: ' ', plan: { id: 'web/one', topic: 'one', q: 'q2' } }, { ask: 'why?' }];
+  t.p.answersSent(chips);
+  assert.ok(t.dom.text(t.cards()[0]).includes('sent · waiting for Claude'));
+  assert.ok(!t.dom.text(t.cards()[1]).includes('sent · waiting for Claude'));
+  t.p.answersBack(chips);
+  assert.ok(!t.dom.text(t.cards()[0]).includes('sent · waiting for Claude'));
+});
+
+test('a terminal session still sends each answer as its own message', async () => {
+  const t = await openSheet({ state: 'idle' });
+  t.pickCard(0);
+  t.type('Yes');
+  assert.strictEqual(t.dom.text(t.go()), 'Send');
+  await t.go().onclick();
+  await tick();
+  assert.strictEqual(sends(t).length, 1);
+  assert.strictEqual(t.Q.chips.length, 0);
+});
+
+test('a box shown once in another mode does not wipe a stacked answer when it comes back', async () => {
+  const t = await openSheet();
+  t.pickCard(0);
+  t.type('Yes');
+  t.go().onclick();
+  const session = t.S.runtime.sessions[0];
+  session.claude = { state: 'idle' };
+  t.p.onState();
+  t.pickCard(0);
+  assert.strictEqual(t.dom.text(t.go()), 'Send');
+  t.dom.key('Escape');
+  session.claude = { state: 'idle', mode: 'chat' };
+  t.byClass('fp2-qrow')[0].attrs.onclick();
+  t.pickCard(0);
+  assert.strictEqual(t.box().value, 'Yes');
+  t.dom.key('Escape');
+  assert.deepStrictEqual(t.Q.chips.map(c => c.ask), ['Yes']);
+});
+
+test('a reload of the plans drops stacked answers whose question is gone', async () => {
+  const t = await openSheet();
+  t.pickCard(0);
+  t.type('Stale');
+  t.go().onclick();
+  t.type('Still open');
+  t.go().onclick();
+  assert.strictEqual(t.Q.chips.length, 2);
+  t.store.sums = [plan('web/one', 'web', { sessions: ['claude-a'], waiting: [{ id: 'q2', q: 'Second?', blocks: [] }] })];
+  t.p.plan({ id: 'web/one' });
+  await new Promise(r => setTimeout(r, 170));
+  await tick();
+  assert.deepStrictEqual(t.Q.chips.map(c => c.plan.q), ['q2']);
+});
+
+test('a failed plans reload keeps stacked answers', async () => {
+  const t = await openSheet();
+  t.pickCard(0);
+  t.type('Kept');
+  t.go().onclick();
+  Object.defineProperty(t.store, 'sums', { get() { throw new Error('store down'); } });
+  t.p.plan({ id: 'web/one' });
+  await new Promise(r => setTimeout(r, 170));
+  await tick();
+  assert.strictEqual(t.Q.chips.length, 1);
+});
+
+test('a queued answer shows as queued while its job waits, and clears when the job is cancelled', async () => {
+  const t = await openSheet();
+  const job = { id: 'j1', session: 'claude-a', state: 'waiting', prompts: ['> Plan one, q1: First?\n\nYes'] };
+  t.S.claude = { schedule: [job] };
+  t.p.onState();
+  assert.ok(t.dom.text(t.cards()[0]).includes('queued · goes out when Claude is free'));
+  assert.ok(!t.dom.text(t.cards()[1]).includes('queued'));
+  job.state = 'done';
+  t.p.onState();
+  assert.ok(t.dom.text(t.cards()[0]).includes('sent · waiting for Claude'));
+  t.S.claude = { schedule: [] };
+  t.p.onState();
+  assert.ok(!t.dom.text(t.cards()[0]).includes('sent'));
+});
+
+test('an answer emptied in the tray no longer counts as stacked', async () => {
+  const t = await openSheet();
+  t.pickCard(0);
+  t.type('Yes');
+  t.go().onclick();
+  t.Q.chips[0].ask = '';
+  t.p.onState();
+  assert.ok(!t.dom.text(t.cards()[0]).includes('in your message'));
+  assert.ok(t.dialog());
+});
+
+test('Review in chat stays put when the answer is too long, and leaves the session list otherwise', async () => {
+  const t = await openSheet();
+  t.pickCard(0);
+  t.type('Yes');
+  t.go().onclick();
+  t.type('a'.repeat(2001));
+  const review = () => t.dialogButton('Review in chat').attrs.onclick();
+  review();
+  assert.ok(t.dialog());
+  assert.ok(t.calls.toast.some(([, kind]) => kind === 'err'));
+  t.type('Fine');
+  t.TERM.showList = true;
+  review();
+  assert.strictEqual(t.dialog(), null);
+  assert.deepStrictEqual([...t.calls.opened], ['claude-a']);
+  assert.deepStrictEqual([...t.Q.revealed], ['claude-a']);
 });
