@@ -131,6 +131,7 @@ body.term-open .rail .navb.on { box-shadow: none; }
 .rail-usage:not(:empty) + .rail-foot { padding-top: 8px; border-top: 1px solid var(--line); }
 .rm { grid-template-columns: 1fr auto; gap: 3px 4px; padding: 2px 3px; font-size: 11px; line-height: 14px; }
 .rm i { grid-column: 1 / -1; grid-row: 2; height: 3px; }
+.rm .rv { white-space: nowrap; }
 .rail-gear { flex: none; align-self: flex-start; width: 34px; height: 34px; margin-top: 8px; border: 1px solid var(--line); background: var(--fill); border-radius: var(--r); box-shadow: var(--hl-soft); }
 
 body.term-open .maincol { visibility: hidden; }
