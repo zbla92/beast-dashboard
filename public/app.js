@@ -716,8 +716,9 @@ function renderTermPanel(force) {
   const actAcc = act && (cl || isClaudeSession(act)) ? (cl?.account || (act.name.endsWith('-company') ? 'company' : 'personal')) : null;
   const accTag = () => actAcc ? h('span', { class: 'tacc ' + actAcc, title: 'Claude Code account: ' + acct(actAcc) }, acct(actAcc)) : null;
   const mobName = act ? sessTitle(act) : (TERM.active || 'Sessions');
-  barAdd(h('button', { class: 'btn sm ghost mob icon', title: 'back to dashboard (sessions keep running)', onclick: closeTermPanel }, ico('back', 17)),
-    h('button', { class: 'mob msess', title: 'switch session', onclick: () => { TERM.showList = true; renderTermPanel(true); } }, act ? avatar(act.project, 'sm') : null, h('span', { class: 'nm' }, mobName), accTag(), instOf(act || { name: TERM.active || '' }).n ? h('span', { class: 'grp' }, '#' + instOf(act).n) : null, cl && IS_PHONE ? stateBadge(cl, true) : null));
+  const toList = () => { TERM.showList = true; renderTermPanel(true); retop(); };
+  barAdd(h('button', { class: 'btn sm ghost mob icon', title: 'back to the sessions (they keep running)', onclick: toList }, ico('back', 17)),
+    h('button', { class: 'mob msess', title: 'switch session', onclick: toList }, act ? avatar(act.project, 'sm') : null, h('span', { class: 'nm' }, mobName), accTag(), instOf(act || { name: TERM.active || '' }).n ? h('span', { class: 'grp' }, '#' + instOf(act).n) : null, cl && IS_PHONE ? stateBadge(cl, true) : null));
   const actName = act ? sessTitle(act) : TERM.active;
   const isChatS = cl && cl.mode === 'chat'; const logOn = isChatS && TERM.view[TERM.active] === 'term';
   const updatePending = !!cl && (!!S.claude?.update || needsRestart(cl));
