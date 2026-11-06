@@ -1696,8 +1696,9 @@ function composer(box, name, cl, conv, scroller, o, busy, justSent, jobs, prevDr
   const sj = jobs.filter(j => !(j.whenFree && j.state === 'waiting'));
   const first = pick === 'queue' ? queue : send, second = pick === 'queue' ? send : queue;
   ta.addEventListener('keydown', ev => { ev.stopPropagation(); if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); (pick && ev.altKey ? second : first)(); } else if (ev.key === 'Escape' && (busy || justSent)) { ev.preventDefault(); stop(); } });
-  const sendBtn = h('button', { class: 'btn primary csend', title: pick === 'queue' ? 'queue it for after this turn (Enter)' : pick ? 'send now — Claude reads it at its next step (Enter)' : 'send (Enter)', onclick: first }, ico('send', 16));
-  const stopBtn = busy || busyNow || justSent ? h('button', { class: 'btn csend cstop', title: 'stop Claude (Escape)', onclick: stop }, h('i', { class: 'cstop-sq' })) : null;
+  const keepFocus = ev => ev.preventDefault();
+  const sendBtn = h('button', { class: 'btn primary csend', title: pick === 'queue' ? 'queue it for after this turn (Enter)' : pick ? 'send now — Claude reads it at its next step (Enter)' : 'send (Enter)', onmousedown: keepFocus, onclick: first }, ico('send', 16));
+  const stopBtn = busy || busyNow || justSent ? h('button', { class: 'btn csend cstop', title: 'stop Claude (Escape)', onmousedown: keepFocus, onclick: stop }, h('i', { class: 'cstop-sq' })) : null;
   const shBar = FEAT.shell?.bar(name, cl);
   syncAct = () => { if (shBar) el.classList.toggle('shellmode', shBar.sync(ta.value)); if (!stopBtn) return; const empty = !ta.value.trim() && !FEAT.quotes?.has(name); stopBtn.classList.toggle('hidden', !empty); sendBtn.classList.toggle('hidden', empty); };
   // 📎 attach: any file (photo / screenshot downscaled, everything else as-is) -> ~/dev/.pasted -> its path goes into the message (Claude reads it)
