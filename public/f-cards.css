@@ -107,6 +107,8 @@
 
   .maincol > .top { padding: 0 10px; gap: 8px; }
   .maincol > .top > .vtitle { font-size: var(--fs-md); }
+  #term-bar::before, .maincol > .top::before { content: ''; position: absolute; inset: 0 0 -18px; z-index: -1; pointer-events: none; background: linear-gradient(to bottom, rgba(6,7,8,.5), rgba(6,7,8,.18) 60%, transparent); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); mask-image: linear-gradient(to bottom, #000 45%, transparent); -webkit-mask-image: linear-gradient(to bottom, #000 45%, transparent); }
+  .maincol > .top { isolation: isolate; }
   .maincol > .top > .topbtns { gap: 8px; }
   .topbtns > .btn:not(.icon) { padding: 0 14px; }
 
