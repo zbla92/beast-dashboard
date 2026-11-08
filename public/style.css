@@ -227,7 +227,7 @@ input[type=checkbox] { accent-color: var(--accent); }
 .sw-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
 
 /* menu */
-.menu { position: fixed; z-index: 60; min-width: 250px; max-width: 440px; max-height: 70vh; overflow: auto; padding: 6px; background: var(--panel2); border: 1px solid var(--line2); border-radius: var(--r-lg); box-shadow: var(--shadow); }
+.menu { position: fixed; z-index: 60; min-width: 250px; max-width: 440px; max-height: 70vh; overflow: auto; overscroll-behavior: contain; padding: 6px; background: var(--panel2); border: 1px solid var(--line2); border-radius: var(--r-lg); box-shadow: var(--shadow); }
 .menu .mh { font-size: var(--fs-xs); color: var(--dim); font-weight: 600; padding: 8px 10px 4px; }
 .menu .mi { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--r); cursor: pointer; font-size: var(--fs-md); }
 .menu .mi:hover { background: var(--fill2); }
