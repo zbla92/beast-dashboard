@@ -32,6 +32,7 @@ const history = require('./lib/history');
 const guess = require('./lib/guess');
 const icons = require('./lib/icons');
 const schedule = require('./lib/schedule');
+const autoresume = require('./lib/autoresume');
 const usage = require('./lib/usage');
 const limits = require('./lib/limits');
 const tasks = require('./lib/tasks');
@@ -133,7 +134,7 @@ let rollQueue = [], rollTimer = null, rollGen = 0, snapshotReady = false;
 const rollOn = st => settings.get().chatAutoUpgrade !== false && !!st.using && path.isAbsolute(st.bin || '');
 const outdated = (name, st) => { const L = headless.live(name); return !L || !!L.stale || (L.claude !== st.bin && (L.version || '') !== st.using); };
 const hookBusy = name => ['working', 'background', 'permission'].includes(claude.info(name).state);
-const quietChat = name => { const L = headless.live(name); return !!(L && !L.stale && L.state === 'idle' && !L.turn && !(L.pending || []).length && !SWITCHING.has(name) && !hookBusy(name)); };
+const quietChat = name => { const L = headless.live(name); return !!(L && !L.stale && L.state === 'idle' && !L.turn && !(L.pending || []).length && !SWITCHING.has(name) && !hookBusy(name) && !autoresume.holdsChat(claude.info(name))); };
 function rollChats() {
   if (!snapshotReady) { setTimeout(rollChats, 5000); return; }
   clearTimeout(rollTimer); rollTimer = null; const gen = ++rollGen; rollQueue = [];
@@ -367,13 +368,21 @@ async function runSchedule() {
   // busy = hooks + pane merged (so "waiting on background agents" counts as busy); exists = ask tmux directly
   const busy = name => { const st = claude.info(name).state; return st === 'working' || st === 'background' || st === 'permission'; };
   const exists = name => actions.sessionExists(name);
-  const done = await schedule.run(busy, (name, text) => isChat(name) ? headless.send(name, text) : claude.send(name, text, true), exists);
+  const allow = j => !j.resume || autoresume.shouldFire({ enabled: !!settings.get().autoResume, job: j, rec: resumeRec(j.session), jobs: schedule.all() });
+  const done = await schedule.run(busy, (name, text) => isChat(name) ? headless.send(name, text) : claude.send(name, text, true), exists, allow);
   for (const j of done) {
-    if (j.whenFree && j.state === 'done') continue;   // the session's own "done" push already covers it
+    if ((j.whenFree || j.resume) && j.state === 'done') continue;   // the session's own "done" push already covers it
     // a task rode on this job: attach Claude's closing message and tell the phone about the TASK, not the job
     const tk = tasks.noteResult(j.id, { ok: j.state === 'done', summary: claude.get(j.session)?.lastMessage, session: j.session, error: j.error });
     if (tk) { if (pushAllowed('done', j.session)) push.notify({ title: `${tk.title.slice(0, 60)} · ${j.state === 'done' ? 'Claude finished' : 'failed'}`, body: oneLine(tk.result.summary || tk.result.error || 'review it on the Tasks screen', 80), url: '/?view=tasks', tag: 'task-' + tk.id }).catch(() => {}); pushState(true); continue; } const ok = j.state === 'done'; if (pushAllowed('done', j.session)) push.notify({ title: `${j.session.replace(/^claude-/, '').replace(/-company$/, '')} · scheduled ${ok ? 'done' : 'failed'}`, body: oneLine(ok ? j.prompts[0] : (j.error || ''), 80), url: `/?term=${encodeURIComponent(j.session)}`, tag: 'sched-' + j.id }).catch(() => {}); }
   if (done.length) setTimeout(tick, 200);
+}
+const resumeRec = name => { const r = claude.get(name); if (!r) return null; const i = claude.info(name); return { ...r, state: i.state, model: i.model }; };
+function planResume(name) {
+  const p = autoresume.plan({ enabled: !!settings.get().autoResume, name, rec: resumeRec(name), limits: limits.all(), jobs: schedule.all(), now: Date.now() });
+  if (!p) return;
+  const r = schedule.add(p.session, p.at, [autoresume.PROMPT], { key: p.key, resume: { limitAt: p.limitAt, resetsAt: p.resetsAt } });
+  if (r.ok && !r.existed) pushState(true);
 }
 // Weekly digest (Monday 09:00 local): sessions, cost per account, commits by you across all repos in the last 7 days.
 async function myCommits(start, end) {
@@ -511,7 +520,7 @@ headless.onEvent((name, o) => { if (o.ev === 'pending') chatAskPush(name, o.req)
 claude.onChange(checkpoints.onChange);
 claude.onChange((ev, r) => { if (settle.onChange(ev, r)) pushState(true); });
 claude.onChange((ev, r, prev) => {
-  if (r.state === 'limit') limits.refresh().then(() => pushState(false));   // the plan numbers just changed: show the fresh reset time right away
+  if (r.state === 'limit') limits.refresh().then(() => { if (isChat(r.tmux)) planResume(r.tmux); pushState(false); });   // the plan numbers just changed: show the fresh reset time right away
   if (!['needs-you', 'permission', 'error', 'limit'].includes(r.state)) return;
   if (r.state === 'needs-you' && prev.state !== 'working' && prev.state !== 'background') return;
   const kind = r.state === 'needs-you' ? 'done' : r.state;
@@ -1136,13 +1145,13 @@ async function api(req, res, url) {
     }
     case 'schedule': { const r = schedule.add(b.session, +b.at, b.prompts || b.prompt, { whenFree: !!b.whenFree }); pushState(true); setTimeout(() => runSchedule().catch(() => {}), 300); return json(res, r.ok ? 200 : 400, r); }
     case 'schedule-now': { // "send now" on a queued message: drop it from the queue and type it in
-      const j = schedule.all().find(x => x.id === b.id); if (!j) return json(res, 404, { error: 'gone' });
-      schedule.remove(j.id); const rest = j.prompts.slice(j.idx), text = rest.join('\n\n');
+      const t = schedule.take(String(b.id || '')); if (!t.ok) return json(res, t.status, { error: t.error });
+      const j = t.job; const rest = j.prompts.slice(j.idx), text = rest.join('\n\n');
       const r = isChat(j.session) ? await headless.send(j.session, text) : await claude.send(j.session, text, true);
       if (!r.ok) schedule.add(j.session, j.at, rest, { whenFree: j.whenFree });
       pushState(true); return json(res, r.ok ? 200 : 500, r);
     }
-    case 'schedule-remove': { const r = schedule.remove(String(b.id || '')); pushState(true); return json(res, 200, r); }
+    case 'schedule-remove': { const r = schedule.remove(String(b.id || '')); pushState(true); return json(res, r.ok ? 200 : 409, r); }
     case 'handoff': { // usage limit on one account: start the other account in the same folder with a summary of where this one stopped
       const from = claude.get(String(b.session || '')); if (!from || !from.cwd) return json(res, 404, { error: 'unknown session' });
       const to = from.account === 'company' ? 'personal' : 'company';
@@ -1150,7 +1159,7 @@ async function api(req, res, url) {
       const users = t.turns.filter(x => x.role === 'user').slice(-4).map(x => '- ' + x.text.replace(/\s+/g, ' ').slice(0, 300));
       const lastA = [...t.turns].reverse().find(x => x.role === 'assistant' && transcript.turnText(x)); const last = lastA && { text: transcript.turnText(lastA) }; const files = (from.touched || []).slice(0, 15).map(x => '- ' + x.path);
       const prompt = [`Handoff from another Claude Code session in this same folder (it hit its usage limit). Continue its work.`, ``, `What I asked it recently:`, ...users, ``, last ? `Its last reply (may be incomplete):\n${last.text.slice(0, 1500)}` : '', files.length ? `\nFiles it edited in that session:\n${files.join('\n')}` : '', ``, `Start by running git status and git diff --stat here to see the uncommitted state, then continue from where it stopped. Ask me if the goal is unclear.`].filter(x => x !== null).join('\n');
-      const r = await headless.startChat(from.cwd, to, prompt); setTimeout(tick, 1500); setTimeout(tick, 4000); return json(res, r.ok ? 200 : 500, { ...r, to });
+      const r = await headless.startChat(from.cwd, to, prompt); if (r.ok && schedule.cancelResume(String(b.session))) pushState(true); setTimeout(tick, 1500); setTimeout(tick, 4000); return json(res, r.ok ? 200 : 500, { ...r, to });
     }
     case 'guess-project': return json(res, 200, guess.guess(String(b.text || '').slice(0, 20000), { projects, history: history.entries(), context: typeof b.context === 'string' ? b.context : null, devRoot: settings.get().devRoot }));
     case 'icon-set': case 'icon-reset': {
@@ -1304,7 +1313,7 @@ async function api(req, res, url) {
       await new Promise(r => setTimeout(r, 700)); await tick(); LAST_RESUME = null; pushState(true);
       return json(res, 200, { ok: true, tailscale: ts.ok ? 'ok' : (ts.stderr || 'unreachable').trim(), exposures: snapshot.exposures.length });
     }
-    case 'settings': { const plansBefore = !!settings.get().plans; const s = settings.update(b); if (!TEST) { try { require('./bin/install-hooks').syncPlans(plansBefore, s.plans, { root: __dirname, log: msg => console.log('plans hook:', msg) }); } catch (e) { console.error('plans hook:', e.message); } } if (b.devRoot || b.scanDepth) await rescan(); pushState(true); return json(res, 200, s); }
+    case 'settings': { const plansBefore = !!settings.get().plans; const s = settings.update(b); if (b.autoResume === false) schedule.cancelResume(); if (!TEST) { try { require('./bin/install-hooks').syncPlans(plansBefore, s.plans, { root: __dirname, log: msg => console.log('plans hook:', msg) }); } catch (e) { console.error('plans hook:', e.message); } } if (b.devRoot || b.scanDepth) await rescan(); pushState(true); return json(res, 200, s); }
     case 'project': { // per-project overrides: label, hidden, pin, commands
       if (!proj(b.id)) return json(res, 404, { error: 'no project' });
       const { id, ...patch } = b; settings.setProjectOverride(id, patch); await rescan(); pushState(true); return json(res, 200, { ok: true });
