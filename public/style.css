@@ -931,6 +931,7 @@ body.focus .termpanel { left: 0; }
 .ctxm .ring { flex: none; }
 .ctxm .rg-bg { fill: none; stroke: var(--fill2); stroke-width: 2.6; }
 .ctxm .rg-fg { fill: none; stroke: var(--green); stroke-width: 2.6; stroke-linecap: round; }
+.ctxm .rg-mk { stroke: var(--text); stroke-width: 1.4; }
 .ctxm.warn .rg-fg { stroke: var(--amber); } .ctxm.warn b { color: var(--amber); }
 .ctxm.hot .rg-fg { stroke: var(--red); } .ctxm.hot b { color: var(--red); } .ctxm.hot { border-color: color-mix(in srgb, var(--red) 40%, transparent); }
 .menu .mi .ico svg { display: block; margin: 0 auto; }

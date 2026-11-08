@@ -657,7 +657,7 @@ function renderTermPanel(force) {
   const extra = [...TERM.frames.keys()].filter(k => !known.has(k));
   // The list and the bar are rebuilt only when something they show actually changed. Rebuilding them on every
   // 3-second state tick blurred the terminal iframe (the focus bug) and made the sidebar flicker.
-  const key = JSON.stringify([TERM.active, TERM.showList, TERM.view[TERM.active] || '', TERM.focus, S3.all.map(x => [x.name, x.claude?.mode, x.claude?.state, x.claude?.title, x.claude?.label, x.claude?.firstPrompt, (x.claude?.projects || []).join(), x.claude?.draft, x.claude?.model, x.claude?.effort, x.claude?.branch, x.claude?.worktree?.name, x.claude?.version, x.claude?.wantVersion, (S.settings.muted || []).includes(x.name), Math.floor((x.cpu || 0) / 10), x.ports.map(p => p.port)]), S.claude?.installed, S.claude?.update?.version, CLAUDE_UPGRADING, extra, [...TERM.frames.keys()], S.runtime.sessions.filter(s => s.name === TERM.active).map(s => s.project + (gitOf(byId()[s.project] || {})?.dirty || 0) + '|' + (s.claude?.ctx ? Math.round(s.claude.ctx.used / 1000) + '/' + s.claude.ctx.window : '')), feat('termBarKey', TERM.active)]);
+  const key = JSON.stringify([TERM.active, TERM.showList, TERM.view[TERM.active] || '', TERM.focus, S3.all.map(x => [x.name, x.claude?.mode, x.claude?.state, x.claude?.title, x.claude?.label, x.claude?.firstPrompt, (x.claude?.projects || []).join(), x.claude?.draft, x.claude?.model, x.claude?.effort, x.claude?.branch, x.claude?.worktree?.name, x.claude?.version, x.claude?.wantVersion, (S.settings.muted || []).includes(x.name), Math.floor((x.cpu || 0) / 10), x.ports.map(p => p.port)]), S.claude?.installed, S.claude?.update?.version, CLAUDE_UPGRADING, extra, [...TERM.frames.keys()], S.runtime.sessions.filter(s => s.name === TERM.active).map(s => s.project + (gitOf(byId()[s.project] || {})?.dirty || 0) + '|' + (s.claude?.ctx ? Math.round(s.claude.ctx.used / 1000) + '/' + s.claude.ctx.window + '/' + s.claude.ctx.compactAt : '')), feat('termBarKey', TERM.active)]);
   const frames = $('#term-frames'); const chatOn = TERM.active && chatMode(TERM.active);
   for (const [k, f] of TERM.frames) { if (!f.isConnected) frames.append(f); f.classList.toggle('on', k === TERM.active && !chatOn); }
   $('#term-chat').classList.toggle('hidden', !chatOn);
@@ -1031,17 +1031,19 @@ async function killSession(name, label) {
 const fmtTok = n => n >= 1e6 ? (Math.round(n / 1e5) / 10).toString().replace(/\.0$/, '') + 'M' : n >= 1e3 ? Math.round(n / 1e3) + 'k' : String(n);
 const ctxPct = c => c && c.window ? Math.min(100, Math.round(c.used / c.window * 100)) : null;
 const ctxLvl = p => p == null ? '' : p >= 80 ? 'hot' : p >= 50 ? 'warn' : 'ok';
-function ctxRing(pct, size = 18) {
+const ctxMark = c => c.compactAt && c.window ? Math.min(100, Math.round(c.compactAt / c.window * 100)) : null;
+function ctxRing(pct, size = 18, mark = null) {
   const ns = 'http://www.w3.org/2000/svg'; const e = document.createElementNS(ns, 'svg'); const r = 7; const C = 2 * Math.PI * r;
   e.setAttribute('viewBox', '0 0 18 18'); e.setAttribute('width', size); e.setAttribute('height', size); e.setAttribute('class', 'ring');
-  e.innerHTML = `<circle cx="9" cy="9" r="${r}" class="rg-bg"/><circle cx="9" cy="9" r="${r}" class="rg-fg" stroke-dasharray="${(C * Math.max(pct, 2) / 100).toFixed(2)} ${C.toFixed(2)}" transform="rotate(-90 9 9)"/>`;
+  e.innerHTML = `<circle cx="9" cy="9" r="${r}" class="rg-bg"/><circle cx="9" cy="9" r="${r}" class="rg-fg" stroke-dasharray="${(C * Math.max(pct, 2) / 100).toFixed(2)} ${C.toFixed(2)}" transform="rotate(-90 9 9)"/>${mark == null ? '' : `<line x1="9" x2="9" y1="0.2" y2="3.8" class="rg-mk" transform="rotate(${(mark * 3.6).toFixed(1)} 9 9)"/>`}`;
   return e;
 }
 const fillCtx = box => { const slot = box.querySelector(':scope > .cbox2 .cctx'); if (slot) slot.replaceChildren(...[ctxMeter(box.dataset.chat, claudeOf(box.dataset.chat))].filter(Boolean)); };
 function ctxMeter(name, cl) {
   const c = cl && cl.ctx; if (!c || !c.used) return null; const p = ctxPct(c);
-  return h('button', { class: 'ctxm ' + ctxLvl(p), title: `Context: ${c.used.toLocaleString()} of ${c.window.toLocaleString()} tokens (${p}%)\nClick for compact, clear or a new chat.`, onclick: ev => ctxMenu(ev, name) },
-    ctxRing(p), h('b', null, fmtTok(c.used)), h('span', { class: 'of' }, '/ ' + fmtTok(c.window)));
+  const lines = [`Context: ${c.used.toLocaleString()} of ${c.window.toLocaleString()} tokens (${p}%)`, c.compactAt ? `Auto-compact at about ${c.compactAt.toLocaleString()}.` : null, c.modelWindow > c.window ? `Model limit: ${c.modelWindow.toLocaleString()}.` : null, 'Click for compact, clear or a new chat.'];
+  return h('button', { class: 'ctxm ' + ctxLvl(p), 'data-s': name, title: lines.filter(Boolean).join('\n'), onclick: ev => ctxMenu(ev, name) },
+    ctxRing(p, 18, ctxMark(c)), h('b', null, fmtTok(c.used)), h('span', { class: 'of' }, '/ ' + fmtTok(c.window)), ...feat('ctxChip', cl));
 }
 const canCompact = cl => !!cl && ['idle', 'needs-you'].includes(cl.state) && (cl.mode === 'chat' || !cl.draft);
 const notIdleWhy = cl => cl.draft && cl.mode !== 'chat' ? 'Clear the text typed in the terminal first' : 'Wait until Claude is idle';
@@ -1050,6 +1052,7 @@ function ctxMenu(ev, name) {
   const c = cl.ctx; const ok = canCompact(cl); const why = ok ? '' : notIdleWhy(cl).toLowerCase();
   openMenu(ev, [
     { header: c ? `Context · ${fmtTok(c.used)} of ${fmtTok(c.window)} · ${ctxPct(c)}%` : 'Context' },
+    FEAT.cache && FEAT.cache.view(cl).title ? { header: FEAT.cache.view(cl).title } : null,
     { label: 'Compact', sub: 'summarise, keep going here', icon: ico('compact', 15), disabled: !ok, title: why || 'Claude replaces the conversation so far with a summary and keeps going in this session; the full history stays in the transcript', onclick: () => compactSession(name) },
     cl.mode !== 'chat' ? { label: 'Clear', sub: 'empty context, same terminal', icon: ico('x', 15), disabled: !ok, title: why || 'starts over with an empty context in this terminal; the old conversation stays in its transcript', onclick: () => clearSession(name) } : null,
     { label: 'New chat here', sub: 'fresh context, this one keeps running', icon: ico('plus', 15), onclick: () => newChatHere(name) },

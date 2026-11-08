@@ -60,8 +60,11 @@ i[class*="sa-bg-"] { background: var(--sa-c); display: block; }
 .sa-lg b { color: var(--text); font-weight: 600; }
 .sa-fl { margin-top: 10px; border-top: 1px solid var(--hair); padding-top: 8px; display: flex; flex-direction: column; gap: 4px; }
 .sa-flrow { display: flex; align-items: baseline; gap: 10px; font-size: var(--fs-sm); min-width: 0; }
+.sa-ag { display: flex; align-items: center; gap: 10px; font-size: var(--fs-sm); min-width: 0; }
+.sa-ag i { flex: none; width: 8px; height: 8px; border-radius: 2px; }
+.sa-ag b { color: var(--text); font-weight: 600; min-width: 48px; text-align: right; }
 .sa-fld { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-@media (max-width: 700px) { .sa-grid { grid-template-columns: 1fr; } .sa-sess { display: none; } .modal .box.sa-box { width: calc(100vw - 16px); height: 90vh; height: 90dvh; max-height: 90dvh; } .sa-flrow { flex-wrap: wrap; } .sa-fld { flex-basis: 100%; order: 3; } }
+@media (max-width: 700px) { .sa-grid { grid-template-columns: 1fr; } .sa-sess { display: none; } .modal .box.sa-box { width: calc(100vw - 16px); height: 90vh; height: 90dvh; max-height: 90dvh; } .sa-flrow { flex-wrap: wrap; } .sa-flrow .sa-fld { flex-basis: 100%; order: 3; } }
 .sa-body > * { flex: none; }
 
 /* 7-day line chart */

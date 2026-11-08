@@ -1,0 +1,6 @@
+.ctxm .ccache { color: var(--dim); font-variant-numeric: tabular-nums; }
+.ctxm .ccache:empty { display: none; }
+.ctxm .ccache-warn { color: var(--amber); }
+.ccold { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; flex: none; padding: 6px max(20px, 3vw); border-top: 1px solid var(--line); background: var(--chat-band); font-size: var(--fs-sm); color: var(--muted); }
+.ccold-t { flex: 1 1 220px; min-width: 0; }
+@media (max-width: 700px) { .ccold { padding: 6px 10px; } .ccold-t { flex-basis: 100%; } }

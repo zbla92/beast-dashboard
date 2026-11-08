@@ -2,6 +2,7 @@
 // F: subagents + cost by model. Registers FEAT.subagents { chatBar, homeTiles }.
 (() => {
   const FAMS = ['opus', 'sonnet', 'haiku', 'fable', 'other'];
+  const AGENT_ROWS = 6;
   const FAM_LABEL = { opus: 'Opus', sonnet: 'Sonnet', haiku: 'Haiku', fable: 'Fable', other: 'Other' };
   const famOf = id => { const m = String(id || '').toLowerCase(); return m.includes('opus') ? 'opus' : m.includes('sonnet') ? 'sonnet' : m.includes('haiku') ? 'haiku' : (m.includes('fable') || m.includes('mythos')) ? 'fable' : 'other'; };
   const money = v => v == null ? '–' : v > 0 && v < 0.01 ? '<$0.01' : v < 10 ? '$' + v.toFixed(2) : '$' + v.toFixed(0);
@@ -176,6 +177,14 @@
       h('div', { class: 'sa-lx' }, ...days.map((d, i) => h('span', { class: 'sa-lday' + (i === last ? ' on' : ''), style: pos(i) }, i === last ? 'Today' : lbl(d)))),
       h('div', { class: 'sa-legend' }, h('span', { class: 'sa-lg' }, h('i', { class: 'sa-lk tot' }), 'All models'), h('span', { class: 'sa-lg' }, h('i', { class: 'sa-lk sub' }), 'Subagents')));
   }
+  function agentRows(M, total) {
+    const rows = [...(M.agents || []).map(a => ({ label: `${a.type} · ${FAM_LABEL[a.family] || a.family}`, cost: a.cost, fam: a.family })), { label: 'Main threads', cost: M.totals.main, fam: 'other' }].filter(r => r.cost > 0).sort((x, y) => y.cost - x.cost);
+    const rest = rows.slice(AGENT_ROWS).reduce((sum, r) => sum + r.cost, 0);
+    const shown = rest > 0 ? [...rows.slice(0, AGENT_ROWS), { label: 'Everything else', cost: rest, fam: 'other' }] : rows;
+    const share = v => { const p = v / total * 100; return p > 0 && p < 1 ? '<1%' : Math.round(p) + '%'; };
+    return h('div', { class: 'sa-fl' }, h('div', { class: 'sa-lbl' }, 'By agent · 7 days'),
+      ...shown.map(r => h('div', { class: 'sa-ag' }, h('i', { class: 'sa-bg-' + r.fam }), h('span', { class: 'sa-fld' }, r.label), h('span', { class: 'dim mono' }, share(r.cost)), h('b', { class: 'mono' }, money(r.cost)))));
+  }
   function paintTile() {
     const el = T.el; const M = T.models; if (!el || !M) return;
     const sig = JSON.stringify([M, T.flagged.map(a => a.agentId)]);
@@ -189,6 +198,7 @@
           h('div', { class: 'sa-lbl', style: 'margin-top:10px' }, '7 days ', h('b', { class: 'mono' }, money(wTot))), stack(M.totals.byFamily, wTot, true), legend(M.totals.byFamily)),
         h('div', { class: 'sa-part' },
           lineChart(M.days))),
+      wTot > 0 ? agentRows(M, wTot) : null,
       T.flagged.length ? h('div', { class: 'sa-fl' }, h('div', { class: 'sa-lbl' }, gl('⚠ Flagged today', 12)), ...T.flagged.slice(0, 5).map(a => h('div', { class: 'sa-flrow' }, h('span', { class: 'sa-flag' }, a.flag), h('span', { class: 'dim sa-fld' }, (a.description || a.type) + ' · ' + a.session), h('b', { class: 'mono' }, money(a.cost))))) : null].filter(Boolean));
   }
   function homeTiles() {
