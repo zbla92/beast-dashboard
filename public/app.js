@@ -2123,7 +2123,7 @@ const RECAP = { day: 0, data: {}, at: {}, open: JSON.parse(localStorage.getItem(
 const recapSave = () => localStorage.setItem('bd.recap', JSON.stringify(RECAP.open));
 function recapStrip() {
   const d = RECAP.data[RECAP.day];
-  if (!d || Date.now() - (RECAP.at[RECAP.day] || 0) > 120000) { RECAP.at[RECAP.day] = Date.now(); api('recap?day=' + RECAP.day).then(r => { RECAP.data[RECAP.day] = r; renderTermStrip(); }).catch(() => {}); }
+  if (!d || Date.now() - (RECAP.at[RECAP.day] || 0) > 120000) { const day = RECAP.day; RECAP.at[day] = Date.now(); api('recap?day=' + day).then(r => { if (!r || !r.totals) return; RECAP.data[day] = r; renderTermStrip(); }).catch(() => {}); }
   const tabs = h('div', { class: 'seg' }, [['Today', 0], ['Yesterday', 1], ['2 days ago', 2], ['3 days ago', 3]].map(([l, i]) => h('button', { class: 'segb' + (RECAP.day === i ? ' on' : ''), onclick: () => { RECAP.day = i; renderTermStrip(); } }, l)));
   const head = h('div', { class: 'rc-head' }, h('button', { class: 'rc-toggle', onclick: () => { RECAP.open.show = !RECAP.open.show; recapSave(); renderTermStrip(); } }, h('span', { class: 'caret' }, ico(RECAP.open.show ? 'chevronDown' : 'chevronRight', 12)), 'Recap'), d && RECAP.open.show ? h('span', { class: 'rc-sum' }, d.day, ' · ', [d.totals.commits ? `${d.totals.commits} commits` : null, d.totals.sessions ? `${d.totals.sessions} sessions` : null, d.totals.cost ? usd(d.totals.cost) : null].filter(Boolean).join(' · ') || 'nothing recorded') : null, h('span', { class: 'sp' }), RECAP.open.show ? tabs : null);
   const box = h('section', { class: 'recap' }, head);

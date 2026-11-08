@@ -409,7 +409,7 @@ function backupState() {
   const dir = path.join(__dirname, 'state-backups'); fs.mkdirSync(dir, { recursive: true });
   const out = path.join(dir, `state-${day}.tar.gz`); if (fs.existsSync(out)) return;
   run('tar', ['-czf', out, '-C', path.join(__dirname, 'state'), '--exclude=logs', '--exclude=usage-cache.json', '--exclude=claude-lkg', '.'], { timeout: 60000 }).then(r => {
-    if (!r.ok) return console.error('backup failed', r.stderr);
+    if (!r.ok && r.code !== 1) return console.error('backup failed', r.stderr);
     const files = fs.readdirSync(dir).filter(f => f.startsWith('state-')).sort(); while (files.length > 7) { try { fs.unlinkSync(path.join(dir, files.shift())); } catch {} }
   }).catch(e => console.error('backup:', e.message));
 }
