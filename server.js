@@ -33,6 +33,7 @@ const guess = require('./lib/guess');
 const icons = require('./lib/icons');
 const schedule = require('./lib/schedule');
 const autoresume = require('./lib/autoresume');
+const windowstart = require('./lib/windowstart');
 const usage = require('./lib/usage');
 const limits = require('./lib/limits');
 const tasks = require('./lib/tasks');
@@ -197,7 +198,7 @@ let lastStateJson = '';
 function stateObj() {
   icons.poll(projects);
   const s = settings.get();
-  return { projects: projects.map(p => ({ ...p, git: gitStatus[p.id] || null })), wip: wip.state(), runtime: { ...snapshot, manual: expose.manual() }, settings: s, host: { nextWake: s.sleepButton ? (sleepMod.nextWake() || 0) && sleepMod.nextWake().getTime() : 0, tsIp: TS_IP, tsName: expose.tailscaleName(), tailscale: TS_INFO, chatRoll: ROLL, publicHost: s.publicHost || TS_IP || 'localhost', terminalPort: 7681, hostname: require('os').hostname(), home: require('os').homedir(), devRoot: s.devRoot, user: process.env.USER || 'user', lastResume: LAST_RESUME, startedAt: STARTED_AT, build: build(), pushSubs: push.subscriptions().length, probe: probe.status(), stateErrors: corrupted(), claudeVer: claudever.status(), accounts: accounts() }, claude: { restorable: claude.restorable(), usage: usage.summary(), limits: limits.all(), installed: CLAUDE_VERSION, update: CLAUDE_UPDATE || claudeUpdater.status(), schedule: schedule.all(), tasks: tasks.all() }, health: health.all(), crashes: recentCrashes(), stats: sys.latest(), statsHistory: sys.history() };
+  return { projects: projects.map(p => ({ ...p, git: gitStatus[p.id] || null })), wip: wip.state(), runtime: { ...snapshot, manual: expose.manual() }, settings: s, host: { nextWake: s.sleepButton ? (sleepMod.nextWake() || 0) && sleepMod.nextWake().getTime() : 0, tsIp: TS_IP, tsName: expose.tailscaleName(), tailscale: TS_INFO, chatRoll: ROLL, publicHost: s.publicHost || TS_IP || 'localhost', terminalPort: 7681, hostname: require('os').hostname(), home: require('os').homedir(), devRoot: s.devRoot, user: process.env.USER || 'user', lastResume: LAST_RESUME, startedAt: STARTED_AT, build: build(), pushSubs: push.subscriptions().length, probe: probe.status(), stateErrors: corrupted(), claudeVer: claudever.status(), accounts: accounts() }, claude: { restorable: claude.restorable(), usage: usage.summary(), limits: limits.all(), windowStart: windowStarter.status(), installed: CLAUDE_VERSION, update: CLAUDE_UPDATE || claudeUpdater.status(), schedule: schedule.all(), tasks: tasks.all() }, health: health.all(), crashes: recentCrashes(), stats: sys.latest(), statsHistory: sys.history() };
 }
 let ACCTS = null, acctsAt = 0;
 function accounts() { if (!ACCTS || Date.now() - acctsAt > 30000) { acctsAt = Date.now(); ACCTS = ['personal', ...(fs.existsSync(path.join(require('os').homedir(), '.claude-company')) ? ['company'] : [])]; } return ACCTS; }
@@ -311,6 +312,7 @@ async function tickBody() {
     await claudeVersion();
     weeklyDigest().catch(() => {}); backupState();
     if (!TEST) detachHelpers().catch(e => console.error('detach', e));
+    if (!TEST) startWindows();
     pushState(false);
     autoRestore().catch(e => console.error('auto-restore', e));
     refreshGit(false).then(() => pushState(false)).catch(e => console.error('refresh-git:', e.message));
@@ -376,6 +378,13 @@ async function runSchedule() {
     const tk = tasks.noteResult(j.id, { ok: j.state === 'done', summary: claude.get(j.session)?.lastMessage, session: j.session, error: j.error });
     if (tk) { if (pushAllowed('done', j.session)) push.notify({ title: `${tk.title.slice(0, 60)} · ${j.state === 'done' ? 'Claude finished' : 'failed'}`, body: oneLine(tk.result.summary || tk.result.error || 'review it on the Tasks screen', 80), url: '/?view=tasks', tag: 'task-' + tk.id }).catch(() => {}); pushState(true); continue; } const ok = j.state === 'done'; if (pushAllowed('done', j.session)) push.notify({ title: `${j.session.replace(/^claude-/, '').replace(/-company$/, '')} · scheduled ${ok ? 'done' : 'failed'}`, body: oneLine(ok ? j.prompts[0] : (j.error || ''), 80), url: `/?term=${encodeURIComponent(j.session)}`, tag: 'sched-' + j.id }).catch(() => {}); }
   if (done.length) setTimeout(tick, 200);
+}
+const windowStarter = windowstart.create({ file: path.join(STATE, 'windowstart.json'), send: account => windowstart.ping(account, { bin: claudever.chatBin(), cwd: path.join(STATE, 'windowstart') }) });
+const lastActivityOf = account => Object.values(usage.files()).reduce((m, r) => r.account === account && (r.last || 0) > m ? r.last : m, 0);
+function startWindows() {
+  const sends = windowStarter.tick({ settings: settings.get().windowStart, accounts: accounts(), limits: limits.all(), lastActivity: lastActivityOf });
+  for (const p of sends) p.then(r => { pushState(false); if (r.ok) limits.refresh().then(() => pushState(false)); });
+  if (sends.length) pushState(false);
 }
 const resumeRec = name => { const r = claude.get(name); if (!r) return null; const i = claude.info(name); return { ...r, state: i.state, model: i.model }; };
 function planResume(name) {
@@ -1313,7 +1322,7 @@ async function api(req, res, url) {
       await new Promise(r => setTimeout(r, 700)); await tick(); LAST_RESUME = null; pushState(true);
       return json(res, 200, { ok: true, tailscale: ts.ok ? 'ok' : (ts.stderr || 'unreachable').trim(), exposures: snapshot.exposures.length });
     }
-    case 'settings': { const plansBefore = !!settings.get().plans; const s = settings.update(b); if (b.autoResume === false) schedule.cancelResume(); if (!TEST) { try { require('./bin/install-hooks').syncPlans(plansBefore, s.plans, { root: __dirname, log: msg => console.log('plans hook:', msg) }); } catch (e) { console.error('plans hook:', e.message); } } if (b.devRoot || b.scanDepth) await rescan(); pushState(true); return json(res, 200, s); }
+    case 'settings': { const plansBefore = !!settings.get().plans; const s = settings.update(b.windowStart ? { ...b, windowStart: windowstart.clean({ ...settings.get().windowStart, ...b.windowStart }, settings.get().windowStart) } : b); if (b.autoResume === false) schedule.cancelResume(); if (!TEST) { try { require('./bin/install-hooks').syncPlans(plansBefore, s.plans, { root: __dirname, log: msg => console.log('plans hook:', msg) }); } catch (e) { console.error('plans hook:', e.message); } } if (b.devRoot || b.scanDepth) await rescan(); pushState(true); return json(res, 200, s); }
     case 'project': { // per-project overrides: label, hidden, pin, commands
       if (!proj(b.id)) return json(res, 404, { error: 'no project' });
       const { id, ...patch } = b; settings.setProjectOverride(id, patch); await rescan(); pushState(true); return json(res, 200, { ok: true });
