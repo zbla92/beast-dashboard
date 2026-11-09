@@ -264,3 +264,26 @@ test('turning plans off also removes a dangling plan link of a moved repo', t =>
   go(h, { plans: false, binDir: bin });
   assert.equal(fs.lstatSync(link, { throwIfNoEntry: false }), undefined);
 });
+
+test('the bd-chat command is linked with the hooks whether plans are on or off, and taken out by --remove only', t => {
+  const h = home(t);
+  const link = path.join(h, '.local', 'bin', 'bd-chat');
+  const chatBin = path.join(ROOT, 'bin', 'bd-chat');
+  go(h, { plans: false });
+  assert.equal(fs.readlinkSync(link), chatBin);
+  assert.equal(syncPlans(false, true, { home: h, log: () => {} }), true);
+  assert.equal(syncPlans(true, false, { home: h, log: () => {} }), true);
+  assert.equal(fs.readlinkSync(link), chatBin);
+  go(h, { remove: true });
+  assert.throws(() => fs.lstatSync(link));
+});
+
+test('a foreign bd-chat file is left alone', t => {
+  const h = home(t);
+  const bin = path.join(h, '.local', 'bin');
+  fs.mkdirSync(bin, { recursive: true });
+  fs.writeFileSync(path.join(bin, 'bd-chat'), 'mine');
+  go(h, {});
+  go(h, { remove: true });
+  assert.equal(fs.readFileSync(path.join(bin, 'bd-chat'), 'utf8'), 'mine');
+});

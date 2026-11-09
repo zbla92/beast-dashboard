@@ -49,6 +49,25 @@ prompt, the projects it touched, grouped by day) and opens one as a chat.
 **Fork chat** (session menu, when Claude is not in a turn) starts a new chat from the conversation
 so far and leaves the original as it is.
 
+### From an agent or a script
+
+An agent that hands work to a new session, for example in another repo, starts it with the `bd-chat` command:
+
+```bash
+bd-chat new --cwd ~/dev/org/repo "Continue the plan: plan show, then T2"
+bd-chat new --account company -  < first-message.txt
+bd-chat new --empty
+```
+
+It asks the running dashboard to start the chat (`POST /api/chat-new` on `127.0.0.1`), so it is a chat in the UI
+like one you started. The folder defaults to the current one and must be inside `devRoot` or a project, and not in `.pasted`. The account
+defaults to the login the shell runs under (`CLAUDE_CONFIG_DIR`). The port comes from `BEAST_DASH_PORT`, which every
+session the dashboard starts has. `./install.sh` links the command into `~/.local/bin`, and `--remove` takes it out.
+
+Don't start a chat any other way. A `claude-chat-*` tmux session made by hand, or by loading the dashboard's `lib/`
+code in another process, runs the chat runner, but the dashboard never records it as a chat and shows it as a plain
+terminal.
+
 ## What changed
 
 Every turn that edits files gets a **checkpoint**: a snapshot of the working
