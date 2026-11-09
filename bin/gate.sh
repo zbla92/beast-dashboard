@@ -139,6 +139,10 @@ r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: appli
 [ "$r" = 404 ] && ok "POST claude-switch unknown session -> 404" || fail "POST claude-switch unknown session -> $r"
 r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"session":"claude-gate-nope","target":{"kind":"root"}}' "$B/api/chat-move")"
 [ "$r" = 404 ] && ok "POST chat-move unknown session -> 404" || fail "POST chat-move unknown session -> $r"
+r=""; for d in '{"text":"x","cwd":"/etc"}' '{"text":"x","cwd":"relative/dir"}' '{"text":"x","cwd":"/nope/gate-gone"}' '{"empty":true,"cwd":7}'; do r="$r $(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d "$d" "$B/api/chat-new")"; done
+[ "$r" = " 400 400 400 400" ] && ok "POST chat-new with a cwd outside the dev folder -> 400" || fail "POST chat-new bad cwd ->$r"
+out="$(cd / && BEAST_DASH_PORT="$PORT" "$TMP/bin/bd-chat" new --cwd /etc 'gate' 2>&1)"; rc=$?
+[ $rc = 1 ] && [[ "$out" == *"inside the dev folder"* ]] && ok "bd-chat new outside the dev folder -> refused by the dashboard" || fail "bd-chat new /etc -> rc=$rc $out"
 r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"id":"gate-tab-1","session":"claude-gate-nope"}' "$B/api/watching")"
 r2="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"id":"gate-tab-1","session":"../x"}' "$B/api/watching")"
 [ "$r $r2" = "200 400" ] && ok "POST watching -> 200, bad session -> 400" || fail "POST watching -> $r, bad session -> $r2"

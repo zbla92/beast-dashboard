@@ -1,0 +1,95 @@
+#!/usr/bin/env node
+'use strict';
+const fs = require('fs');
+const path = require('path');
+const http = require('http');
+
+const USAGE = `usage: bd-chat new [--cwd <folder>] [--account personal|company] [--json] (<message> | - | --empty)
+
+Starts a new Beast Dash chat session through the running dashboard, so it shows up as a chat
+in the UI. The message is the chat's first prompt; "-" reads it from stdin.
+
+  --cwd       folder the chat works in (default: the current folder); must be inside the dev folder
+  --account   Claude login to use (default: the one this shell runs under)
+  --empty     open the chat without a first message
+  --json      print the dashboard's answer as JSON
+
+The dashboard port comes from BEAST_DASH_PORT, then state/settings.json, then 8787.`;
+
+function parse(argv) {
+  const o = { args: [] };
+  const rest = [...argv];
+  while (rest.length) {
+    const a = rest.shift();
+    if (a === '--cwd' || a === '--account') {
+      if (!rest.length) throw new Error(`${a} needs a value`);
+      o[a.slice(2)] = rest.shift();
+    } else if (a.startsWith('--cwd=') || a.startsWith('--account=')) {
+      const at = a.indexOf('=');
+      o[a.slice(2, at)] = a.slice(at + 1);
+    } else if (a === '--empty' || a === '--json') o[a.slice(2)] = true;
+    else if (a === '-h' || a === '--help') o.help = true;
+    else if (a.startsWith('--')) throw new Error(`unknown flag ${a}`);
+    else o.args.push(a);
+  }
+  return o;
+}
+
+function dashPort(env) {
+  if (/^\d+$/.test(env.BEAST_DASH_PORT || '')) return +env.BEAST_DASH_PORT;
+  try {
+    const p = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'state', 'settings.json'), 'utf8')).port;
+    if (Number.isInteger(p)) return p;
+  } catch {}
+  return 8787;
+}
+
+const currentAccount = env => path.basename(env.CLAUDE_CONFIG_DIR || '') === '.claude-company' ? 'company' : 'personal';
+
+function post(port, route, body) {
+  return new Promise((resolve, reject) => {
+    const data = Buffer.from(JSON.stringify(body));
+    const req = http.request({ host: '127.0.0.1', port, path: route, method: 'POST', timeout: 60000, headers: { 'content-type': 'application/json', 'content-length': data.length } }, res => {
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8');
+        try { resolve({ status: res.statusCode, body: JSON.parse(text) }); } catch { resolve({ status: res.statusCode, body: { ok: false, error: text.trim() || `HTTP ${res.statusCode}` } }); }
+      });
+    });
+    req.on('timeout', () => req.destroy(Object.assign(new Error('the dashboard did not answer in 60 s'), { late: true })));
+    req.on('error', reject);
+    req.end(data);
+  });
+}
+
+async function main(argv, env, io) {
+  const parsed = (() => { try { return parse(argv); } catch (e) { return e; } })();
+  if (parsed instanceof Error) { io.err(`bd-chat: ${parsed.message}\n${USAGE}`); return 2; }
+  const o = parsed;
+  if (o.help || !o.args.length) { (o.help ? io.out : io.err)(USAGE); return o.help ? 0 : 2; }
+  const [cmd, ...rest] = o.args;
+  if (cmd !== 'new') { io.err(`bd-chat: unknown command ${cmd}\n${USAGE}`); return 2; }
+  if (o.empty ? rest.length : rest.length !== 1) { io.err(`bd-chat: give one message, "-" for stdin, or --empty\n${USAGE}`); return 2; }
+  const account = o.account || currentAccount(env);
+  if (account !== 'personal' && account !== 'company') { io.err('bd-chat: --account is personal or company'); return 2; }
+  const text = o.empty ? null : rest[0] === '-' ? io.stdin() : rest[0];
+  if (!o.empty && !text.trim()) { io.err('bd-chat: the message is empty'); return 2; }
+  const cwd = path.resolve(io.cwd, o.cwd || '.');
+  const port = dashPort(env);
+  const r = await post(port, '/api/chat-new', o.empty ? { empty: true, account, cwd } : { text, account, cwd }).catch(e => e);
+  if (r instanceof Error) { io.err(r.late ? `bd-chat: ${r.message}; the chat may have started anyway, look in the dashboard before trying again` : `bd-chat: cannot reach the dashboard on 127.0.0.1:${port}: ${r.message}`); return 1; }
+  const b = r.body || {};
+  if (o.json) io.out(JSON.stringify(b));
+  if (r.status !== 200 || !b.ok) { if (!o.json) io.err(`bd-chat: ${b.error || `HTTP ${r.status}`}`); return 1; }
+  if (!o.empty && b.sent === false) { if (!o.json) io.err(`bd-chat: started ${b.name}, but the first message was not sent: ${b.error || 'unknown error'}. Do not start another one; send the message to ${b.name} from the dashboard`); return 1; }
+  if (!o.json) io.out(`started ${b.name} in ${b.cwd || cwd} (${account})${o.empty ? ', empty' : ''}`);
+  return 0;
+}
+
+module.exports = { main, parse, dashPort, currentAccount };
+
+if (require.main === module) {
+  const io = { out: s => console.log(s), err: s => console.error(s), stdin: () => fs.readFileSync(0, 'utf8'), cwd: process.cwd() };
+  main(process.argv.slice(2), process.env, io).then(code => { process.exitCode = code; }, e => { console.error(`bd-chat: ${e.message}`); process.exitCode = 1; });
+}

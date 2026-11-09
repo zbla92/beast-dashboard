@@ -35,11 +35,11 @@ function lstatOrNull(file) {
   try { return fs.lstatSync(file); } catch { return null; }
 }
 
-function linkPlan(binDir, planBin, wanted, log) {
-  const link = path.join(binDir, 'plan');
+function linkBin(binDir, name, planBin, wanted, log) {
+  const link = path.join(binDir, name);
   const st = lstatOrNull(link);
   const target = st && st.isSymbolicLink() ? fs.readlinkSync(link) : null;
-  const movedRepo = target !== null && target !== planBin && target.endsWith('/bin/plan') && !fs.existsSync(link);
+  const movedRepo = target !== null && target !== planBin && target.endsWith(`/bin/${name}`) && !fs.existsSync(link);
   if (!wanted) {
     if (target === planBin || movedRepo) { fs.unlinkSync(link); log(`removed ${link}`); }
     else if (st) log(`kept ${link}: not our symlink`);
@@ -55,7 +55,7 @@ function linkPlan(binDir, planBin, wanted, log) {
   fs.symlinkSync(planBin, link);
   log(`linked ${link} -> ${planBin}`);
   const onPath = (process.env.PATH || '').split(path.delimiter).includes(binDir);
-  if (!onPath) log(`hint: add ${binDir} to PATH so agents can run \`plan\``);
+  if (!onPath) log(`hint: add ${binDir} to PATH so agents can run \`${name}\``);
 }
 
 function readSettings(f) {
@@ -98,6 +98,7 @@ function run(opts = {}) {
   const planOnly = !!opts.planOnly;
   const script = path.join(root, 'bin', 'claude-hook.sh');
   const planBin = path.join(root, 'bin', 'plan');
+  const chatBin = path.join(root, 'bin', 'bd-chat');
   const planCmd = /\s/.test(planBin) ? `"${planBin}" context` : `${planBin} context`;
   const guard = !remove && opts.pastedGuard !== false;
   const guardBin = path.join(root, 'bin', 'pasted-guard.sh');
@@ -134,7 +135,9 @@ function run(opts = {}) {
       log(`warning: could not write ${f}: ${e.message}`);
     }
   }
-  try { linkPlan(opts.binDir || path.join(home, '.local', 'bin'), planBin, plans, log); } catch (e) { log(`warning: could not update the plan command link: ${e.message}`); }
+  const binDir = opts.binDir || path.join(home, '.local', 'bin');
+  try { linkBin(binDir, 'plan', planBin, plans, log); } catch (e) { log(`warning: could not update the plan command link: ${e.message}`); }
+  if (!planOnly) try { linkBin(binDir, 'bd-chat', chatBin, !remove, log); } catch (e) { log(`warning: could not update the bd-chat command link: ${e.message}`); }
 }
 
 function syncPlans(before, after, opts = {}) {

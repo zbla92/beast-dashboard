@@ -1185,8 +1185,8 @@ async function api(req, res, url) {
       return json(res, r.ok ? 200 : 500, { ...r, targets: job.targets, prompt: job.prompt });
     }
     case 'chat-new': {
-      const cwd = targetCwd(b.target);
-      if (!cwd) return json(res, 400, { ok: false, error: 'unknown target' });
+      const cwd = b.cwd !== undefined ? roots.chatFolder(b.cwd, settings.get().devRoot, projects.map(p => p.path)) : targetCwd(b.target);
+      if (!cwd) return json(res, 400, { ok: false, error: b.cwd !== undefined ? 'cwd must be an existing folder inside the dev folder' : 'unknown target' });
       const r = b.empty === true ? await headless.startEmptyChat(cwd, b.account) : await headless.startChat(cwd, b.account, b.text);
       setTimeout(tick, 300);
       return json(res, r.ok ? 200 : 400, r);

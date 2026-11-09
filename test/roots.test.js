@@ -97,3 +97,24 @@ test('sets: a container with two or more git repos groups them; sub-projects of 
   assert.strictEqual(set['n--sp'], 'n--sp');
   assert.strictEqual(set['n--sp--infra'], 'n--sp');
 });
+
+test('chatFolder: a folder inside devRoot or a project, given as an absolute path, keeps the path as given', t => {
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'bd-chatfolder-')));
+  t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  const dev = path.join(base, 'dev'), repo = path.join(dev, 'org', 'repo'), wt = path.join(repo, '.claude', 'worktrees', 'a');
+  const elsewhere = path.join(base, 'elsewhere'), dev2 = path.join(base, 'dev2'), link = path.join(base, 'devlink');
+  for (const d of [wt, path.join(dev, '.pasted', 'repo'), elsewhere, dev2]) fs.mkdirSync(d, { recursive: true });
+  fs.symlinkSync(dev, link);
+  fs.symlinkSync(elsewhere, path.join(dev, 'out'));
+  fs.writeFileSync(path.join(dev, 'file.txt'), 'x');
+  const pick = d => roots.chatFolder(d, dev, [repo, path.join(base, 'gone')]);
+  assert.equal(pick(dev), dev);
+  assert.equal(pick(repo + '/'), repo);
+  assert.equal(pick(wt), wt);
+  assert.equal(pick(path.join(link, 'org', 'repo')), path.join(link, 'org', 'repo'));
+  assert.equal(roots.chatFolder(elsewhere, dev, [elsewhere]), elsewhere);
+  for (const bad of [elsewhere, dev2, path.join(dev, 'out'), path.join(dev, '.pasted'), path.join(dev, '.pasted', 'repo'), path.join(dev, 'file.txt'), path.join(dev, 'nope'), 'org/repo', '', null, 7, ['x']]) {
+    assert.equal(pick(bad), null, String(bad));
+  }
+  assert.equal(roots.chatFolder(repo, null, []), null);
+});
