@@ -2937,10 +2937,21 @@ function renderFeatHome() {
 // ---------- rail (desktop): every live session in fixed tmux order, one click to open it ----------
 // Rebuilt only when something it shows changes (state, label, the open session, the minute), so hover never flickers.
 let railKey = '';
+// A project card collapses to its header (click, or Enter / Space), remembered per device. Collapsed, the header keeps
+// the most urgent state of its sessions and how many need you, and lights up when the open session is inside it.
+const RAIL = { collapsed: new Set((() => { try { return JSON.parse(localStorage.getItem('bd.rail.collapsed') || '[]'); } catch { return []; } })()) };
+const RAIL_URGENT = ['permission', 'error', 'needs-you', 'limit', 'working', 'background'];
+function toggleRailGroup(key) {
+  if (RAIL.collapsed.has(key)) RAIL.collapsed.delete(key); else RAIL.collapsed.add(key);
+  try { localStorage.setItem('bd.rail.collapsed', JSON.stringify([...RAIL.collapsed])); } catch {}
+  const had = document.activeElement?.closest?.('.rproj')?.dataset.g === key;   // the rebuild replaces the header: keep keyboard focus on it
+  railKey = ''; renderRail();
+  if (had) [...document.querySelectorAll('#rail-list .rproj')].find(x => x.dataset.g === key)?.focus();
+}
 function renderRail() {
   const el = $('#rail-list'); if (!el) return;
   const S3 = termSessions(); const act = TERM.open ? TERM.active : null; const min = Math.floor(Date.now() / 60000);
-  const key = JSON.stringify([act, min, S.projects.length, S3.all.map(x => [x.name, x.pid, x.claude?.state, x.claude?.needsYou, x.claude?.label, x.claude?.title, x.claude?.firstPrompt, x.claude?.since, x.claude?.lastTool, x.claude?.model, x.claude?.worktree?.name, x.claude?.settled?.at, x.claude?.settled?.until, x.project, x.label, x.current, x.cwd, x.ports.map(p => p.port)]), feat('termBarKey', act)]);
+  const key = JSON.stringify([act, min, S.projects.length, [...RAIL.collapsed], S3.all.map(x => [x.name, x.pid, x.claude?.state, x.claude?.needsYou, x.claude?.label, x.claude?.title, x.claude?.firstPrompt, x.claude?.since, x.claude?.lastTool, x.claude?.model, x.claude?.worktree?.name, x.claude?.settled?.at, x.claude?.settled?.until, x.project, x.label, x.current, x.cwd, x.ports.map(p => p.port)]), feat('termBarKey', act)]);
   if (key === railKey) return; railKey = key;
   const sub = it => {
     const cl = it.claude; if (!cl) return it.label ? it.label + (it.ports.length ? ' · :' + it.ports.map(p => p.port).join(' :') : '') : (it.current || 'bash') + ' · ' + home(it.cwd);
@@ -2967,7 +2978,15 @@ function renderRail() {
     for (const g of claudeGroups(og.items)) {
       const one = g.items.length === 1 ? g.items[0] : null;
       if (one && !(g.pid && (one.claude?.label || isNewChat(one.name)))) { rows.push(row(one, 'claude')); continue; }
-      rows.push(h('div', { class: 'rgrp-p' }, h('div', { class: 'rproj', title: g.items.length + ' Claude session' + (one ? '' : 's') + ' on ' + g.project }, avatar(g.pid, 'sm'), h('b', null, g.project), one ? null : h('em', null, '×' + g.items.length)), ...g.items.map(it => row(it, 'claude', true))));
+      const col = RAIL.collapsed.has(g.key);
+      const top = col ? RAIL_URGENT.find(s => g.items.some(x => x.claude?.state === s)) : null;
+      const need = col ? g.items.filter(x => x.claude?.needsYou).length : 0;
+      const toggle = () => toggleRailGroup(g.key);
+      const head = h('div', { class: 'rproj', 'data-g': g.key, role: 'button', tabindex: '0', 'aria-expanded': String(!col), title: (col ? 'Show' : 'Hide') + ' the ' + g.items.length + ' Claude session' + (one ? '' : 's') + ' on ' + g.project, onclick: toggle, onkeydown: ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggle(); } } },
+        h('span', { class: 'rcar' }, ico('chevronDown', 12)), avatar(g.pid, 'sm'), h('b', null, g.project), one ? null : h('em', null, '×' + g.items.length),
+        top ? h('i', { class: 'rgdot st-' + top, title: STATE_LABEL[top] || top }) : null,
+        need ? h('span', { class: 'rgneed', title: need + (need === 1 ? ' needs' : ' need') + ' you' }, need) : null);
+      rows.push(h('div', { class: 'rgrp-p' + (col ? ' col' : '') + (col && g.items.some(x => x.name === act) ? ' on' : '') }, head, ...(col ? [] : g.items.map(it => row(it, 'claude', true)))));
     }
     if (!og.org) { out.push(...rows); continue; }
     out.push(h('div', { class: 'rgrp-o', style: `--org:${orgColor(og.org)}` }, h('div', { class: 'rorg' }, h('i', null), og.org, h('em', null, og.items.length)), ...rows));
