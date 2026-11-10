@@ -1367,6 +1367,19 @@ body.term-open .rail .navb.on .ico { color: inherit; opacity: .85; }
 .rproj { display: flex; align-items: center; gap: 6px; padding: 7px 10px 1px 12px; font-size: var(--fs-md); line-height: 1.35; min-width: 0; }
 .rproj b { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .rproj em { flex: none; font-style: normal; font-size: var(--fs-xs); color: var(--dim); font-family: var(--mono); }
+/* a project card collapses to its header (renderRail): caret, and on a collapsed one its most urgent state + needs-you count */
+.rproj[role=button] { cursor: pointer; user-select: none; border-radius: calc(var(--r) - 2px); }
+.rproj[role=button]:hover { background: var(--fill); }
+.rproj[role=button]:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.rcar { flex: none; display: grid; place-items: center; width: 12px; margin-right: -2px; color: var(--dim); transition: transform .15s; }
+.rgrp-p.col .rcar { transform: rotate(-90deg); }
+.rgrp-p.col.on .rproj { background: var(--panel2); }
+.rproj > .rgdot, .rproj > .rgneed { margin-left: auto; }
+.rproj > .rgdot + .rgneed { margin-left: 0; }
+.rgdot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--st-idle); }
+.rgdot.st-working { background: var(--st-work); animation: breathe 1.6s ease-in-out infinite; } .rgdot.st-background { background: var(--st-bg); }
+.rgdot.st-needs-you { background: var(--st-need); } .rgdot.st-permission { background: var(--st-perm); } .rgdot.st-error { background: var(--st-err); } .rgdot.st-limit { background: var(--st-limit); }
+.rgneed { flex: none; font-size: var(--fs-2xs); font-weight: 700; line-height: 16px; padding: 0 6px; border-radius: 999px; color: var(--on-signal); background: var(--signal); }
 .rrow.sub { padding-left: 24px; padding-top: 5px; padding-bottom: 5px; }
 .rrow.sub .rnm b { font-size: var(--fs-sm); }
 .torg { position: relative; }
