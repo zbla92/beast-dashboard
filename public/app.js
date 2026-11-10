@@ -232,10 +232,14 @@ function gl(label, size = 14) {
 }
 // Terminal / Chat is ONE global switch for this device (Mac, phone …): every Claude session shows the same way.
 const IS_PHONE = matchMedia('(max-width: 900px)').matches;
-const TERM = { open: false, active: null, frames: new Map(), lastUsed: new Map(), showList: false, listKey: '', view: {}, chatEv: {}, chatN: 40 };
+const TERM = { open: false, active: null, frames: new Map(), lastUsed: new Map(), showList: false, listKey: '', view: {}, chatEv: {}, chatN: 40, born: new Map() };
 let CLAUDE_UPGRADING = false;   // mise upgrade claude in flight (see updateClaude)
-const isChatSess = name => (claudeOf(name) || {}).mode === 'chat';
-const chatMode = name => { const cl = claudeOf(name); return !!cl && cl.mode === 'chat' && TERM.view[name] !== 'term'; };
+// A chat this tab just started (openTerm(name, { chat: true })) is opened before the state lists it: the server
+// refreshes its session list a tick later. Until then it counts as a chat, so the panel shows the chat at once
+// instead of a terminal (a white ttyd page) that the chat replaces seconds later. Once the state lists it, the state decides.
+const bornChat = name => Date.now() - (TERM.born.get(name) || 0) < 30000 && !S.runtime.sessions.some(s => s.name === name);
+const isChatSess = name => (claudeOf(name) || {}).mode === 'chat' || bornChat(name);
+const chatMode = name => { const cl = claudeOf(name); return (cl ? cl.mode === 'chat' : bornChat(name)) && TERM.view[name] !== 'term'; };
 // Focus: hide the session list in the terminal panel (screen sharing) — per device, remembered
 TERM.focus = localStorage.getItem('bd.focus') === '1' && !IS_PHONE;   // focus mode is a desktop thing; on the phone the list must always be reachable
 function setFocus(on) { TERM.focus = on; localStorage.setItem('bd.focus', on ? '1' : '0'); document.body.classList.toggle('focus', on); renderTermPanel(true); }
@@ -414,9 +418,10 @@ document.addEventListener('visibilitychange', syncWatch);
 for (const ev of ['focus', 'blur', 'pagehide']) window.addEventListener(ev, syncWatch);
 document.addEventListener('visibilitychange', () => { if (document.hidden) liveStream(null); if (!document.hidden) { renderChatPane(false); if (UI.drawer && String(UI.drawer).startsWith('session:')) renderSessionDrawer(false); } });
 const FRAME_IDLE_MS = 10 * 60e3;   // hidden iframes are dropped after this: each one is a tmux client fighting over the pane size
-function openTerm(session) {
+function openTerm(session, o = {}) {   // o.chat: this tab just started it as a chat (see bornChat)
+  if (o.chat) TERM.born.set(session, Date.now());
   if (TERM.active) TERM.lastUsed.set(TERM.active, Date.now());
-  TERM.open = true; TERM.showList = false; ensureFrame(session); TERM.active = session; TERM.lastUsed.set(session, Date.now());
+  TERM.open = true; TERM.showList = false; TERM.active = session; TERM.lastUsed.set(session, Date.now());   // renderTermPanel builds the terminal if it is shown
   const cl = claudeOf(session); if (cl && (cl.state === 'needs-you' || cl.state === 'error')) api('claude-seen', { session }).catch(() => {});
   renderTermPanel(true); renderChatPane(true); renderRail();
   const f = TERM.frames.get(session); if (f && !chatMode(session)) setTimeout(() => f.focus(), 50);   // focus ONLY here, never on a state tick
@@ -653,6 +658,9 @@ function renderTermPanel(force) {
     el.append(h('aside', { class: 'termside' }, h('div', { class: 'termside-head' }, h('span', { class: 'termside-title' }, 'Sessions'), h('span', { class: 'sp' }), h('button', { class: 'btn sm', title: 'new session — new chat (the project is guessed) or resume a past conversation', onclick: () => newSessionModal() }, ico('plus', 13), 'Session')), h('div', { id: 'term-list' })),
       h('section', { class: 'termmain' }, h('div', { class: 'termbar', id: 'term-bar' }), h('div', { class: 'termframes', id: 'term-frames' }, h('div', { class: 'chatpane hidden', id: 'term-chat' }))));
   }
+  // The terminal iframe is built only when it is shown. A chat gets none: no 743 KB ttyd page (served uncached) on every
+  // open, no tmux client, no hidden xterm drawing everything the session prints. Chat → Terminal builds it here.
+  if (TERM.active && !chatMode(TERM.active)) ensureFrame(TERM.active);
   const S3 = termSessions(); const known = new Set(S.runtime.sessions.map(s => s.name));
   const extra = [...TERM.frames.keys()].filter(k => !known.has(k));
   // The list and the bar are rebuilt only when something they show actually changed. Rebuilding them on every
@@ -749,7 +757,7 @@ async function restoreClaude(tmux) {
   } catch (e) { toast('Restore failed: ' + e.message, 'err'); }
 }
 async function startClaude(p, account, opts = {}, quiet) {
-  try { const r = await api('claude', { id: p.id, account, ...opts }); toast(r.existed ? `Attaching to ${r.name}` : `Started ${r.name} (${account}, chat)`, 'ok'); openTerm(r.name); }
+  try { const r = await api('claude', { id: p.id, account, ...opts }); toast(r.existed ? `Attaching to ${r.name}` : `Started ${r.name} (${account}, chat)`, 'ok'); openTerm(r.name, { chat: true }); }
   catch (e) { toast('Chat failed: ' + e.message, 'err'); }
 }
 async function claudeMenu(ev, p) {
@@ -1196,7 +1204,7 @@ async function restartIdleTerms(btn, names) {
 async function handoff(it) {
   const to = it.account === 'company' ? 'personal' : 'company';
   if (!await confirmBox({ title: `Hand off to ${to}?`, who: sessWho(it.name), ok: 'Hand off', text: [`Starts a ${to} session in the same folder with a handoff summary (recent prompts, last reply, files edited).`, 'This session stays as it is.'] })) return;
-  act('Hand off ' + it.project, api('handoff', { session: it.name })).then(r => { if (r && r.name) setTimeout(() => openTerm(r.name), 1500); });
+  act('Hand off ' + it.project, api('handoff', { session: it.name })).then(r => { if (r && r.name) setTimeout(() => openTerm(r.name, { chat: true }), 1500); });
 }
 function renderTermStrip() {
   const el = $('#termstrip'); if (!el) return;
@@ -2213,7 +2221,7 @@ async function openTranscriptFile(hh) {
   const d = $('#drawer'); const title = hh.title || (hh.cwd || '').split('/').pop() || hh.sessionId.slice(0, 8);
   let busy = false; const once = fn => { if (busy) return; busy = true; fn().catch(() => {}).finally(() => { busy = false; }); };
   const head = h('div', { class: 'dh' }, h('div', { class: 'row1' }, h('h2', null, h('span', { class: 'sicon' }, gl('✦')), title, h('span', { class: 'badge tag acc ' + hh.account }, acct(hh.account)), h('span', { class: 'dim', style: 'font-size:12px;font-weight:500' }, 'past conversation · ' + ago(hh.mtime) + ' ago')),
-      h('button', { class: 'btn sm primary', title: 'continue this conversation as a chat (headless claude -p --resume) in that folder', onclick: () => once(() => act('Continue ' + title, api('claude-resume', { sessionId: hh.sessionId, cwd: hh.cwd, account: hh.account })).then(r => { closeDrawer(); if (r?.name) openTerm(r.name); })) }, ico('chat', 13), 'Continue in chat'),
+      h('button', { class: 'btn sm primary', title: 'continue this conversation as a chat (headless claude -p --resume) in that folder', onclick: () => once(() => act('Continue ' + title, api('claude-resume', { sessionId: hh.sessionId, cwd: hh.cwd, account: hh.account })).then(r => { closeDrawer(); if (r?.name) openTerm(r.name, { chat: true }); })) }, ico('chat', 13), 'Continue in chat'),
       h('button', { class: 'btn ghost close', onclick: closeDrawer }, gl('✕ Esc'))),
     h('div', { class: 'path' }, hh.cwd || '', ' · ', hh.sessionId));
   const body = h('div', { class: 'db sess' }); d.replaceChildren(head, body); body.append(h('div', { class: 'dim', style: 'padding:20px' }, 'loading…'));
@@ -2850,7 +2858,7 @@ function runTaskMenu(ev, t) {
   const p = t.project && byId()[t.project]; if (!p) { toast('pick a project for this task first', 'err'); return taskModal(t); }
   const live = S.runtime.sessions.filter(s => s.claude?.mode === 'chat' && s.project === p.id);
   const others = (S.claude?.tasks || []).filter(x => x.project === p.id && x.status !== 'done' && x.id !== t.id);
-  const go = (account, session, ids) => act((ids ? ids.length + ' tasks' : 'Task') + ' → ' + p.name, api('task-run', { id: t.id, account, session, ids })).then(r => { if (r && r.session) setTimeout(() => openTerm(r.session), 1200); });
+  const go = (account, session, ids) => act((ids ? ids.length + ' tasks' : 'Task') + ' → ' + p.name, api('task-run', { id: t.id, account, session, ids })).then(r => { if (r && r.session) setTimeout(() => openTerm(r.session, { chat: true }), 1200); });
   const chain = [t.id, ...others.map(x => x.id)];
   openMenu(ev, [
     { header: 'Send the task as a prompt to…' },
@@ -3048,7 +3056,7 @@ for (const b of document.querySelectorAll('#tabbar .tb')) b.onclick = () => {
   if (b.dataset.view) { if (TERM.open) closeTermPanel(false); else if (UI.view === b.dataset.view) window.scrollTo({ top: 0, behavior: 'smooth' }); goView(b.dataset.view); return; }
   if (b.dataset.act === 'sessions') { TERM.open = true; TERM.showList = true; renderTermPanel(true); navTo(); }
 };
-$('#btn-shell').onclick = () => { if (TERM.open) return closeTermPanel(); TERM.open = true; if (!TERM.active) { const c = S.runtime.sessions.find(x => x.name.startsWith('claude-')) || S.runtime.sessions[0]; if (c) { ensureFrame(c.name); TERM.active = c.name; } } renderTermPanel(); navTo(); };
+$('#btn-shell').onclick = () => { if (TERM.open) return closeTermPanel(); TERM.open = true; if (!TERM.active) { const c = S.runtime.sessions.find(x => x.name.startsWith('claude-')) || S.runtime.sessions[0]; if (c) TERM.active = c.name; } renderTermPanel(); navTo(); };
 $('#btn-settings').onclick = settingsModal;
 $('#btn-settings-rail').onclick = settingsModal;
 // ---------- downloads (~/Downloads on the server) ----------
