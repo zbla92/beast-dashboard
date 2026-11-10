@@ -239,6 +239,11 @@ const chatMode = name => { const cl = claudeOf(name); return !!cl && cl.mode ===
 // Focus: hide the session list in the terminal panel (screen sharing) — per device, remembered
 TERM.focus = localStorage.getItem('bd.focus') === '1' && !IS_PHONE;   // focus mode is a desktop thing; on the phone the list must always be reachable
 function setFocus(on) { TERM.focus = on; localStorage.setItem('bd.focus', on ? '1' : '0'); document.body.classList.toggle('focus', on); renderTermPanel(true); }
+// Full-width chat (Settings → Sessions): the chat spans the whole pane instead of the --chat-col column — per device,
+// remembered, and set before the first render so a wide chat never flashes narrow
+const chatWide = () => localStorage.getItem('bd.chatWide') === '1';
+function setChatWide(on) { localStorage.setItem('bd.chatWide', on ? '1' : '0'); document.body.classList.toggle('chat-wide', on); }
+document.body.classList.toggle('chat-wide', chatWide());
 function releaseHiddenFrame() {
   const a = document.activeElement;
   if (!a?.classList?.contains('termframe') || a.getClientRects().length) return;
@@ -2797,6 +2802,7 @@ function settingsModal() {
         row('Auto-restore after reboot', 'claude --resume in the same folders as soon as the dashboard starts', sw(!!s.autoRestore, { id: 'set-autorestore' })),
         row('Continue after a usage limit', 'chat sessions only · sends "continue" a minute after the limit resets, if nothing was sent since', sw(!!s.autoResume, { id: 'set-autoresume' })),
         row('Messages while Claude works', 'chat sessions, this device · ' + (IS_PHONE ? 'the send button does this, the second button the other' : 'Enter does this, Alt+Enter the other'), h('span', { class: 'seg' }, [['steer', 'Send now'], ['queue', 'After the turn']].map(([v, l]) => h('button', { class: 'segb' + (followUp() === v ? ' on' : ''), title: v === 'steer' ? 'goes into the running turn — Claude reads it at its next step' : 'waits in the queue and goes out when the turn is over', onclick: ev => { FEAT.queue?.setFollowUp(v); for (const b of ev.currentTarget.parentElement.children) b.classList.toggle('on', b === ev.currentTarget); renderChatPane(true); } }, l)))),
+        row('Full-width chat', 'this device · the chat uses the whole pane instead of a centred column', sw(chatWide(), { onchange: e => setChatWide(e.target.checked) })),
         row('Update Claude Code automatically', 'checks every hour and installs a new release. If that fails, Home shows an Update button', sw(s.claudeAutoUpdate !== false, { id: 'set-claudeupdate' })),
         row('Move chats to a new Claude Code', 'when a new version passes the start check, chat sessions restart on it one by one (idle now, busy ones after their turn)', sw(s.chatAutoUpgrade !== false, { id: 'set-chatupgrade' }))),
       sect('Plans',
