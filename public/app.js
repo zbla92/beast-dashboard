@@ -416,7 +416,7 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) liveS
 const FRAME_IDLE_MS = 10 * 60e3;   // hidden iframes are dropped after this: each one is a tmux client fighting over the pane size
 function openTerm(session) {
   if (TERM.active) TERM.lastUsed.set(TERM.active, Date.now());
-  TERM.open = true; TERM.showList = false; ensureFrame(session); TERM.active = session; TERM.lastUsed.set(session, Date.now());
+  TERM.open = true; TERM.showList = false; TERM.active = session; TERM.lastUsed.set(session, Date.now());   // renderTermPanel builds the terminal if it is shown
   const cl = claudeOf(session); if (cl && (cl.state === 'needs-you' || cl.state === 'error')) api('claude-seen', { session }).catch(() => {});
   renderTermPanel(true); renderChatPane(true); renderRail();
   const f = TERM.frames.get(session); if (f && !chatMode(session)) setTimeout(() => f.focus(), 50);   // focus ONLY here, never on a state tick
@@ -653,6 +653,9 @@ function renderTermPanel(force) {
     el.append(h('aside', { class: 'termside' }, h('div', { class: 'termside-head' }, h('span', { class: 'termside-title' }, 'Sessions'), h('span', { class: 'sp' }), h('button', { class: 'btn sm', title: 'new session — new chat (the project is guessed) or resume a past conversation', onclick: () => newSessionModal() }, ico('plus', 13), 'Session')), h('div', { id: 'term-list' })),
       h('section', { class: 'termmain' }, h('div', { class: 'termbar', id: 'term-bar' }), h('div', { class: 'termframes', id: 'term-frames' }, h('div', { class: 'chatpane hidden', id: 'term-chat' }))));
   }
+  // The terminal iframe is built only when it is shown. A chat gets none: no 743 KB ttyd page (served uncached) on every
+  // open, no tmux client, no hidden xterm drawing everything the session prints. Chat → Terminal builds it here.
+  if (TERM.active && !chatMode(TERM.active)) ensureFrame(TERM.active);
   const S3 = termSessions(); const known = new Set(S.runtime.sessions.map(s => s.name));
   const extra = [...TERM.frames.keys()].filter(k => !known.has(k));
   // The list and the bar are rebuilt only when something they show actually changed. Rebuilding them on every
@@ -3048,7 +3051,7 @@ for (const b of document.querySelectorAll('#tabbar .tb')) b.onclick = () => {
   if (b.dataset.view) { if (TERM.open) closeTermPanel(false); else if (UI.view === b.dataset.view) window.scrollTo({ top: 0, behavior: 'smooth' }); goView(b.dataset.view); return; }
   if (b.dataset.act === 'sessions') { TERM.open = true; TERM.showList = true; renderTermPanel(true); navTo(); }
 };
-$('#btn-shell').onclick = () => { if (TERM.open) return closeTermPanel(); TERM.open = true; if (!TERM.active) { const c = S.runtime.sessions.find(x => x.name.startsWith('claude-')) || S.runtime.sessions[0]; if (c) { ensureFrame(c.name); TERM.active = c.name; } } renderTermPanel(); navTo(); };
+$('#btn-shell').onclick = () => { if (TERM.open) return closeTermPanel(); TERM.open = true; if (!TERM.active) { const c = S.runtime.sessions.find(x => x.name.startsWith('claude-')) || S.runtime.sessions[0]; if (c) TERM.active = c.name; } renderTermPanel(); navTo(); };
 $('#btn-settings').onclick = settingsModal;
 $('#btn-settings-rail').onclick = settingsModal;
 // ---------- downloads (~/Downloads on the server) ----------
