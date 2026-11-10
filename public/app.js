@@ -589,7 +589,7 @@ const isNewChat = name => /^claude-chat-\d{6}-\d{4}/.test(name || '');
 const withoutLeadingPaths = s => s && (s.replace(/^(?:\/\S+(?:\s+|$))+/, '') || s.split('/').pop());
 const shortPrompt = s => s && (s.length > 40 ? s.slice(0, 39) + '…' : s);
 const chatTitle = cl => (cl && (cl.label || withoutLeadingPaths(cl.title) || shortPrompt(withoutLeadingPaths(cl.firstPrompt)))) || 'New chat';
-const sessTitle = s => isNewChat(s.name) ? chatTitle(s.claude) : (s.claude?.label || (s.project && byId()[s.project]?.name) || s.name);
+const sessTitle = s => isNewChat(s.name) ? chatTitle(s.claude) : (s.claude?.label || s.rename || (s.project && byId()[s.project]?.name) || s.name);
 const newSessionModal = (tab, text, opts) => FEAT.session ? FEAT.session.open(tab, text, opts) : newTerminalModal();
 function claudeOf(name) { const s = S.runtime.sessions.find(x => x.name === name); return s && s.claude || null; }
 const isClaudeSession = s => s.name.startsWith('claude-') || s.current === 'claude' || !!s.claude;
@@ -597,7 +597,7 @@ const isClaudeSession = s => s.name.startsWith('claude-') || s.current === 'clau
 function termSessions() {
   const P = byId(); const out = { claude: [], dev: [], other: [], all: [] };
   for (const s of S.runtime.sessions) {
-    const pr = P[s.project]; const item = { name: s.name, pid: s.project, project: pr?.name || s.cwd?.split('/').pop() || '?', org: pr?.org || '', group: pr?.group, cpu: s.cpu, mem: s.mem, started: s.startedAt, cwd: s.cwd, current: s.current, attached: s.attached, ports: (s.ports || []).filter(p => !p.ephemeral), managed: s.managed, claude: s.claude || null };
+    const pr = P[s.project]; const item = { name: s.name, pid: s.project, project: pr?.name || s.cwd?.split('/').pop() || '?', org: pr?.org || '', group: pr?.group, cpu: s.cpu, mem: s.mem, started: s.startedAt, cwd: s.cwd, current: s.current, attached: s.attached, ports: (s.ports || []).filter(p => !p.ephemeral), managed: s.managed, rename: s.rename || null, claude: s.claude || null };
     if (isClaudeSession(s)) out.claude.push({ ...item, account: s.claude?.account || (s.name.endsWith('-company') ? 'company' : 'personal') });
     else if (s.managed) out.dev.push({ ...item, label: s.label });
     else out.other.push(item);
@@ -657,7 +657,7 @@ function renderTermPanel(force) {
   const extra = [...TERM.frames.keys()].filter(k => !known.has(k));
   // The list and the bar are rebuilt only when something they show actually changed. Rebuilding them on every
   // 3-second state tick blurred the terminal iframe (the focus bug) and made the sidebar flicker.
-  const key = JSON.stringify([TERM.active, TERM.showList, TERM.view[TERM.active] || '', TERM.focus, S3.all.map(x => [x.name, x.claude?.mode, x.claude?.state, x.claude?.title, x.claude?.label, x.claude?.firstPrompt, (x.claude?.projects || []).join(), x.claude?.draft, x.claude?.model, x.claude?.effort, x.claude?.branch, x.claude?.worktree?.name, x.claude?.version, x.claude?.wantVersion, (S.settings.muted || []).includes(x.name), Math.floor((x.cpu || 0) / 10), x.ports.map(p => p.port)]), S.claude?.installed, S.claude?.update?.version, CLAUDE_UPGRADING, extra, [...TERM.frames.keys()], S.runtime.sessions.filter(s => s.name === TERM.active).map(s => s.project + (gitOf(byId()[s.project] || {})?.dirty || 0) + '|' + (s.claude?.ctx ? Math.round(s.claude.ctx.used / 1000) + '/' + s.claude.ctx.window + '/' + s.claude.ctx.compactAt : '')), feat('termBarKey', TERM.active)]);
+  const key = JSON.stringify([TERM.active, TERM.showList, TERM.view[TERM.active] || '', TERM.focus, S3.all.map(x => [x.name, x.claude?.mode, x.claude?.state, x.claude?.title, x.claude?.label, x.rename, x.claude?.firstPrompt, (x.claude?.projects || []).join(), x.claude?.draft, x.claude?.model, x.claude?.effort, x.claude?.branch, x.claude?.worktree?.name, x.claude?.version, x.claude?.wantVersion, (S.settings.muted || []).includes(x.name), Math.floor((x.cpu || 0) / 10), x.ports.map(p => p.port)]), S.claude?.installed, S.claude?.update?.version, CLAUDE_UPGRADING, extra, [...TERM.frames.keys()], S.runtime.sessions.filter(s => s.name === TERM.active).map(s => s.project + (gitOf(byId()[s.project] || {})?.dirty || 0) + '|' + (s.claude?.ctx ? Math.round(s.claude.ctx.used / 1000) + '/' + s.claude.ctx.window + '/' + s.claude.ctx.compactAt : '')), feat('termBarKey', TERM.active)]);
   const frames = $('#term-frames'); const chatOn = TERM.active && chatMode(TERM.active);
   for (const [k, f] of TERM.frames) { if (!f.isConnected) frames.append(f); f.classList.toggle('on', k === TERM.active && !chatOn); }
   $('#term-chat').classList.toggle('hidden', !chatOn);
@@ -671,7 +671,7 @@ function renderTermPanel(force) {
   const item = (it, kind, sub) => {
     const isActive = TERM.active === it.name; const opened = TERM.frames.has(it.name); const cl = it.claude; const i = kind === 'claude' ? instOf(it) : null;
     const where = i && (i.wt ? h('span', { class: 'grp wt', title: i.wt.path ? 'git worktree · ' + home(i.wt.path) : 'git worktree' }, ico('branch', 12), ' ' + i.wt.name + (i.branch && i.branch !== i.wt.name ? ' · ' + i.branch : '')) : i.branch ? h('span', { class: 'grp', title: 'branch' }, ico('branch', 12), ' ' + i.branch) : null);
-    const name = kind === 'claude' ? (sub ? h('span', { class: 'inst' }, gl(i.label, 12)) : isNewChat(it.name) ? chatTitle(cl) : (cl?.label || it.project)) : kind === 'dev' ? it.project : it.name.startsWith('sh-') ? it.name : it.name;
+    const name = kind === 'claude' ? (sub ? h('span', { class: 'inst' }, gl(i.label, 12)) : isNewChat(it.name) ? chatTitle(cl) : (cl?.label || it.project)) : it.rename || (kind === 'dev' ? it.project : it.name);
     const acctTag = kind === 'claude' && multiAcct() && it.account !== 'personal' ? h('span', { class: 'badge tag acc ' + it.account }, acct(it.account)) : null;
     const tag = kind === 'claude' ? null : kind === 'dev' ? h('span', { class: 'grp' }, it.label) : it.name.startsWith('sh-') ? h('span', { class: 'grp' }, 'bash') : null;
     const line2 = cl ? [h('span', { class: 'cst mini ' + cl.state }, gico(STATE_ICON[cl.state] || '·', 10), ' ', STATE_LABEL[cl.state] || cl.state), cl.model ? h('span', { class: 'mdl' }, modelName(cl.model)) : null, !sub && i && i.n ? h('span', { class: 'grp' }, '#' + i.n) : null, acctTag]
@@ -689,7 +689,7 @@ function renderTermPanel(force) {
         ev.stopPropagation(); const btn = ev.currentTarget;
         openMenu(ev, [
           kind === 'claude' && !sub && it.pid ? { label: 'Another Claude on this project', icon: 'plus', onclick: () => plusClaude({ currentTarget: btn, stopPropagation() {} }, it.pid) } : null,
-          cl ? { label: 'Rename', icon: 'pencil', onclick: () => renameDialog(it.name) } : null,
+          { label: 'Rename', icon: 'pencil', onclick: () => renameDialog(it.name) },
           { label: 'Open in new tab', icon: 'ext', onclick: () => openTermTab(it.name) },
         ].filter(Boolean));
       } }, ico('dots', 16)));
@@ -725,7 +725,7 @@ function renderTermPanel(force) {
   if (TERM.active) barAdd(h('button', { class: 'btn sm ghost icon desk', title: 'back to the dashboard — every session keeps running  (Esc)', onclick: closeTermPanel }, ico('back', 15)),
     h('button', { class: 'btn sm ghost icon desk' + (TERM.focus ? ' on' : ''), title: TERM.focus ? 'show the rail again' : 'focus mode — hide the rail with every session (screen sharing)', onclick: () => setFocus(!TERM.focus) }, ico('sidebar', 15)),
     h('span', { class: 'tid desk' }, act ? avatar(act.project, 'sm') : null,
-      h('span', { class: 'tname' + (cl ? ' can-rename' : ''), title: cl ? 'click to rename · ' + TERM.active : TERM.active, onclick: cl ? () => renameDialog(TERM.active) : null }, actName, instOf(act || { name: TERM.active }).n ? h('span', { class: 'grp' }, ' #' + instOf(act).n) : null),
+      h('span', { class: 'tname' + (act ? ' can-rename' : ''), title: act ? 'click to rename · ' + TERM.active : TERM.active, onclick: act ? () => renameDialog(TERM.active) : null }, actName, instOf(act || { name: TERM.active }).n ? h('span', { class: 'grp' }, ' #' + instOf(act).n) : null),
       cl && (cl.worktree?.name || cl.branch) ? h('span', { class: 'tcrumb' + (cl.worktree?.name ? ' wt' : ''), title: cl.worktree?.name ? 'git worktree' + (cl.branch ? ' · branch ' + cl.branch : '') : 'branch' }, ico('chevronRight', 12), h('span', { class: 'tcrumb-b' }, cl.worktree?.name || cl.branch)) : null,
       IS_PHONE ? null : accTag()),
     cl && !IS_PHONE ? stateBadge(cl) : null,
@@ -2101,19 +2101,23 @@ function scheduleDialog(name, draft) {
   setAt(at); setTimeout(() => first.focus(), 50);
 }
 function renameDialog(name) {
-  const sess = S.runtime.sessions.find(x => x.name === name); if (!sess || !sess.claude) return;
+  const sess = S.runtime.sessions.find(x => x.name === name); if (!sess) return;
+  // Claude sessions keep their name in claude.js (claude-label); any other session (shell, dev server…) gets a display
+  // name (session-label): only what the dashboard shows changes, the tmux session keeps its own
+  const cl = sess.claude; const auto = cl ? null : sess.managed ? byId()[sess.project]?.name || name : name;
   const m = $('#modal'); m.classList.remove('hidden');
-  const cur = sessTitle(sess); const close = () => m.classList.add('hidden');
-  const inp = h('input', { class: 'txt', value: (sess.claude.label || sess.claude.title || (isNewChat(name) && sess.claude.firstPrompt) || cur).slice(0, 60), maxlength: 60, placeholder: 'empty = automatic name' });
-  const save = async () => { const label = inp.value.trim(); close(); if (label === (sess.claude.label || '')) return; await act(label ? 'Renamed to ' + label : 'Name reset', api('claude-label', { session: name, label })); };
+  const cur = cl ? sessTitle(sess) : sess.rename || auto; const given = (cl ? cl.label : sess.rename) || ''; const close = () => m.classList.add('hidden');
+  const inp = h('input', { class: 'txt', value: (cl ? cl.label || cl.title || (isNewChat(name) && cl.firstPrompt) || cur : cur).slice(0, 60), maxlength: 60, placeholder: cl ? 'empty = automatic name' : 'empty = ' + auto });
+  const save = async () => { const label = inp.value.trim(); close(); if (label === given) return; await act(label ? 'Renamed to ' + label : 'Name reset', api(cl ? 'claude-label' : 'session-label', { session: name, label })); };
   inp.addEventListener('keydown', ev => { ev.stopPropagation(); if (ev.key === 'Enter') { ev.preventDefault(); save(); } else if (ev.key === 'Escape') close(); });
   m.replaceChildren(h('div', { class: 'box settings rename' },
     h('div', { class: 'sh' }, h('h3', null, 'Rename session'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', onclick: close }, ico('x', 15))),
     h('div', { class: 'sbody' },
-      h('div', { class: 'sto' }, avatar(sess.project, 'sm'), h('b', null, cur), h('span', { class: 'badge tag acc ' + (sess.claude.account || '') }, sess.claude.account || '')),
+      h('div', { class: 'sto' }, avatar(sess.project, 'sm'), h('b', null, cur), cl ? h('span', { class: 'badge tag acc ' + (cl.account || '') }, cl.account || '') : null),
       inp,
-      h('div', { class: 'hint' }, 'Shown in the session list, the terminal bar and history. Leave it empty to go back to the automatic name.')),
-    h('div', { class: 'foot' }, sess.claude.label ? h('button', { class: 'btn ghost', onclick: () => { inp.value = ''; save(); } }, 'Reset') : null, h('span', { class: 'sp' }), h('button', { class: 'btn ghost', onclick: close }, 'Cancel'), h('button', { class: 'btn primary', onclick: save }, 'Save'))));
+      h('div', { class: 'hint' }, cl ? 'Shown in the session list, the terminal bar and history. Leave it empty to go back to the automatic name.'
+        : `Shown in the session list and the terminal bar; the tmux session stays ${name}. Leave it empty to go back to ${auto}.`)),
+    h('div', { class: 'foot' }, given ? h('button', { class: 'btn ghost', onclick: () => { inp.value = ''; save(); } }, 'Reset') : null, h('span', { class: 'sp' }), h('button', { class: 'btn ghost', onclick: close }, 'Cancel'), h('button', { class: 'btn primary', onclick: save }, 'Save'))));
   m.onclick = e => { if (e.target === m) close(); };
   setTimeout(() => { inp.focus(); inp.select(); }, 50);
 }
@@ -2940,7 +2944,7 @@ let railKey = '';
 function renderRail() {
   const el = $('#rail-list'); if (!el) return;
   const S3 = termSessions(); const act = TERM.open ? TERM.active : null; const min = Math.floor(Date.now() / 60000);
-  const key = JSON.stringify([act, min, S.projects.length, S3.all.map(x => [x.name, x.pid, x.claude?.state, x.claude?.needsYou, x.claude?.label, x.claude?.title, x.claude?.firstPrompt, x.claude?.since, x.claude?.lastTool, x.claude?.model, x.claude?.worktree?.name, x.claude?.settled?.at, x.claude?.settled?.until, x.project, x.label, x.current, x.cwd, x.ports.map(p => p.port)]), feat('termBarKey', act)]);
+  const key = JSON.stringify([act, min, S.projects.length, S3.all.map(x => [x.name, x.pid, x.claude?.state, x.claude?.needsYou, x.claude?.label, x.rename, x.claude?.title, x.claude?.firstPrompt, x.claude?.since, x.claude?.lastTool, x.claude?.model, x.claude?.worktree?.name, x.claude?.settled?.at, x.claude?.settled?.until, x.project, x.label, x.current, x.cwd, x.ports.map(p => p.port)]), feat('termBarKey', act)]);
   if (key === railKey) return; railKey = key;
   const sub = it => {
     const cl = it.claude; if (!cl) return it.label ? it.label + (it.ports.length ? ' · :' + it.ports.map(p => p.port).join(' :') : '') : (it.current || 'bash') + ' · ' + home(it.cwd);
@@ -2951,7 +2955,7 @@ function renderRail() {
   };
   const row = (it, kind, tuck) => {
     const cl = it.claude; const st = cl ? cl.state || 'unknown' : kind; const i = kind === 'claude' ? instOf(it) : null;
-    const nm = kind === 'claude' ? (isNewChat(it.name) ? chatTitle(cl) : cl?.label || (tuck ? (i.wt ? it.project : '#' + (i.n || 1)) : it.name.startsWith('sh-') ? it.name : it.project)) : kind === 'dev' ? it.project : it.name;
+    const nm = kind === 'claude' ? (isNewChat(it.name) ? chatTitle(cl) : cl?.label || (tuck ? (i.wt ? it.project : '#' + (i.n || 1)) : it.name.startsWith('sh-') ? it.name : it.project)) : it.rename || (kind === 'dev' ? it.project : it.name);
     const subline = sub(it); const age = cl?.since && st !== 'unknown' ? ago(cl.since).replace(/\.\d+/, '') : '';
     return h('button', { class: 'rrow k-' + kind + ' st-' + st + (tuck ? ' sub' : '') + (act === it.name ? ' on' : '') + (cl?.needsYou ? ' need' : '') + (cl?.settled ? ' settled' : ''), title: it.name + (cl ? ' · ' + (STATE_LABEL[st] || st) : '') + (cl?.settled ? ' · ' + (cl.settled.until ? 'snoozed' : 'settled') : ''), onclick: () => openTerm(it.name) },
       kind === 'claude' && !tuck ? h('span', { class: 'rav' }, avatar(it.pid, 'sm'), h('i', { class: 'rdot' })) : h('i', { class: 'rdot' }),
@@ -2959,7 +2963,7 @@ function renderRail() {
         subline ? h('span', { class: 'rln2' }, h('span', { class: 'rsub' + (st === 'working' ? ' mono' : '') }, subline)) : null),
       age ? h('span', { class: 'rage', title: 'since ' + new Date(cl.since).toLocaleTimeString() }, age) : null,
       ...feat('termItem', it.name),
-      cl ? h('span', { class: 'redit', role: 'button', title: 'rename this session', onclick: ev => { ev.stopPropagation(); renameDialog(it.name); } }, ico('pencil', 13)) : null);
+      h('span', { class: 'redit', role: 'button', title: 'rename this session', onclick: ev => { ev.stopPropagation(); renameDialog(it.name); } }, ico('pencil', 13)));
   };
   const out = [];
   for (const og of orgGroups(S3.claude)) {
@@ -3125,8 +3129,8 @@ function paletteItems() {
   const q = PAL.q.toLowerCase().trim(); const items = [];
   const S3 = termSessions();
   for (const it of S3.claude) items.push({ kind: 'claude', label: isNewChat(it.name) ? chatTitle(it.claude) : it.project + (it.name.match(/-wt-([^-]+)/) ? ' · ' + it.name.match(/-wt-([^-]+)/)[1] : '') + (it.name.match(/^claude-.*-(\d+)(-company)?$/) ? ' #' + it.name.match(/-(\d+)(-company)?$/)[1] : ''), sub: (it.claude ? (STATE_LABEL[it.claude.state] || '') + (it.claude.title ? ' · ' + it.claude.title : '') : '') || it.name, tag: it.account, icon: STATE_ICON[it.claude?.state] || '✦', cls: 'st-' + (it.claude?.state || 'unknown'), hay: [it.project, it.name, it.claude?.label, it.claude?.title, it.claude?.firstPrompt, it.claude?.lastPrompt, it.account].join(' '), run: () => openTerm(it.name), rank: 1 });
-  for (const it of S3.dev) items.push({ kind: 'dev', label: it.project + ' · ' + it.label, sub: it.ports.map(p => ':' + p.port).join(' ') || it.name, icon: '▶', hay: [it.project, it.label, it.name].join(' '), run: () => openTerm(it.name), rank: 10 });
-  for (const it of S3.other) items.push({ kind: 'other', label: it.name, sub: it.cwd, icon: '⌨', hay: it.name + ' ' + it.cwd, run: () => openTerm(it.name), rank: 11 });
+  for (const it of S3.dev) items.push({ kind: 'dev', label: (it.rename || it.project) + ' · ' + it.label, sub: it.ports.map(p => ':' + p.port).join(' ') || it.name, icon: '▶', hay: [it.rename, it.project, it.label, it.name].join(' '), run: () => openTerm(it.name), rank: 10 });
+  for (const it of S3.other) items.push({ kind: 'other', label: it.rename || it.name, sub: it.rename ? it.name + ' · ' + it.cwd : it.cwd, icon: '⌨', hay: [it.rename, it.name, it.cwd].join(' '), run: () => openTerm(it.name), rank: 11 });
   for (const p of S.projects.filter(p => !p.hidden)) items.push({ kind: 'project', label: p.name, sub: [p.org, p.group, p.framework].filter(Boolean).join(' · '), icon: '▤', hay: [p.name, p.rel, p.org, p.framework].join(' '), run: () => openDrawer(p.id, 'overview'), rank: 20, more: [{ l: '✦', t: `Claude (${acctL('personal')})`, f: () => startClaude(p, 'personal') }, { l: '✦ c', t: `Claude (${acctL('company')})`, f: () => startClaude(p, 'company') }, { l: '±', t: 'changes', f: () => openDrawer(p.id, 'changes') }] });
   items.push({ kind: 'action', label: 'New chat', sub: 'type right away — the project is guessed', icon: '＋', hay: 'new chat session claude start', run: () => newSessionModal('new'), rank: 28 },
     { kind: 'action', label: 'Resume a conversation', sub: 'past conversations, with search', icon: '↺', hay: 'resume history past conversation old chat', run: () => newSessionModal('resume'), rank: 28 },

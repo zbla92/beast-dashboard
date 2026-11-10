@@ -1024,7 +1024,7 @@ async function api(req, res, url) {
       const cmd = b.cmd || p.commands.find(c => c.name === b.name)?.cmd; if (!cmd) return json(res, 400, { error: 'no command' });
       const r = await actions.start(p, b.name || 'run', cmd); setTimeout(tick, 800); return json(res, r.ok ? 200 : 409, r);
     }
-    case 'stop': { const r = await actions.stop(b.session, !!b.force); if (String(b.session).startsWith('claude-')) claude.forget(b.session); setTimeout(tick, 300); return json(res, 200, r); }
+    case 'stop': { const r = await actions.stop(b.session, !!b.force); if (String(b.session).startsWith('claude-')) claude.forget(b.session); else if (r.ok) rt.setLabel(String(b.session), null); setTimeout(tick, 300); return json(res, 200, r); }
     case 'shell': { const r = await actions.shellSession(); setTimeout(tick, 600); return json(res, r.ok ? 200 : 500, r); } // persistent bash in tmux (sh-N)
     case 'claude': {
       const p = proj(b.id); if (!p) return json(res, 404, { error: 'no project' });
@@ -1218,6 +1218,12 @@ async function api(req, res, url) {
       if (!r) return json(res, 500, { ok: false, error: 'undo failed' });
       if (!b.dry) refreshGit(false).then(() => pushState(false)).catch(e => console.error('checkpoint-restore:', e.message));
       return json(res, r.ok || r.undo ? 200 : 409, r);
+    }
+    case 'session-label': {   // a non-Claude session's display name (Claude sessions: claude-label)
+      const name = String(b.session || '');
+      if (!snapshot.sessions.some(x => x.name === name)) return json(res, 404, { ok: false, error: 'no such session' });
+      if (claude.get(name)) return json(res, 400, { ok: false, error: 'a Claude session: use claude-label' });
+      const r = rt.setLabel(name, b.label); setTimeout(tick, 100); return json(res, 200, r);
     }
     case 'claude-label': {
       const r = claude.setLabel(String(b.session || ''), b.label);
