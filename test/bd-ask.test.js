@@ -2,6 +2,8 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const http = require('node:http');
+const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { main, parse } = require('../bin/bd-ask');
 
@@ -32,16 +34,17 @@ const ID = 'claude-spec-writer-261111-0930';
 const run = (state, extra = {}) => ({ ok: true, runId: ID, specialist: 'writer', state, text: null, error: null, ...extra });
 const envOf = d => ({ BEAST_DASH_PORT: String(d.port) });
 
-test('--list prints name, title and description per specialist', async t => {
+test('--list prints name, title, description and use per specialist', async t => {
   const d = await fakeDash(t, () => [200, { ok: true, specialists: [
-    { name: 'writer', title: 'Writer', description: 'Drafts  messages\nin my voice' },
+    { name: 'writer', title: 'Writer', description: 'Drafts  messages\nin my voice', use: 'both' },
+    { name: 'plain', title: 'Plain', description: 'No use key' },
     { name: 'broken', dir: '/x', error: 'bad json' },
   ] }]);
   const o = io();
   assert.equal(await main(['--list'], envOf(d), o), 0);
   assert.equal(d.seen[0].method, 'GET');
   assert.equal(d.seen[0].url, '/api/specialists');
-  assert.deepEqual(o.outs, ['writer\tWriter\tDrafts messages in my voice', 'broken\t(invalid: bad json)']);
+  assert.deepEqual(o.outs, ['writer\tWriter\tDrafts messages in my voice\tboth', 'plain\tPlain\tNo use key\tagent', 'broken\t(invalid: bad json)']);
 });
 
 test('asking posts text, absolute files and wait, then prints only the text', async t => {
@@ -54,6 +57,34 @@ test('asking posts text, absolute files and wait, then prints only the text', as
   assert.deepEqual(d.seen[0].body, { text: 'Reply to Ana', wait: true, timeoutSec: 300, files: [path.resolve('/work/repo', 'a.txt'), '/abs/b.txt'] });
   assert.deepEqual(o.outs, ['Hi there']);
   assert.deepEqual(o.errs, []);
+});
+
+test('--source appends the file verbatim under the original material heading', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bd-ask-src-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const one = path.join(dir, 'one.txt'), two = path.join(dir, 'two.txt');
+  fs.writeFileSync(one, 'Ana wrote:\n  keep   spacing\n');
+  fs.writeFileSync(two, 'second');
+  const d = await fakeDash(t, () => [200, run('done', { text: 'ok' })]);
+  assert.equal(await main(['writer', 'Reply', '--source', one, `--source=${two}`], envOf(d), io()), 0);
+  assert.equal(d.seen[0].body.text, 'Reply\n\nOriginal material (verbatim):\nAna wrote:\n  keep   spacing\n\n\nsecond');
+});
+
+test('an unreadable --source is a usage error and sends nothing', async t => {
+  const d = await fakeDash(t, () => [200, run('done', { text: 'ok' })]);
+  const o = io();
+  assert.equal(await main(['writer', 'Reply', '--source', '/no/such/file'], envOf(d), o), 2);
+  assert.equal(d.seen.length, 0);
+  assert.match(o.errs[0], /cannot read --source/);
+});
+
+test('--source goes with a new task only and the usage tells agents to pass the source', async () => {
+  const o = io();
+  assert.equal(await main(['--wait', 'r', '--source', 'f'], {}, o), 2);
+  const h = io();
+  assert.equal(await main(['--help'], {}, h), 0);
+  assert.match(h.outs[0], /original text verbatim/);
+  assert.match(h.outs[0], /every relevant file with --file/);
 });
 
 test('the task can come from stdin', async t => {

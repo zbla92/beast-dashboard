@@ -18,6 +18,7 @@
 .tcrumb { flex: 0 1 auto; display: inline-flex; align-items: center; gap: 6px; min-width: 0; color: var(--muted); font-size: var(--fs-sm); white-space: nowrap; }
 .tcrumb .ico { flex: none; color: var(--dim); }
 .tcrumb-b { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tgone { flex: 0 1 auto; min-width: 0; font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tcrumb.wt .tcrumb-b { color: var(--orange); }
 .termbar .tid .tacc { background: none; padding: 0 2px; }
 .termmain:has(#term-chat:not(.hidden)) .termbar .tid .tacc { display: none; }

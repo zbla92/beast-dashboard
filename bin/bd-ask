@@ -5,15 +5,20 @@ const path = require('path');
 const http = require('http');
 
 const USAGE = `usage: bd-ask --list
-       bd-ask <specialist> (<task> | -) [--file <path>]... [--timeout <sec>] [--no-wait]
+       bd-ask <specialist> (<task> | -) [--file <path>]... [--source <path>]... [--timeout <sec>] [--no-wait]
        bd-ask --wait <runId> [--timeout <sec>]
        bd-ask --continue <runId> (<text> | -) [--timeout <sec>]
 
 Hands a task to a specialist through the running dashboard and prints only its final answer on stdout,
 so the answer is all that enters your context. "-" reads the task from stdin.
 
-  --list        one line per specialist: name, title, description
+Pass the source, not only your summary: put the original text verbatim in the task (pipe it in with "-")
+and give every relevant file with --file. A summary of yours loses facts the specialist then cannot recover.
+The task and the file list together may be up to 100000 characters.
+
+  --list        one line per specialist: name, title, description, use (agent, skill or both)
   --file        a file the specialist should read (repeatable; relative paths are made absolute)
+  --source      a text file whose content is appended verbatim to the task under "Original material (verbatim):" (repeatable)
   --no-wait     start the run and print its run id only
   --wait        wait for an existing run and print its answer
   --continue    send a follow-up to a finished run and wait for the new answer
@@ -29,9 +34,9 @@ const SERVER_WAIT_MAX = 300;
 const DEFAULT_TIMEOUT = 900;
 
 function parse(argv) {
-  const o = { args: [], files: [] };
+  const o = { args: [], files: [], sources: [] };
   const rest = [...argv];
-  const valued = new Set(['--file', '--timeout', '--wait', '--continue']);
+  const valued = new Set(['--file', '--source', '--timeout', '--wait', '--continue']);
   while (rest.length) {
     const a = rest.shift();
     const at = a.indexOf('=');
@@ -40,6 +45,7 @@ function parse(argv) {
       const value = flag !== a ? a.slice(at + 1) : rest.shift();
       if (value === undefined || value === '') throw new Error(`${flag} needs a value`);
       if (flag === '--file') o.files.push(value);
+      else if (flag === '--source') o.sources.push(value);
       else o[flag.slice(2)] = value;
     } else if (a === '--list' || a === '--no-wait') o[a.slice(2)] = true;
     else if (a === '-h' || a === '--help') o.help = true;
@@ -87,7 +93,7 @@ async function main(argv, env, io) {
   const asking = !modes;
   const wantArgs = o.list || o.wait !== undefined ? 0 : o.continue !== undefined ? 1 : 2;
   if (modes > 1 || o.args.length !== wantArgs) { io.err(`bd-ask: ${asking && o.args.length < 2 ? 'give a specialist and a task' : 'wrong arguments'}\n${USAGE}`); return 2; }
-  if (!asking && (o.files.length || o['no-wait'])) { io.err(`bd-ask: --file and --no-wait go with a new task\n${USAGE}`); return 2; }
+  if (!asking && (o.files.length || o.sources.length || o['no-wait'])) { io.err(`bd-ask: --file, --source and --no-wait go with a new task\n${USAGE}`); return 2; }
   const timeout = o.timeout === undefined ? DEFAULT_TIMEOUT : Number(o.timeout);
   if (!Number.isFinite(timeout) || timeout < 1) { io.err('bd-ask: --timeout is a number of seconds, at least 1'); return 2; }
   const textArg = asking ? o.args[1] : o.continue !== undefined ? o.args[0] : null;
@@ -109,7 +115,7 @@ async function main(argv, env, io) {
     if (r.fatal) { io.err(`bd-ask: ${r.message}`); return r.fatal; }
     const items = r.run.specialists || [];
     if (!items.length) { io.err('bd-ask: no specialists yet; create one in the dashboard'); return 0; }
-    for (const s of items) io.out(s.error ? `${s.name}\t(invalid: ${oneLine(s.error)})` : `${s.name}\t${oneLine(s.title)}\t${oneLine(s.description)}`);
+    for (const s of items) io.out(s.error ? `${s.name}\t(invalid: ${oneLine(s.error)})` : `${s.name}\t${oneLine(s.title)}\t${oneLine(s.description)}\t${s.use || 'agent'}`);
     return 0;
   }
 
@@ -153,7 +159,13 @@ async function main(argv, env, io) {
     return follow(r.run);
   }
 
-  const body = { text, wait: !o['no-wait'], timeoutSec: sec };
+  const material = [];
+  for (const f of o.sources) {
+    const full = path.resolve(io.cwd, f);
+    try { material.push(fs.readFileSync(full, 'utf8')); } catch (e) { io.err(`bd-ask: cannot read --source ${f}: ${e.message}`); return 2; }
+  }
+  const asked = material.length ? `${text}\n\nOriginal material (verbatim):\n${material.join('\n\n')}` : text;
+  const body = { text: asked, wait: !o['no-wait'], timeoutSec: sec };
   if (o.files.length) body.files = o.files.map(f => path.resolve(io.cwd, f));
   const r = await request('POST', `/api/specialist/${encodeURIComponent(o.args[0])}/ask`, body, o['no-wait'] ? 60000 : limit(sec));
   if (r.fatal) { io.err(`bd-ask: ${r.message}`); return r.fatal; }

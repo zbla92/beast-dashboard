@@ -40,3 +40,10 @@
   .sax-box { width: 100%; padding: var(--sp-4); border-radius: var(--r-xl) var(--r-xl) 0 0; }
   .sax-pick { height: 44px; }
 }
+.sax-attach { display: flex; flex-direction: column; gap: 6px; font-size: var(--fs-sm); color: var(--muted); }
+.sax-inc, .sax-file { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }
+.sax-file { font-size: var(--fs-xs); overflow-wrap: anywhere; }
+.sax-attach summary { cursor: pointer; }
+.sax-prev pre { max-height: 30vh; overflow: auto; margin: 6px 0 0; padding: 8px; border: 1px solid var(--line2); border-radius: var(--r-sm); white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--fs-xs); }
+.sax-files { max-height: 22vh; overflow: auto; }
+.sax-box { overflow-y: auto; }

@@ -8,6 +8,14 @@ FEAT.specialists = (() => {
   const PROVIDERS = [['claude', 'Claude'], ['openai', 'OpenAI'], ['xai', 'xAI']];
   const MODEL_HINT = { openai: 'model id, e.g. gpt-5', xai: 'model id, e.g. grok-4' };
   const RUN_STATE = { starting: 'starting', working: 'working', waiting: 'needs an answer', done: 'done', error: 'error', stopped: 'stopped' };
+  const USES = [['skill', 'Skill'], ['agent', 'Separate agent'], ['both', 'Both']];
+  const USE_NOTE = {
+    skill: 'Agents load its profile into their own chat and do the work themselves, so nothing gets lost in a handoff.',
+    agent: 'Agents send it a task and get its answer back (bd-ask). Use for its own accesses, another provider or an independent view.',
+    both: 'Agents load it as a skill by default and ask it separately only when the work needs isolation.'
+  };
+  const USE_CHIP = { skill: 'Skill', agent: 'Agent', both: 'Skill + agent' };
+  const SKILL_BAD = new Set(['edited', 'conflict', 'error']);
   const V = { list: [], templates: [], at: 0, busy: false, ok: false, sig: '' };
   const CR = { onEsc: null };
   const SEEN_KEY = 'bd.spec.seen';
@@ -228,6 +236,23 @@ FEAT.specialists = (() => {
   const select = (list, cur) => { const s = h('select', { class: 'txt' }, opts(list, cur)); s.value = cur ?? ''; return s; };
   const field = (label, el, cls = '') => h('label', { class: 'sp-f ' + cls }, h('span', null, label), el);
 
+  const legacyServer = () => V.list.some(valid) && !V.list.some(p => valid(p) && p.skill);
+  const useOf = p => USE_CHIP[p?.use] ? p.use : 'agent';
+  const usesSkill = p => useOf(p) !== 'agent';
+  const skillIssues = p => (p?.skill?.accounts || []).filter(a => SKILL_BAD.has(a.state));
+  const skillIssueText = p => skillIssues(p).map(a => a.account + ': ' + a.state + (a.error ? ' (' + a.error + ')' : '')).join('; ');
+
+  function useInput(provider, cur) {
+    const pick = select(USES, cur);
+    const note = h('span', { class: 'dim sp-note sp-usenote' });
+    const box = h('span', { class: 'sp-usebox' }, pick, note);
+    const paint = () => { note.textContent = USE_NOTE[pick.value] || ''; };
+    const show = prov => { if (isApi(prov)) pick.value = 'agent'; pick.disabled = isApi(prov); paint(); };
+    pick.onchange = paint;
+    show(provider);
+    return { box, show, value: () => pick.value };
+  }
+
   function modelInput(provider, cur) {
     const pick = select(MODELS, isApi(provider) ? '' : cur || '');
     const id = h('input', { class: 'txt', value: isApi(provider) ? cur || '' : '', maxlength: 128, autocapitalize: 'off', autocomplete: 'off', spellcheck: 'false' });
@@ -266,8 +291,9 @@ FEAT.specialists = (() => {
     const provider = select(PROVIDERS, 'claude');
     const model = modelInput('claude', null);
     const mode = select(MODES, 'run');
+    const use = useInput('claude', 'skill');
     const go = h('button', { class: 'btn primary ns-send' }, 'Create');
-    provider.onchange = () => model.show(provider.value);
+    provider.onchange = () => { model.show(provider.value); use.show(provider.value); };
     const fits = () => NAME_RE.test(name.value.trim()) && !/-$|-company$|-\d{6}-\d{4}|^run$/.test(name.value.trim());
     const sync = () => { go.disabled = !fits(); };
     tpl.onchange = () => { const t = templates.find(x => x.id === tpl.value); icon.placeholder = t?.meta?.icon || '◆'; };
@@ -282,6 +308,7 @@ FEAT.specialists = (() => {
       if (provider.value !== 'claude') body.provider = provider.value;
       if (model.value(provider.value)) body.model = model.value(provider.value);
       if (mode.value !== 'run') body.mode = mode.value;
+      if (!legacyServer()) body.use = use.value();
       try {
         const r = await api('specialist', body);
         await refresh(true);
@@ -296,7 +323,8 @@ FEAT.specialists = (() => {
       h('div', { class: 'sp-body' },
         field('Name', name), h('div', { class: 'sp-row' }, field('Title', title, 'grow'), field('Icon', icon)), field('Description', desc),
         h('div', { class: 'sp-row' }, field('Template', tpl, 'grow'), field('Mode', mode, 'grow')),
-        h('div', { class: 'sp-row' }, field('Provider', provider, 'grow'), field('Model', model.box, 'grow')), err),
+        h('div', { class: 'sp-row' }, field('Provider', provider, 'grow'), field('Model', model.box, 'grow')),
+        field('Used as', use.box), err),
       h('div', { class: 'sp-foot' }, h('span', { class: 'dim sp-note' }, 'Gets its own folder with instructions'), h('span', { class: 'sp' }), go));
     m.replaceChildren(box); setup(m, closeModal);
     sync(); if (!IS_PHONE) name.focus();
@@ -407,15 +435,16 @@ FEAT.specialists = (() => {
     const mode = select(MODES, p.mode); const perm = select(PERMS, p.permissionMode);
     const account = select([['personal', acct('personal')], ['company', acct('company')]], p.account);
     const claudeOnly = [field('Effort', effort), field('Permissions', perm), field('Account', account)];
-    const showProvider = () => { model.show(provider.value); for (const f of claudeOnly) f.classList.toggle('hidden', isApi(provider.value)); };
+    const use = useInput(provider.value, useOf(p));
+    const showProvider = () => { model.show(provider.value); use.show(provider.value); for (const f of claudeOnly) f.classList.toggle('hidden', isApi(provider.value)); };
     provider.onchange = showProvider;
     const ins = h('textarea', { class: 'sp-ins', spellcheck: 'false' }); ins.value = p.instructions || '';
     const err = h('div', { class: 'ns-status hidden' });
     const save = h('button', { class: 'btn primary ns-send' }, 'Save');
     const fail = (msg, reload) => { err.replaceChildren(...[msg, reload ? h('button', { class: 'btn sm ghost sp-reload', onclick: reload }, 'Reload') : null].filter(Boolean)); err.classList.remove('hidden'); };
     save.onclick = async () => {
-      const cur = { title: title.value.trim(), icon: icon.value.trim(), description: desc.value.trim(), provider: provider.value, model: model.value(provider.value), effort: effort.value || null, mode: mode.value, permissionMode: perm.value, account: account.value };
-      const base = { title: p.title || '', icon: p.icon || '', description: p.description || '', provider: p.provider || 'claude', model: p.model || null, effort: p.effort || null, mode: p.mode, permissionMode: p.permissionMode, account: p.account };
+      const cur = { title: title.value.trim(), icon: icon.value.trim(), description: desc.value.trim(), provider: provider.value, model: model.value(provider.value), effort: effort.value || null, mode: mode.value, permissionMode: perm.value, account: account.value, use: use.value() };
+      const base = { title: p.title || '', icon: p.icon || '', description: p.description || '', provider: p.provider || 'claude', model: p.model || null, effort: p.effort || null, mode: p.mode, permissionMode: p.permissionMode, account: p.account, use: useOf(p) };
       const body = {}; for (const k of Object.keys(cur)) if (cur[k] !== base[k]) body[k] = cur[k];
       if (body.provider !== undefined) body.model = cur.model;
       if (ins.value !== (p.instructions || '')) body.instructions = ins.value;
@@ -432,11 +461,19 @@ FEAT.specialists = (() => {
     const doArchive = async () => {
       try { await api('specialist/' + enc(p.name) + '/archive', {}); toast('Archived ' + (p.title || p.name), 'ok'); close(); refresh(true); } catch (e) { plain(); fail(e.message); }
     };
+    const edited = (p.skill?.accounts || []).filter(a => a.state === 'edited');
+    const regen = async () => {
+      try { await api('specialist/' + enc(p.name) + '/skill/sync', { force: true }); toast('Skill regenerated', 'ok'); await onSaved(null); } catch (e) { fail(e.message); }
+    };
+    const skillWarn = edited.length ? h('div', { class: 'sp-skillwarn' },
+      h('span', null, 'The skill was edited by hand in ' + edited.map(a => a.account).join(' and ') + '. Regenerating writes it again from this profile; the edited copy is saved in the profile first.'),
+      h('button', { class: 'btn sm', type: 'button', onclick: regen }, 'Regenerate skill')) : null;
     plain(); showProvider();
     return h('div', { class: 'sp-profile' }, h('div', { class: 'sp-scroll' },
       h('div', { class: 'sp-row' }, field('Title', title, 'grow'), field('Icon', icon)),
       field('Description', desc),
       h('div', { class: 'sp-grid' }, field('Provider', provider), field('Model', model.box), field('Mode', mode), ...claudeOnly),
+      field('Used as', use.box), skillWarn,
       field('Instructions (CLAUDE.md)', ins), err),
       h('div', { class: 'sp-foot' }, arch, h('span', { class: 'sp' }), save));
   }
@@ -520,6 +557,7 @@ FEAT.specialists = (() => {
     V3.fileIn = h('input', { type: 'file', multiple: true, class: 'hidden' });
     V3.drop = h('div', { class: 'sp-drop' });
     V3.usage = h('div', { class: 'dim sp-note' });
+    V3.skillNote = h('div', { class: 'dim sp-note sp-skillnote hidden' }, 'The skill updates with every change you make here.');
     V3.added = h('div', { class: 'sptr-added' });
     V3.hist = h('div', { class: 'sp-hist' });
     V3.acc = h('div', { class: 'sp-accs' });
@@ -537,7 +575,7 @@ FEAT.specialists = (() => {
     V3.drop.addEventListener('drop', ev => { if (!hasFiles(ev)) return; ev.preventDefault(); V3.drop.classList.remove('over'); addFiles(ev.dataTransfer.files); });
     V3.drop.replaceChildren(h('span', { class: 'dim' }, 'Drop files here, or '), h('button', { class: 'btn sm', onclick: () => V3.fileIn.click() }, ico('clip', 14), 'Add files'), V3.fileIn,
       h('div', { class: 'dim sp-note' }, 'They go into the knowledge folder. Text, PDF and images, up to 20 MiB each.'));
-    V3.files = h('div', { class: 'sptr-view' }, V3.drop, V3.upErr, V3.usage, V3.added);
+    V3.files = h('div', { class: 'sptr-view' }, V3.drop, V3.upErr, V3.usage, V3.added, V3.skillNote);
     V3.changes = h('div', { class: 'sptr-view' }, V3.hist, V3.histErr);
     V3.accesses = h('div', { class: 'sptr-view' }, V3.accHelp, V3.acc, h('div', { class: 'sp-accform' }, V3.accName, V3.accValue, V3.accNote, V3.accSave), V3.accErr);
     return V3;
@@ -735,6 +773,7 @@ FEAT.specialists = (() => {
     const count = { files: TR.ov?.uploads?.files, changes: null, accesses: TR.ov ? (TR.ov.accesses || []).length : null };
     TR.tabs.replaceChildren(...TAB_LABEL.map(([k, l]) => h('button', { class: 'segb' + (TR.tab === k ? ' on' : ''), onclick: () => { TR.tab = k; paintTrain(); } }, l, count[k] ? h('span', { class: 'sptr-n' }, count[k]) : null)));
     TR.body.replaceChildren(v[TR.tab]);
+    v.skillNote.classList.toggle('hidden', !usesSkill(specOf(TR.name)));
     paintFiles(); paintHist(); paintAcc();
   }
 
@@ -840,6 +879,7 @@ FEAT.specialists = (() => {
         isApi(p.provider) ? h('span', { class: 'badge tag' }, providerLabel(p.provider)) : null,
         h('span', { class: 'badge tag' }, modelLabel(p.model, p.provider)),
         h('span', { class: 'badge tag' }, runMode ? 'Fresh run per task' : 'Thread'),
+        h('span', { class: 'badge tag' + (skillIssues(p).length ? ' sp-skillbad' : ''), title: skillIssues(p).length ? 'Skill: ' + skillIssueText(p) : 'Used as ' + USE_CHIP[useOf(p)].toLowerCase() }, USE_CHIP[useOf(p)]),
         !isApi(p.provider) && p.account && p.account !== 'personal' ? h('span', { class: 'badge tag acc ' + p.account }, acct(p.account)) : null),
       runMode ? h('button', { class: 'btn sm ghost sptr-btn' + (PG.fresh ? ' on' : ''), title: 'The next message starts a new conversation. The old one is kept.', 'aria-pressed': PG.fresh ? 'true' : 'false', onclick: toggleFreshPage }, ico('plus', 14), h('span', { class: 'desk' }, PG.fresh ? 'New conversation: on' : 'New conversation')) : null,
       runMode ? h('button', { class: 'btn sm ghost sptr-btn' + (open && PG.tab === 'earlier' ? ' on' : ''), title: 'Earlier conversations', 'aria-pressed': open && PG.tab === 'earlier' ? 'true' : 'false', onclick: () => openPanelTab('earlier') }, ico('clock', 14), h('span', { class: 'desk' }, 'Earlier')) : null,
@@ -850,7 +890,7 @@ FEAT.specialists = (() => {
   const pageBarKey = tmux => {
     if (!tmux || tmux !== PG.tmux) return null;
     const p = pageSpec();
-    return [PG.panel, PG.sheet, PG.tab, PG.fresh, p.model, p.mode, p.provider, p.account];
+    return [PG.panel, PG.sheet, PG.tab, PG.fresh, p.model, p.mode, p.provider, p.account, p.use, skillIssueText(p)];
   };
 
   function termBar(tmux) {

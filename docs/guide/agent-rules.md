@@ -81,7 +81,9 @@ Use a plan for work with more than about 3 tasks or with parallel agents. If the
 - If `bd-chat` is missing, ask the user to open the chat from the dashboard.
 
 ### Specialists
-- When the user asks for a specialist by name, or a task clearly matches one in `bd-ask --list` (for example drafting a message in the user's voice), run `bd-ask <name> "<task>"` instead of doing it in this session. It prints only the specialist's answer; pass it on and paste back only what is needed. `bd-ask --help` shows the rest.
+- When the user asks for a specialist by name, or a task clearly matches one in `bd-ask --list` (for example drafting a message in the user's voice), use it. The last column of the list says how.
+- `skill` or `both`: load its skill, `specialist-<name>`, and do the work in this session, following the profile it points to. You keep the whole conversation and the files, so nothing gets lost in a summary. Read only the profile paths the skill names and never change the profile.
+- `agent`, or `both` when the work needs the specialist's own accesses or tools, another provider or an independent view: run `bd-ask <name> "<task>"`. Pass the original material, not your summary of it: the text verbatim (`-` reads the task from stdin, `--source <file>` adds a file's text) and every file it needs with `--file`. It prints only the specialist's answer; pass it on and paste back only what is needed. `bd-ask --help` shows the rest.
 
 ### Before calling work done
 - The project's checks pass.
