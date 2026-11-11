@@ -136,7 +136,7 @@ function iconJob(b) {
 const ROLL = { version: null, at: 0, total: 0, done: 0, failed: 0, waiting: 0 };
 let rollQueue = [], rollTimer = null, rollGen = 0, snapshotReady = false;
 const rollOn = st => settings.get().chatAutoUpgrade !== false && !!st.using && path.isAbsolute(st.bin || '');
-const outdated = (name, st) => { const L = headless.live(name); return !L || !!L.stale || (L.claude !== st.bin && (L.version || '') !== st.using); };
+const outdated = (name, st) => { const L = headless.live(name); return !L || !!L.stale || (!L.provider && L.claude !== st.bin && (L.version || '') !== st.using); };
 const hookBusy = name => ['working', 'background', 'permission'].includes(claude.info(name).state);
 const quietChat = name => { const L = headless.live(name); return !!(L && !L.stale && L.state === 'idle' && !L.turn && !(L.pending || []).length && !SWITCHING.has(name) && !hookBusy(name) && !autoresume.holdsChat(claude.info(name))); };
 function rollChats() {
