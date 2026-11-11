@@ -12,7 +12,7 @@ let sid = process.argv[process.argv.indexOf(process.argv.includes('--resume') ? 
 const emit = o => process.stdout.write(JSON.stringify({ ...o, session_id: sid }) + '\n');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const waiting = new Map(), inbox = [];
-let inited = false, aborted = false, busy = Promise.resolve(), n = 0;
+let inited = false, aborted = false, busy = Promise.resolve(), n = 0, said = '';
 
 const REPLAY = process.argv.includes('--replay-user-messages');
 const NO_UUID = !!process.env.FAKE_NO_UUID;
@@ -21,6 +21,7 @@ const remember = uuid => { if (!uuid || seen.has(uuid)) return; seen.add(uuid); 
 const replay = (content, uuid) => { if (REPLAY) emit({ type: 'user', message: { role: 'user', content }, parent_tool_use_id: null, isReplay: true, uuid: (!NO_UUID && uuid) || 'u' + ++n }); };
 const stream = event => emit({ type: 'stream_event', event, parent_tool_use_id: null });
 async function say(text) {
+  said = said ? said + text : text;
   stream({ type: 'message_start', message: { id: 'm' + ++n } });
   stream({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } });
   for (const part of text.match(/.{1,4}/gs) || []) { if (aborted) return; stream({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: part } }); await sleep(5); }
@@ -29,7 +30,7 @@ async function say(text) {
 function tool(id, name, input) { emit({ type: 'assistant', message: { content: [{ type: 'tool_use', id, name, input }] }, parent_tool_use_id: null }); }
 function toolResult(id, content, isError) { emit({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content, is_error: !!isError }] }, parent_tool_use_id: null }); }
 function ask(request) { const rid = 'req-' + ++n; emit({ type: 'control_request', request_id: rid, request: { subtype: 'can_use_tool', ...request } }); return new Promise(r => waiting.set(rid, r)); }
-function done(subtype = 'success', reason = 'completed') { emit({ type: 'result', subtype, terminal_reason: reason, duration_ms: 1, modelUsage: { 'fake-model': { contextWindow: 1000000 } } }); }
+function done(subtype = 'success', reason = 'completed') { const result = subtype === 'success' ? said : ''; said = ''; emit({ type: 'result', subtype, terminal_reason: reason, duration_ms: 1, is_error: subtype !== 'success', ...(process.env.FAKE_NO_RESULT ? {} : { result }), modelUsage: { 'fake-model': { contextWindow: 1000000 } } }); }
 
 async function turn(text, uuid, content = text) {
   aborted = false;

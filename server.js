@@ -62,6 +62,9 @@ const claudever = require('./lib/claudever');
 const claudeupdate = require('./lib/claudeupdate');
 claudever.init({ stateDir: STATE, versionsDir: process.env.BD_CLAUDE_VERSIONS, link: process.env.BD_CLAUDE_LINK, fake: TEST && !(process.env.BD_CLAUDE_VERSIONS && process.env.BD_CLAUDE_LINK) ? (process.env.BD_FAKE_CLAUDE || 'claude') : null, onChange: (st, prev) => { setTimeout(() => pushState(false), 0); if (st.using && st.using !== prev) setTimeout(rollChats, 0); } });
 headless.init({ port: settings.get().port, test: TEST, claudeBin: () => claudever.chatBin() });
+const specialists = require('./lib/specialists');
+const specialistRuns = require('./lib/specialist-runs').createRuns({ store: specialists, headless, tmuxHas: actions.sessionExists, claudeGet: claude.get, liveSessions: async () => { const r = await run('tmux', ['list-sessions', '-F', '#{session_name}']); if (!r.ok && !/no server running|error connecting to/.test(r.stderr || '')) throw new Error('tmux list-sessions failed'); return r.ok ? r.stdout.split('\n').filter(Boolean) : []; } });
+const specialistApi = require('./lib/specialist-api').createSpecialistApi({ store: specialists, runs: specialistRuns, readBody, onChange: () => setTimeout(tick, 200) });
 claude.setProjects(p => history.projectFor(p, projects));
 roots.init({ projects: () => projects });
 const liveOf = id => { const r = Object.values(claude.all()).find(x => !x.gone && x.sessionId === id); return r ? r.tmux : null; };
@@ -94,7 +97,7 @@ function targetCwd(target) {
 async function resumeChat(cwd, acc, sessionId) {
   const liveName = sessionId ? liveOf(sessionId) : null;
   if (liveName) { claude.forgetGone(sessionId, liveName); return { ok: true, name: liveName, existed: true }; }
-  const base = path.basename(cwd).replace(/[^A-Za-z0-9_.-]+/g, '-'); const suffix = acc === 'company' ? '-company' : '';
+  const base = headless.chatBase(path.basename(cwd)); const suffix = acc === 'company' ? '-company' : '';
   let name = `claude-${base}${suffix}`; let n = 2; while (claude.get(name) || await actions.sessionExists(name)) name = `claude-${base}-${n++}${suffix}`;
   const r = await headless.launch(name, cwd, acc, sessionId ? { start: 'resume', sessionId } : { start: 'new' });
   if (r.ok && !r.existed && sessionId) claude.forgetGone(sessionId, r.name || name);
@@ -702,6 +705,7 @@ const planSessions = () => Object.values(claude.all()).filter(r => r && !r.gone 
 async function api(req, res, url) {
   const parts = url.pathname.split('/').filter(Boolean).slice(1); // after 'api'
   const m = req.method;
+  if (await specialistApi.handle(req, res, parts, url, json)) return;
   if (m === 'GET' && parts[0] === 'state') return json(res, 200, stateObj());
   if (m === 'GET' && parts[0] === 'events') {
     if (!base) pushState(true);
@@ -1101,6 +1105,7 @@ async function api(req, res, url) {
     case 'chat-move': {
       const name = String(b.session || ''); const rec = claude.get(name);
       if (!rec || rec.mode !== 'chat' || !(await actions.sessionExists(name))) return json(res, 404, { error: 'no such chat session' });
+      if (rec.specialist || specialists.specialistOfTmux(name)) return json(res, 409, { error: 'a specialist session stays in its profile folder' });
       const cwd = targetCwd(b.target); if (!cwd || !fs.existsSync(cwd)) return json(res, 400, { error: 'unknown target' });
       if (path.resolve(cwd) === path.resolve(rec.cwd || '')) return json(res, 409, { error: 'already there' });
       if (SWITCHING.has(name)) return json(res, 409, { error: 'busy' });
@@ -1388,6 +1393,7 @@ async function bindTailnet(port) {
   await sys.sample();
   await tick();
   history.refresh(true).catch(e => console.error('history', e));
+  specialistRuns.boot().catch(e => console.error('specialists', e));
   setPace();   // starts at the calm pace; the first client speeds it up
   planStore.watch(ev => broadcast('plan', ev));
   if (!TEST) {

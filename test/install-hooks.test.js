@@ -287,3 +287,12 @@ test('a foreign bd-chat file is left alone', t => {
   go(h, { remove: true });
   assert.equal(fs.readFileSync(path.join(bin, 'bd-chat'), 'utf8'), 'mine');
 });
+
+test('the bd-ask command is linked next to bd-chat and taken out by --remove', t => {
+  const h = home(t);
+  const link = path.join(h, '.local', 'bin', 'bd-ask');
+  go(h, { plans: false });
+  assert.equal(fs.readlinkSync(link), path.join(ROOT, 'bin', 'bd-ask'));
+  go(h, { remove: true });
+  assert.throws(() => fs.lstatSync(link));
+});
