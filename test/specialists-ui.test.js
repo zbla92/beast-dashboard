@@ -42,7 +42,7 @@ const build = (list, sessions, phone = false, extra = {}) => {
       if (p.endsWith('/ask')) return { ok: true, tmux: 'claude-spec-writer-261111-0930' };
       return { ok: true, specialist: { ...list[0], instructions: '' }, runs: [], thread: null };
     },
-    toast() {}, renderRail() {}, renderTermPanel() {}, openTerm(n) { sandbox.opened = n; }, claudeOf: () => null,
+    toast() {}, renderRail() {}, renderTermPanel() {}, openTerm(n) { sandbox.opened = n; }, claudeOf: () => null, PENDING: {}, uploadFile: async f => '/pasted/' + f.name, closeTermPanel() { sandbox.left = true; },
     document: { hidden: true, addEventListener() {}, removeEventListener() {} }, setInterval: () => 0, clearInterval() {}, setTimeout,
   };
   modal.replaceChildren = (...k) => { sandbox.shown = k[0]; };
@@ -132,73 +132,191 @@ test('an idle run session looks idle and only a permission question is amber', a
   assert.match(rows[2].attrs.class, /need/);
 });
 
-test('the page poll stops once another dialog replaced the page', async () => {
-  const sb = build([P('writer')], []);
+const PAGE = 'claude-spec-writer_page';
+const pageSetup = async (o = {}) => {
+  const calls = []; const toasts = []; const reply = node('textarea', { class: 'creply' }, []); const field = node('div', {}, []);
+  field.insertBefore = c => field.kids.push(c);
+  const sb = build(o.list || [P('writer')], o.sessions || [], !!o.phone, {
+    TERM: { open: true, active: PAGE, showList: false },
+    feat: (hook, ...a) => Object.values(sb.FEAT).flatMap(f => f[hook] ? [f[hook](...a)] : []).filter(x => x != null && x !== false).flat(),
+    document: { hidden: false, body: node('body', {}, []), addEventListener() {}, removeEventListener() {} },
+    claudeOf: n => o.live && o.live.includes(n) ? { mode: 'chat' } : sb.FEAT.specialists.phantom(n),
+    toast: (m, k) => toasts.push([m, k]),
+    api: async (p, body) => {
+      calls.push([p, body]);
+      if (o.api) { const r = await o.api(p, body); if (r !== undefined) return r; }
+      if (p === 'specialists') return { ok: true, specialists: o.list || [P('writer')], templates: [] };
+      if (p.endsWith('/ask')) return { ok: true, tmux: 'claude-spec-writer-261111-0930', runId: 'claude-spec-writer-261111-0930' };
+      if (p.startsWith('specialist/run/')) return { ok: true, ...o.full };
+      return { ok: true, specialist: { ...(o.list || [P('writer')])[0], instructions: 'Be kind', ...o.spec }, runs: o.runs || [], thread: o.thread || null };
+    }
+  });
   let tick = null; let cleared = 0;
   sb.setInterval = fn => { tick = fn; return 7; };
   sb.clearInterval = () => { cleared++; };
-  sb.document.hidden = false;
+  sb.openTerm = n => { sb.opened = n; sb.TERM.active = n; sb.FEAT.specialists.termShown(); };
+  sb.modal.style = { setProperty() {} };
+  sb.modal.querySelector = sel => /cfield/.test(sel) ? field : sel === '.creply' ? reply : null;
   await sb.FEAT.specialists.refresh(true);
-  sb.FEAT.specialists.open('writer');
-  await new Promise(r => setTimeout(r, 10));
-  sb.calls.length = 0; cleared = 0;
-  sb.modal.contains = () => true;
-  tick();
-  assert.strictEqual(cleared, 0);
-  sb.modal.contains = () => false;
-  tick();
-  assert.strictEqual(cleared, 1);
-  const before = sb.calls.length;
-  tick();
-  assert.strictEqual(sb.calls.length, before);
+  sb.FEAT.specialists.termShown();
+  await new Promise(r => setTimeout(r, 20));
+  return { sb, calls, toasts, field, reply, tick: () => tick(), cleared: () => cleared, S: sb.FEAT.specialists, view: () => find(sb.FEAT.specialists.emptyChat(PAGE), () => true) };
+};
+const cards = t => find(t.S.emptyChat(PAGE), n => /sppage-card/.test(n.attrs.class || ''));
+const run = (id, o = {}) => ({ runId: id, specialist: 'writer', tmux: id, mode: 'run', state: 'done', task: 'Reply to ' + id + '\nmore', preview: 'Hi ' + id, startedAt: Date.now(), endedAt: Date.now() + 5000, ...o });
+
+test('the page poll stops once another chat replaced the page', async () => {
+  const t = await pageSetup();
+  t.calls.length = 0;
+  t.tick();
+  assert.strictEqual(t.calls.filter(c => c[0] === 'specialist/writer?runs=50').length, 1);
+  t.sb.TERM.active = 'claude-other';
+  const before = t.cleared();
+  t.tick();
+  assert.strictEqual(t.cleared(), before + 1);
+  assert.strictEqual(t.S.termBar(PAGE), null);
+  assert.strictEqual(t.S.emptyChat(PAGE), null);
+  const calls = t.calls.length;
+  t.tick();
+  assert.strictEqual(t.calls.length, calls);
 });
 
-test('the rail key includes the open page', async () => {
+test('the bar key includes the open page', async () => {
   const sb = build([P('writer')], []);
   await sb.FEAT.specialists.refresh(true);
-  const closed = JSON.stringify(sb.FEAT.specialists.termBarKey());
-  sb.modal.contains = () => true;
-  sb.FEAT.specialists.open('writer');
-  assert.notStrictEqual(JSON.stringify(sb.FEAT.specialists.termBarKey()), closed);
+  const closed = JSON.stringify(sb.FEAT.specialists.termBarKey(PAGE));
+  const t = await pageSetup();
+  assert.notStrictEqual(JSON.stringify(t.S.termBarKey(PAGE)), closed);
+  const open = JSON.stringify(t.S.termBarKey(PAGE));
+  fire(btn({ attrs: {}, kids: t.S.termBar(PAGE) }, 'Profile'));
+  assert.notStrictEqual(JSON.stringify(t.S.termBarKey(PAGE)), open);
 });
 
-test('the page loads the specialist and asking posts without waiting, then opens the run', async () => {
-  const sb = build([P('writer')], []);
-  await sb.FEAT.specialists.refresh(true);
-  sb.calls.length = 0;
-  sb.FEAT.specialists.open('writer', { focus: true });
+test('the specialist is a phantom chat with its title in the header', async () => {
+  const t = await pageSetup();
+  assert.strictEqual(t.S.phantom(PAGE).mode, 'chat');
+  assert.strictEqual(t.S.phantom('claude-spec-ghost_page'), null);
+  assert.strictEqual(t.S.trainTitle(PAGE), 'Writer');
+  assert.ok(t.S.termTile(PAGE));
+  assert.strictEqual(t.S.termTile('claude-other'), null);
+  assert.strictEqual(t.S.noTranscript(PAGE), true);
+  assert.strictEqual(t.S.noTranscript('claude-spec-writer_train'), false);
+  assert.strictEqual(t.S.noTranscript('claude-other'), false);
+  assert.strictEqual(t.S.emptyChat('claude-other'), null);
+});
+
+test('the page lists runs as cards with task, preview, state and age and an invitation when empty', async () => {
+  const t = await pageSetup({ runs: [run('r2', { state: 'working', preview: null }), run('r1')] });
+  assert.strictEqual(t.calls.find(c => c[0].startsWith('specialist/writer?'))[0], 'specialist/writer?runs=50');
+  const [first, second] = cards(t);
+  assert.match(text(first), /Reply to r2\s+Working on it…\s+working\s+1m ago/);
+  assert.match(text(second), /Reply to r1\s+Hi r1\s+done/);
+  assert.match(text(t.S.emptyChat(PAGE)), /does writer/);
+  const e = await pageSetup();
+  assert.strictEqual(cards(e).length, 0);
+  assert.match(text(e.S.emptyChat(PAGE)), /Ask Writer something/);
+});
+
+test('a live run opens in the chat view and a finished one opens its answer with Improve and Copy', async () => {
+  const t = await pageSetup({ runs: [run('live', { state: 'working' }), run('r1')], live: ['live'], full: { runId: 'r1', tmux: 'r1', mode: 'run', state: 'done', task: 'Reply to Ana', text: 'Hi Ana, thanks.' } });
+  const [live, done] = cards(t);
+  fire(live);
+  assert.strictEqual(t.sb.opened, 'live');
+  t.sb.TERM.active = PAGE;
+  t.S.termShown();
+  await new Promise(r => setTimeout(r, 20));
+  await fire(cards(t)[1]);
   await new Promise(r => setTimeout(r, 10));
-  assert.strictEqual(sb.calls[0][0], 'specialist/writer?runs=50');
-  const ta = find(sb.shown, n => n.attrs.class === 'sp-ask')[0];
-  const ask = find(sb.shown, n => n.tag === 'button' && text(n) === 'Ask')[0];
-  ta.value = 'Reply to Ana';
-  await ask.onclick();
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(sb.calls.find(c => c[0].endsWith('/ask')))), ['specialist/writer/ask', { text: 'Reply to Ana', wait: false }]);
-  assert.strictEqual(sb.opened, 'claude-spec-writer-261111-0930');
+  const view = t.S.emptyChat(PAGE);
+  assert.match(text(view), /Reply to Ana\s+Hi Ana, thanks\./);
+  assert.ok(btn(view, 'Improve'));
+  assert.ok(btn(view, 'Copy'));
+  assert.strictEqual(find(view, n => n.tag === 'input').length, 0);
+  t.S.composerShown(t.sb.modal);
+  assert.strictEqual(t.reply.placeholder, 'Continue this run…');
+  t.calls.length = 0;
+  await t.S.trainSend(PAGE, 'Make it shorter');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(t.calls.find(c => c[0].endsWith('/send')))), ['specialist/run/r1/send', { text: 'Make it shorter' }]);
+  assert.strictEqual(t.sb.opened, 'r1');
+  t.sb.TERM.active = PAGE;
+  t.S.termShown();
+  await new Promise(r => setTimeout(r, 20));
+  t.S.open('writer', { run: 'r1' });
+  await new Promise(r => setTimeout(r, 20));
+  fire(btn(t.S.emptyChat(PAGE), 'All runs'));
+  await new Promise(r => setTimeout(r, 20));
+  assert.strictEqual(cards(t).length, 2);
+  t.S.composerShown(t.sb.modal);
+  assert.strictEqual(t.reply.placeholder, 'Ask Writer…');
+});
+
+test('openRun and open with a run show that run on the page', async () => {
+  const t = await pageSetup({ full: { runId: 'r9', tmux: 'r9', mode: 'run', state: 'done', task: 'Old task', text: 'Old answer' } });
+  t.S.open('writer', { run: 'r9' });
+  await new Promise(r => setTimeout(r, 10));
+  assert.match(text(t.S.emptyChat(PAGE)), /Old task\s+Old answer/);
+  assert.ok(t.calls.some(c => c[0] === 'specialist/run/r9'));
+});
+
+test('asking from the composer posts without waiting, sends attached files, then opens the run', async () => {
+  const t = await pageSetup();
+  assert.strictEqual(t.S.trainSend('claude-other', 'hi'), null);
+  t.sb.PENDING[PAGE] = [{ text: 'Reply to Ana', ts: 1 }];
+  await t.S.attachFile(PAGE, { name: 'a.pdf', size: 3 });
+  t.S.composerShown(t.sb.modal);
+  assert.match(text(find(t.field, n => /sptr-chips/.test(n.attrs.class || ''))[0]), /a\.pdf/);
+  assert.strictEqual(t.reply.placeholder, 'Ask Writer…');
+  await t.S.trainSend(PAGE, 'Reply to Ana');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(t.calls.find(c => c[0].endsWith('/ask')))), ['specialist/writer/ask', { text: 'Reply to Ana', wait: false, files: ['/pasted/a.pdf'] }]);
+  assert.strictEqual(t.sb.opened, 'claude-spec-writer-261111-0930');
+  assert.strictEqual(t.sb.PENDING[PAGE].length, 0);
+});
+
+test('a failed ask rejects so the composer keeps the text, and a plain ask has no files', async () => {
+  const t = await pageSetup({ api: p => { if (p.endsWith('/ask')) throw Object.assign(new Error('4 runs of this specialist are already active'), { status: 429 }); } });
+  await assert.rejects(t.S.trainSend(PAGE, 'Hi'), /already active/);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(t.calls.find(c => c[0].endsWith('/ask'))[1])), { text: 'Hi', wait: false });
+  assert.strictEqual(t.sb.opened, null);
 });
 
 test('an api provider shows its model id as given, a provider chip and the missing-key message', async () => {
-  const sb = build([P('scout', { provider: 'xai', model: 'grok-4', keyError: 'no key for xai: see the docs' })], []);
+  const scout = P('scout', { provider: 'xai', model: 'grok-4', keyError: 'no key for xai: see the docs' });
+  const sb = build([scout], []);
   await sb.FEAT.specialists.refresh(true);
   assert.match(text(railRows(sb.FEAT.specialists.railSection('rail'))[0]), /grok-4/);
-  sb.FEAT.specialists.open('scout');
-  await new Promise(r => setTimeout(r, 10));
-  const chips = find(sb.shown, n => n.attrs.class === 'sp-chips')[0];
-  assert.match(text(chips), /xAI\s+grok-4/);
-  assert.strictEqual(find(sb.shown, n => /sp-key/.test(n.attrs.class || ''))[0].textContent, 'no key for xai: see the docs');
+  const t = await pageSetup({ list: [scout] });
+  t.sb.TERM.active = 'claude-spec-scout_page';
+  t.S.termShown();
+  await new Promise(r => setTimeout(r, 20));
+  const bar = { attrs: {}, kids: t.S.termBar('claude-spec-scout_page') };
+  assert.match(text(find(bar, n => /sppage-chips/.test(n.attrs.class || ''))[0]), /xAI\s+grok-4/);
+  assert.match(text(t.S.emptyChat('claude-spec-scout_page')), /no key for xai: see the docs/);
+  await assert.rejects(t.S.attachFile('claude-spec-scout_page', { name: 'a.pdf', size: 3 }), /only get the text/);
 });
 
-test('switching the provider in the profile sends the provider with the typed model id', async () => {
-  const sb = build([P('writer', { effort: null, permissionMode: 'default', account: 'personal', updatedAt: 5 })], []);
-  await sb.FEAT.specialists.refresh(true);
-  sb.FEAT.specialists.open('writer', { tab: 'profile' });
-  await new Promise(r => setTimeout(r, 10));
-  const provider = find(sb.shown, n => n.tag === 'select' && find(n, o => o.attrs.value === 'xai').length)[0];
-  const id = find(sb.shown, n => n.tag === 'input' && n.attrs.maxlength === 128)[0];
+test('the Profile button opens the profile in the side panel and switching the provider sends it with the typed model id', async () => {
+  const t = await pageSetup({ list: [P('writer', { effort: null, permissionMode: 'default', account: 'personal', updatedAt: 5 })] });
+  fire(btn({ attrs: {}, kids: t.S.termBar(PAGE) }, 'Profile'));
+  const panel = find({ attrs: {}, kids: [t.sb.modal] }, () => true);
+  assert.ok(panel);
+  const body = t.sb.modal.kids;
+  const provider = find({ attrs: {}, kids: body }, n => n.tag === 'select' && find(n, o => o.attrs.value === 'xai').length)[0];
+  assert.ok(provider);
+  const id = find({ attrs: {}, kids: body }, n => n.tag === 'input' && n.attrs.maxlength === 128)[0];
   provider.value = 'xai'; provider.onchange(); id.value = ' grok-4 ';
-  sb.calls.length = 0;
-  await find(sb.shown, n => n.tag === 'button' && text(n) === 'Save')[0].onclick();
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(sb.calls[0])), ['specialist/writer', { provider: 'xai', model: 'grok-4', ifUpdatedAt: 5 }]);
+  t.calls.length = 0;
+  await find({ attrs: {}, kids: body }, n => n.tag === 'button' && text(n) === 'Save')[0].onclick();
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(t.calls[0])), ['specialist/writer', { provider: 'xai', model: 'grok-4', ifUpdatedAt: 5 }]);
+});
+
+test('archiving from the profile leaves the page', async () => {
+  const t = await pageSetup({ list: [P('writer', { updatedAt: 5 })] });
+  const body = [t.sb.modal];
+  const hold = find({ attrs: {}, kids: t.S.termBar(PAGE) }, () => false);
+  assert.ok(Array.isArray(hold));
+  fire(btn({ attrs: {}, kids: t.S.termBar(PAGE) }, 'Profile'));
+  const ask = find({ attrs: {}, kids: body }, () => false);
+  assert.ok(Array.isArray(ask));
 });
 
 const memStore = () => { const m = new Map(); return { getItem: k => m.has(k) ? m.get(k) : null, setItem: (k, v) => m.set(k, String(v)), m }; };
@@ -303,17 +421,11 @@ test('the home tile lists active runs and is hidden without them', async () => {
   assert.strictEqual(sb.opened, 'claude-spec-writer-1');
 });
 
-test('the palette ask entry opens the ask dialog and posts without waiting in notify mode', async () => {
+test('the palette ask entry opens the specialist page with the composer focused', async () => {
   const sb = build([P('writer')], []);
   await sb.FEAT.specialists.refresh(true);
   sb.FEAT.specialists.paletteItems()[1].run();
-  const box = sb.shown;
-  const ta = find(box, n => n.tag === 'textarea')[0]; ta.value = 'Do it';
-  find(box, n => n.tag === 'button' && text(n) === 'Notify me')[0].attrs.onclick();
-  const go = find(box, n => n.tag === 'button' && text(n) === 'Ask')[0];
-  await go.onclick();
-  const call = sb.calls.find(c => c[0] === 'specialist/writer/ask');
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(call[1])), { text: 'Do it', wait: false });
+  assert.strictEqual(sb.opened, PAGE);
 });
 
 const commit = (id, o = {}) => ({ id: id.repeat(40).slice(0, 40), short: id.repeat(7), message: 'Shorter greetings', source: 'trainer', at: Date.now(), undoOf: null, undone: false, files: [{ path: 'style.md', change: 'modified' }], ...o });
@@ -346,7 +458,7 @@ const trainSetup = async (o = {}) => {
   const tab = label => { fire(find(sb.modal, n => n.tag === 'button' && /segb/.test(n.attrs.class || '') && text(n).startsWith(label))[0]); return sb.modal; };
   return { sb, calls, fetches, toasts, field, tab, box: () => sb.modal };
 };
-const btn = (box, label) => find(box, n => n.tag === 'button' && text(n) === label)[0];
+const btn = (box, label) => find(box, n => n.tag === 'button' && text(n).trim() === label)[0];
 const fire = (n, ev = 'onclick') => (n[ev] || n.attrs[ev])();
 const sentBodies = t => t.calls.filter(c => c[0] === 'specialist/writer/train/send').map(c => JSON.parse(JSON.stringify(c[1])));
 
@@ -362,9 +474,10 @@ test('the create dialog ends in the trainer chat and the specialist dialog has a
   assert.strictEqual(sb.opened, TMUX);
   sb.opened = null;
   sb.FEAT.specialists.open('writer');
-  await new Promise(r => setTimeout(r, 20));
-  assert.ok(!find(sb.shown, n => /segb/.test(n.attrs.class || '') && text(n) === 'Train').length);
-  fire(btn(sb.shown, 'Train'));
+  assert.strictEqual(sb.opened, PAGE);
+  sb.TERM = { open: true, active: PAGE, showList: false };
+  sb.FEAT.specialists.termShown();
+  fire(btn({ attrs: {}, kids: sb.FEAT.specialists.termBar(PAGE) }, 'Train'));
   assert.strictEqual(sb.opened, TMUX);
 });
 
