@@ -721,12 +721,13 @@ function renderTermPanel(force) {
   const accTag = () => actAcc ? h('span', { class: 'tacc ' + actAcc, title: 'Claude Code account: ' + acct(actAcc) }, acct(actAcc)) : null;
   const mobName = act ? sessTitle(act) : (FEAT.specialists?.trainTitle(TERM.active) || TERM.active || 'Sessions');
   const toList = () => { TERM.showList = true; renderTermPanel(true); retop(); };
-  barAdd(h('button', { class: 'btn sm ghost mob icon', title: 'back to the sessions (they keep running)', onclick: toList }, ico('back', 17)),
+  const backTo = FEAT.specialists?.backTo(TERM.active);
+  barAdd(h('button', { class: 'btn sm ghost mob icon', title: backTo ? backTo.title : 'back to the sessions (they keep running)', onclick: backTo ? backTo.go : toList }, ico('back', 17)),
     h('button', { class: 'mob msess', title: 'switch session', onclick: toList }, act ? avatar(act.project, 'sm') : FEAT.specialists?.termTile(TERM.active), h('span', { class: 'nm' }, mobName), accTag(), instOf(act || { name: TERM.active || '' }).n ? h('span', { class: 'grp' }, '#' + instOf(act).n) : null, cl && IS_PHONE ? stateBadge(cl, true) : null));
   const actName = act ? sessTitle(act) : (FEAT.specialists?.trainTitle(TERM.active) || TERM.active);
   const isChatS = cl && cl.mode === 'chat'; const logOn = isChatS && TERM.view[TERM.active] === 'term';
   const updatePending = !!cl && (!!S.claude?.update || needsRestart(cl));
-  if (TERM.active) barAdd(h('button', { class: 'btn sm ghost icon desk', title: 'back to the dashboard — every session keeps running  (Esc)', onclick: closeTermPanel }, ico('back', 15)),
+  if (TERM.active) barAdd(h('button', { class: 'btn sm ghost icon desk', title: backTo ? backTo.title : 'back to the dashboard — every session keeps running  (Esc)', onclick: backTo ? backTo.go : closeTermPanel }, ico('back', 15)),
     h('button', { class: 'btn sm ghost icon desk' + (TERM.focus ? ' on' : ''), title: TERM.focus ? 'show the rail again' : 'focus mode — hide the rail with every session (screen sharing)', onclick: () => setFocus(!TERM.focus) }, ico('sidebar', 15)),
     h('span', { class: 'tid desk' }, act ? avatar(act.project, 'sm') : FEAT.specialists?.termTile(TERM.active),
       h('span', { class: 'tname' + (cl ? ' can-rename' : ''), title: cl ? 'click to rename · ' + TERM.active : TERM.active, onclick: cl ? () => renameDialog(TERM.active) : null }, actName, instOf(act || { name: TERM.active }).n ? h('span', { class: 'grp' }, ' #' + instOf(act).n) : null),

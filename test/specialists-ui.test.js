@@ -565,6 +565,17 @@ test('a trainer that is not running still opens as a chat, with the opening ques
   assert.strictEqual(t.sb.FEAT.specialists.trainTitle(TMUX), 'Train Writer');
 });
 
+test('back from the trainer returns to the specialist chat', async () => {
+  const t = await trainSetup();
+  const S = t.sb.FEAT.specialists;
+  assert.strictEqual(S.backTo('claude-other'), null);
+  assert.strictEqual(S.backTo(PAGE), null);
+  const back = S.backTo(TMUX);
+  assert.strictEqual(back.title, 'back to Writer');
+  back.go();
+  assert.strictEqual(t.sb.opened, PAGE);
+});
+
 test('trainer sends go through train/send, other chats keep the normal path', async () => {
   const st = { busy: true };
   const t = await trainSetup({ api: p => { if (p.endsWith('/train/send')) { if (st.busy) throw Object.assign(new Error('trainer is busy'), { status: 409 }); return { ok: true, trainer: { live: true, state: 'working', turns: 1, tmux: TMUX } }; } } });

@@ -866,6 +866,13 @@ FEAT.specialists = (() => {
   }
   const trainBarKey = tmux => trainerOf(tmux) && tmux === TR.tmux ? [TR.fresh, TR.panel, TR.sheet, pendingNotes(), trainStatus()] : null;
 
+  function backTo(tmux) {
+    const name = trainerOf(tmux);
+    if (!name) return null;
+    const p = V.list.find(x => x.name === name);
+    return { title: 'back to ' + (p?.title || name), go: () => openPage(name) };
+  }
+
   function openTrain(name) {
     const p = V.list.find(x => x.name === name);
     openTerm(trainerTmux(name, p?.account));
@@ -1038,5 +1045,5 @@ FEAT.specialists = (() => {
 
   setInterval(() => { if (!document.hidden) refresh(true); }, 30000);
 
-  return { phantom, noTranscript: tmux => !!pageOf(tmux), transcript, keyTarget, conversation, trainSend: sendMessage, attachFile, termBar, termShown, rightOpen, composerShown: placeChips, emptyChat, trainTitle, termTile, openTrain, onState, termBarKey, railSection, paletteItems, homeTiles, unseenRuns, dismissRun, markSeen: seenByUser, trimSeen, feedbackBody, feedbackError, trackFeedback, pollFeedback, improve: openImprove, openRun, open: openPage, create: openCreate, refresh };
+  return { phantom, noTranscript: tmux => !!pageOf(tmux), transcript, keyTarget, conversation, trainSend: sendMessage, attachFile, termBar, termShown, rightOpen, composerShown: placeChips, emptyChat, trainTitle, termTile, openTrain, backTo, onState, termBarKey, railSection, paletteItems, homeTiles, unseenRuns, dismissRun, markSeen: seenByUser, trimSeen, feedbackBody, feedbackError, trackFeedback, pollFeedback, improve: openImprove, openRun, open: openPage, create: openCreate, refresh };
 })();
