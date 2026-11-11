@@ -1,5 +1,6 @@
 :root {
   --chat-col: 920px;
+  --chat-user-max: 640px;
   --chat-band: rgba(14,15,18,.46);
   --chat-bubble: rgba(140,146,160,.26);
   --chat-bubble-edge: rgba(255,255,255,.08);
@@ -8,6 +9,9 @@
   --chat-tool: #6fd6c9;
   --chat-pill: rgba(6,7,8,.5);
 }
+/* Settings → Full-width chat (per device): the transcript, composer, queue and pinned question span the whole pane;
+   your own messages keep their 78% without the 640px cap. The phone is narrower than the column anyway. */
+body.chat-wide { --chat-col: 100%; --chat-user-max: 100%; }
 
 .chatpane { background: rgba(8,8,10,.24); }
 
@@ -44,7 +48,7 @@
 .turn .who { font-size: var(--fs-xs); color: var(--dim); }
 .turn .who .mono { font-family: inherit; font-variant-numeric: tabular-nums; }
 
-.turn.user { max-width: min(78%, 640px); padding: 9px 14px 7px; border: 1px solid var(--chat-user-edge); border-radius: 16px; background: var(--chat-user); box-shadow: var(--hl-soft); }
+.turn.user { max-width: min(78%, var(--chat-user-max)); padding: 9px 14px 7px; border: 1px solid var(--chat-user-edge); border-radius: 16px; background: var(--chat-user); box-shadow: var(--hl-soft); }
 .turn.user:not(.shell):not(.queued) > .who { margin: 2px -4px -2px 0; opacity: 1; color: rgba(222,232,255,.78); }
 .turn.user:not(.shell):not(.queued) > .who .dim { color: inherit; }
 .turn.user .mquote { border-left-color: rgba(222,232,255,.4); color: rgba(232,239,255,.86); }
