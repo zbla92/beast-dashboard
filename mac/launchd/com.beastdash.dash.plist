@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Beast Dash: the dashboard. Template: install-mac.sh fills in the paths and copies it to ~/Library/LaunchAgents.
+     AbandonProcessGroup: tmux, socat and adb started by the dashboard keep running when it restarts.
+     ProcessType Interactive: no App Nap throttling while the Mac is idle and agents work. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.beastdash.dash</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__NODE__</string>
+    <string>__REPO__/server.js</string>
+  </array>
+  <key>WorkingDirectory</key><string>__REPO__</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>__PATH__</string>
+    <key>HOME</key><string>__HOME__</string>
+    <key>SHELL</key><string>__SHELL__</string>
+    <key>LANG</key><string>en_US.UTF-8</string>
+    <key>DISABLE_AUTO_UPDATE</key><string>true</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>2</integer>
+  <key>AbandonProcessGroup</key><true/>
+  <key>ProcessType</key><string>Interactive</string>
+  <key>StandardOutPath</key><string>__LOGS__/dash.log</string>
+  <key>StandardErrorPath</key><string>__LOGS__/dash.log</string>
+</dict>
+</plist>
