@@ -5,6 +5,8 @@ FEAT.specialists = (() => {
   const EFFORTS = [['', 'Default'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['xhigh', 'Extra high'], ['max', 'Max']];
   const PERMS = [['bypassPermissions', 'Bypass'], ['acceptEdits', 'Accept edits'], ['auto', 'Auto'], ['manual', 'Manual'], ['dontAsk', 'Do not ask'], ['plan', 'Plan']];
   const MODES = [['run', 'Fresh run per task'], ['thread', 'One thread']];
+  const PROVIDERS = [['claude', 'Claude'], ['openai', 'OpenAI'], ['xai', 'xAI']];
+  const MODEL_HINT = { openai: 'model id, e.g. gpt-5', xai: 'model id, e.g. grok-4' };
   const RUN_STATE = { starting: 'starting', working: 'working', waiting: 'needs an answer', done: 'done', error: 'error', stopped: 'stopped' };
   const V = { list: [], templates: [], at: 0, busy: false, ok: false, sig: '' };
   const PG = { name: null, tab: 'runs', data: null, timer: null, full: new Map(), shown: new Set(), onEsc: null, box: null };
@@ -24,7 +26,9 @@ FEAT.specialists = (() => {
   const ownerOf = s => s.claude?.specialist || null;
   const runSessions = name => S.runtime.sessions.filter(s => runOf(s) && ownerOf(s) === name).sort((a, b) => a.name < b.name ? -1 : 1);
   const firstLine = t => String(t || '').split('\n').find(l => l.trim())?.trim() || '';
-  const modelLabel = m => m ? modelName(m) : 'Default';
+  const isApi = provider => Object.hasOwn(MODEL_HINT, provider || '');
+  const providerLabel = provider => (PROVIDERS.find(([v]) => v === provider) || [provider, provider])[1];
+  const modelLabel = (m, provider) => isApi(provider) ? m || providerLabel(provider) : m ? modelName(m) : 'Default';
   const modeLabel = m => m === 'thread' ? 'Thread' : 'Run';
   const sessionSig = () => S.runtime.sessions.filter(runOf).map(s => s.name + ':' + (s.claude?.state || '')).join(',');
 
@@ -126,7 +130,7 @@ FEAT.specialists = (() => {
   }
 
   const pageShown = () => !!PG.name && !!PG.box && $('#modal').contains(PG.box);
-  const keyOf = () => [V.ok, PG.name, pageShown(), V.list.map(p => [p.name, p.title, p.icon, p.model, p.active, p.error, p.thread?.state, p.description]), V.list.map(p => runSessions(p.name).map(s => [s.name, s.claude?.state, s.claude?.needsYou, s.claude?.title, s.claude?.firstPrompt, s.claude?.label]))];
+  const keyOf = () => [V.ok, PG.name, pageShown(), V.list.map(p => [p.name, p.title, p.icon, p.provider, p.model, p.active, p.error, p.thread?.state, p.description]), V.list.map(p => runSessions(p.name).map(s => [s.name, s.claude?.state, s.claude?.needsYou, s.claude?.title, s.claude?.firstPrompt, s.claude?.label]))];
   const termBarKey = () => keyOf();
 
   const runLabel = s => firstLine(s.claude?.title || s.claude?.firstPrompt || s.claude?.label) || s.name;
@@ -146,7 +150,7 @@ FEAT.specialists = (() => {
     const st = stateOf(p);
     return h('button', { class: 'rrow k-spec st-' + st + (PG.name === p.name && pageShown() ? ' on' : ''), title: p.description || p.name, onclick: () => openPage(p.name) },
       h('span', { class: 'rav' }, tile(p), h('i', { class: 'rdot' })),
-      h('span', { class: 'rtx' }, h('span', { class: 'rnm' }, h('b', null, p.title || p.name), h('em', null, modelLabel(p.model).toLowerCase())),
+      h('span', { class: 'rtx' }, h('span', { class: 'rnm' }, h('b', null, p.title || p.name), h('em', null, modelLabel(p.model, p.provider).toLowerCase())),
         p.description ? h('span', { class: 'rln2' }, h('span', { class: 'rsub' }, p.description)) : null),
       p.active > 0 ? h('span', { class: 'rage', title: plural(p.active, 'active run') }, p.active) : null);
   }
@@ -166,7 +170,7 @@ FEAT.specialists = (() => {
       tile(p),
       h('div', { class: 'tt' },
         h('div', { class: 'tn' }, h('span', { class: 'nm' }, p.title || p.name)),
-        h('div', { class: 'ts' }, h('span', { class: 'cst mini ' + st }, gico(STATE_ICON[st] || '·', 10), ' ', STATE_LABEL[st] || st), h('span', { class: 'mdl' }, modelLabel(p.model)), p.active > 0 ? h('span', { class: 'grp' }, plural(p.active, 'run')) : null),
+        h('div', { class: 'ts' }, h('span', { class: 'cst mini ' + st }, gico(STATE_ICON[st] || '·', 10), ' ', STATE_LABEL[st] || st), h('span', { class: 'mdl' }, modelLabel(p.model, p.provider)), p.active > 0 ? h('span', { class: 'grp' }, plural(p.active, 'run')) : null),
         p.description ? h('div', { class: 't3' }, h('span', { class: 'ttl dim' }, p.description)) : null));
   }
 
@@ -189,7 +193,7 @@ FEAT.specialists = (() => {
     const out = [];
     for (const p of V.list.filter(valid)) {
       const t = p.title || p.name;
-      out.push({ kind: 'action', label: 'Specialist: ' + t, sub: p.description || modelLabel(p.model), icon: p.icon || '◆', hay: ['specialist', p.name, t, p.description].join(' '), run: () => openPage(p.name), rank: 26 },
+      out.push({ kind: 'action', label: 'Specialist: ' + t, sub: p.description || modelLabel(p.model, p.provider), icon: p.icon || '◆', hay: ['specialist', p.name, t, p.description].join(' '), run: () => openPage(p.name), rank: 26 },
         { kind: 'action', label: 'Ask ' + t + '…', sub: 'send it a task', icon: p.icon || '◆', hay: ['ask specialist', p.name, t].join(' '), run: () => openAsk(p.name), rank: 26 });
     }
     return out;
@@ -270,6 +274,15 @@ FEAT.specialists = (() => {
   const select = (list, cur) => { const s = h('select', { class: 'txt' }, opts(list, cur)); s.value = cur ?? ''; return s; };
   const field = (label, el, cls = '') => h('label', { class: 'sp-f ' + cls }, h('span', null, label), el);
 
+  function modelInput(provider, cur) {
+    const pick = select(MODELS, isApi(provider) ? '' : cur || '');
+    const id = h('input', { class: 'txt', value: isApi(provider) ? cur || '' : '', maxlength: 128, autocapitalize: 'off', autocomplete: 'off', spellcheck: 'false' });
+    const box = h('span', { class: 'sp-model' }, pick, id);
+    const show = p => { pick.classList.toggle('hidden', isApi(p)); id.classList.toggle('hidden', !isApi(p)); id.placeholder = MODEL_HINT[p] || ''; };
+    show(provider);
+    return { box, show, value: p => isApi(p) ? id.value.trim() || null : pick.value || null };
+  }
+
   function setup(m, close) {
     const onEsc = e => {
       if (!m.querySelector('.spbox')) { document.removeEventListener('keydown', onEsc, true); return; }
@@ -298,9 +311,11 @@ FEAT.specialists = (() => {
     const icon = h('input', { class: 'txt sp-icon', placeholder: '◆', maxlength: 8 });
     const desc = h('input', { class: 'txt', placeholder: 'What it does, in one line', maxlength: 300 });
     const tpl = h('select', { class: 'txt' }, templates.map(t => h('option', { value: t.id }, t.title || t.id)));
-    const model = select(MODELS, '');
+    const provider = select(PROVIDERS, 'claude');
+    const model = modelInput('claude', null);
     const mode = select(MODES, 'run');
     const go = h('button', { class: 'btn primary ns-send' }, 'Create');
+    provider.onchange = () => model.show(provider.value);
     const fits = () => NAME_RE.test(name.value.trim()) && !/-$|-company$|-\d{6}-\d{4}|^run$/.test(name.value.trim());
     const sync = () => { go.disabled = !fits(); };
     tpl.onchange = () => { const t = templates.find(x => x.id === tpl.value); icon.placeholder = t?.meta?.icon || '◆'; };
@@ -312,7 +327,8 @@ FEAT.specialists = (() => {
       if (title.value.trim()) body.title = title.value.trim();
       if (icon.value.trim()) body.icon = icon.value.trim();
       if (desc.value.trim()) body.description = desc.value.trim();
-      if (model.value) body.model = model.value;
+      if (provider.value !== 'claude') body.provider = provider.value;
+      if (model.value(provider.value)) body.model = model.value(provider.value);
       if (mode.value !== 'run') body.mode = mode.value;
       try {
         const r = await api('specialist', body);
@@ -327,7 +343,8 @@ FEAT.specialists = (() => {
       h('div', { class: 'sh' }, h('h3', null, gl('＋ New specialist')), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', onclick: closeModal }, ico('x', 15))),
       h('div', { class: 'sp-body' },
         field('Name', name), h('div', { class: 'sp-row' }, field('Title', title, 'grow'), field('Icon', icon)), field('Description', desc),
-        h('div', { class: 'sp-row' }, field('Template', tpl, 'grow'), field('Model', model, 'grow'), field('Mode', mode, 'grow')), err),
+        h('div', { class: 'sp-row' }, field('Template', tpl, 'grow'), field('Mode', mode, 'grow')),
+        h('div', { class: 'sp-row' }, field('Provider', provider, 'grow'), field('Model', model.box, 'grow')), err),
       h('div', { class: 'sp-foot' }, h('span', { class: 'dim sp-note' }, 'Gets its own folder with instructions'), h('span', { class: 'sp' }), go));
     m.replaceChildren(box); PG.box = box; setup(m, closeModal);
     sync(); if (!IS_PHONE) name.focus();
@@ -400,17 +417,22 @@ FEAT.specialists = (() => {
     const title = h('input', { class: 'txt', value: p.title || '', maxlength: 60 });
     const icon = h('input', { class: 'txt sp-icon', value: p.icon || '', maxlength: 16 });
     const desc = h('input', { class: 'txt', value: p.description || '', maxlength: 300 });
-    const model = select(MODELS, p.model || ''); const effort = select(EFFORTS, p.effort || '');
+    const provider = select(PROVIDERS, p.provider || 'claude');
+    const model = modelInput(provider.value, p.model); const effort = select(EFFORTS, p.effort || '');
     const mode = select(MODES, p.mode); const perm = select(PERMS, p.permissionMode);
     const account = select([['personal', acct('personal')], ['company', acct('company')]], p.account);
+    const claudeOnly = [field('Effort', effort), field('Permissions', perm), field('Account', account)];
+    const showProvider = () => { model.show(provider.value); for (const f of claudeOnly) f.classList.toggle('hidden', isApi(provider.value)); };
+    provider.onchange = showProvider;
     const ins = h('textarea', { class: 'sp-ins', spellcheck: 'false' }); ins.value = p.instructions || '';
     const err = h('div', { class: 'ns-status hidden' });
     const save = h('button', { class: 'btn primary ns-send' }, 'Save');
     const fail = (msg, reload) => { err.replaceChildren(msg, reload ? h('button', { class: 'btn sm ghost sp-reload', onclick: reload }, 'Reload') : null); err.classList.remove('hidden'); };
     save.onclick = async () => {
-      const cur = { title: title.value.trim(), icon: icon.value.trim(), description: desc.value.trim(), model: model.value || null, effort: effort.value || null, mode: mode.value, permissionMode: perm.value, account: account.value };
-      const base = { title: p.title || '', icon: p.icon || '', description: p.description || '', model: p.model || null, effort: p.effort || null, mode: p.mode, permissionMode: p.permissionMode, account: p.account };
+      const cur = { title: title.value.trim(), icon: icon.value.trim(), description: desc.value.trim(), provider: provider.value, model: model.value(provider.value), effort: effort.value || null, mode: mode.value, permissionMode: perm.value, account: account.value };
+      const base = { title: p.title || '', icon: p.icon || '', description: p.description || '', provider: p.provider || 'claude', model: p.model || null, effort: p.effort || null, mode: p.mode, permissionMode: p.permissionMode, account: p.account };
       const body = {}; for (const k of Object.keys(cur)) if (cur[k] !== base[k]) body[k] = cur[k];
+      if (body.provider !== undefined) body.model = cur.model;
       if (ins.value !== (p.instructions || '')) body.instructions = ins.value;
       if (!Object.keys(body).length) { toast('Nothing to save'); return; }
       body.ifUpdatedAt = p.updatedAt; save.disabled = true; err.classList.add('hidden');
@@ -425,11 +447,11 @@ FEAT.specialists = (() => {
     const doArchive = async () => {
       try { await api('specialist/' + enc(p.name) + '/archive', {}); toast('Archived ' + (p.title || p.name), 'ok'); close(); refresh(true); } catch (e) { plain(); fail(e.message); }
     };
-    plain();
+    plain(); showProvider();
     return h('div', { class: 'sp-profile' }, h('div', { class: 'sp-scroll' },
       h('div', { class: 'sp-row' }, field('Title', title, 'grow'), field('Icon', icon)),
       field('Description', desc),
-      h('div', { class: 'sp-grid' }, field('Model', model), field('Effort', effort), field('Mode', mode), field('Permissions', perm), field('Account', account)),
+      h('div', { class: 'sp-grid' }, field('Provider', provider), field('Model', model.box), field('Mode', mode), ...claudeOnly),
       field('Instructions (CLAUDE.md)', ins), err),
       h('div', { class: 'sp-foot' }, arch, h('span', { class: 'sp' }), save));
   }
@@ -443,9 +465,10 @@ FEAT.specialists = (() => {
     if (o.run) { PG.shown.add(o.run); if (FIN.has(o.run)) { markSeen(o.run, FIN.get(o.run).endedAt); FIN.delete(o.run); } }
     const head = h('div', { class: 'sh sp-hd' });
     const desc = h('div', { class: 'sp-desc dim' });
+    const keyNote = h('div', { class: 'ns-status sp-key hidden' });
     const tabs = h('span', { class: 'seg ns-tabs' });
     const body = h('div', { class: 'sp-body sp-pane' });
-    const box = h('div', { class: 'box spbox' }, head, desc, tabs, body);
+    const box = h('div', { class: 'box spbox' }, head, desc, keyNote, tabs, body);
     const ask = h('textarea', { class: 'sp-ask', rows: 3 });
     const askBtn = h('button', { class: 'btn primary ns-send' }, 'Ask');
     const askStatus = h('div', { class: 'ns-status hidden' });
@@ -453,10 +476,11 @@ FEAT.specialists = (() => {
 
     const paintHead = () => {
       const p = PG.data?.specialist || known; const t = PG.data?.thread;
-      head.replaceChildren(tile(p, 'md'), h('div', { class: 'sp-ht' }, h('h3', null, p.title || name), h('div', { class: 'sp-chips' }, h('span', { class: 'badge tag' }, modelLabel(p.model)), h('span', { class: 'badge tag' }, p.mode === 'thread' ? 'Thread' : 'Fresh run per task'), p.account && p.account !== 'personal' ? h('span', { class: 'badge tag acc ' + p.account }, acct(p.account)) : null)),
+      head.replaceChildren(tile(p, 'md'), h('div', { class: 'sp-ht' }, h('h3', null, p.title || name), h('div', { class: 'sp-chips' }, isApi(p.provider) ? h('span', { class: 'badge tag' }, providerLabel(p.provider)) : null, h('span', { class: 'badge tag' }, modelLabel(p.model, p.provider)), h('span', { class: 'badge tag' }, p.mode === 'thread' ? 'Thread' : 'Fresh run per task'), !isApi(p.provider) && p.account && p.account !== 'personal' ? h('span', { class: 'badge tag acc ' + p.account }, acct(p.account)) : null)),
         h('span', { class: 'sp' }), t?.live ? h('button', { class: 'btn sm', title: 'open the live thread', onclick: () => { closeModal(); openTerm(t.tmux); } }, 'Open thread') : null,
         h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', 'aria-label': 'close', onclick: closeModal }, ico('x', 15)));
       desc.textContent = p.description || ''; desc.classList.toggle('hidden', !p.description);
+      keyNote.textContent = isApi(p.provider) && p.keyError || ''; keyNote.classList.toggle('hidden', !keyNote.textContent);
       ask.placeholder = 'Ask ' + (p.title || name) + '…';
     };
     const paintTabs = () => tabs.replaceChildren(...[['runs', 'Runs'], ['profile', 'Profile']].map(([k, l]) => h('button', { class: 'segb' + (PG.tab === k ? ' on' : ''), onclick: () => { PG.tab = k; paintTabs(); paintBody(); } }, l)));

@@ -1,7 +1,8 @@
 # Specialists
 
-A specialist is a named, reusable Claude agent that does not belong to any project: a writer, a
-reviewer, a researcher. Each one has its own profile folder with its instructions, settings, skills
+A specialist is a named, reusable agent that does not belong to any project: a writer, a
+reviewer, a researcher. It runs on Claude Code by default, or as a text-only chat with an OpenAI or
+xAI model once you add a key (section 6). Each one has its own profile folder with its instructions, settings, skills
 and memory. You ask it from the dashboard or from any agent (`bd-ask <name> "task"`) and get back only
 its final answer.
 
@@ -64,15 +65,18 @@ the runner, the `bd-ask` command and the UI share. Change it only on purpose, an
 | `description` | string | `""` | one line, 0–300 chars, trimmed. Shown in the list and to agents choosing a specialist | yes |
 | `icon` | string | `◆` | one emoji or short text, 1–16 UTF-16 units, one line | yes |
 | `color` | string \| null | `null` | `#rgb` or `#rrggbb`, stored lowercase | yes |
-| `provider` | string | `claude` | only `claude` works in Phase 1; `api`, `codex`, `grok` are reserved and refused with "not available yet" | yes |
-| `model` | string \| null | `null` | `null` = the account default; `opus`, `sonnet`, `haiku`, `fable` (each optionally `[1m]`) or a full id `claude-…`. `"default"` is stored as `null` | yes |
-| `effort` | string \| null | `null` | `low`, `medium`, `high`, `xhigh`, `max`; `null` = default | yes |
-| `account` | string | `personal` | `personal` (`~/.claude`) or `company` (`~/.claude-company`) | yes |
+| `provider` | string | `claude` | `claude` (Claude Code), `openai` or `xai` (text-only chat, section 4); `api`, `codex`, `grok` are reserved and refused with "not available yet" | yes |
+| `model` | string \| null | `null` | `claude`: `null` = the account default; `opus`, `sonnet`, `haiku`, `fable` (each optionally `[1m]`) or a full id `claude-…`. `openai` / `xai`: required, the provider's model id as one line of 1–128 chars (e.g. `gpt-5`, `grok-4`), not checked against the provider. `"default"` is stored as `null` | yes |
+| `effort` | string \| null | `null` | `low`, `medium`, `high`, `xhigh`, `max`; `null` = default. Ignored by `openai` / `xai` (kept as stored) | yes |
+| `account` | string | `personal` | `personal` (`~/.claude`) or `company` (`~/.claude-company`). Ignored by `openai` / `xai`: their runs are named and recorded as `personal` (kept as stored) | yes |
 | `mode` | string | `run` | `run` or `thread` (section 4) | yes |
-| `permissionMode` | string | `bypassPermissions` | a `claude --permission-mode` value: `bypassPermissions`, `acceptEdits`, `auto`, `manual`, `dontAsk`, `plan` | yes |
+| `permissionMode` | string | `bypassPermissions` | a `claude --permission-mode` value: `bypassPermissions`, `acceptEdits`, `auto`, `manual`, `dontAsk`, `plan`. Ignored by `openai` / `xai` (kept as stored) | yes |
 | `createdAt` | string | — | ISO 8601 UTC, set by the store | no |
 | `updatedAt` | string | — | ISO 8601 UTC, bumped by every update (metadata or instructions) | no |
 
+- An update that changes `provider` must leave a valid `model` for the new provider: switching to
+  `openai` or `xai` needs a model id in the same request (or already stored), and a model id that
+  is not a Claude model is refused when switching back to `claude` (send `"model": null`).
 - Unknown keys in the file are kept on update and not returned by the API.
 - A file that is not a JSON object, or has an invalid field, makes the specialist **invalid**: the list
   shows it as `{ name, dir, error }`, `GET` and `ask` answer 409 with that error, and an update that
@@ -96,9 +100,9 @@ All `/api/*` guards of the server apply (Host allow-list, same-origin, no cross-
 
 | Status | When |
 |---|---|
-| 400 | bad JSON, unknown or non-editable field, invalid value, bad name or runId |
+| 400 | bad JSON, unknown or non-editable field, invalid value, bad name or runId, `files` for an `openai` / `xai` specialist |
 | 404 | no such specialist or run |
-| 409 | name already exists, profile invalid, `ifUpdatedAt` mismatch, thread busy, archive while runs are active |
+| 409 | name already exists, profile invalid, `ifUpdatedAt` mismatch, thread busy, archive while runs are active, no usable key for an `openai` / `xai` specialist, a run continued on another provider than it was made with |
 | 413 | instructions over 256 KiB, task text over 100 000 chars |
 | 429 | 4 runs of this specialist are already active |
 | 500 | the run could not be started (tmux or runner failed) |
@@ -109,6 +113,10 @@ All `/api/*` guards of the server apply (Host allow-list, same-origin, no cross-
 { "dir": "/abs/path/to/specialists/writer",
   "files": { "instructions": true, "settings": false, "mcp": false, "skills": ["tone-check"], "agents": [] } }
 ```
+
+For `openai` / `xai` specialists the list and `GET` add `"keyError": null` when the key file has a
+usable key for that provider, or the message `ask` would answer with (`"no key for xai: <what is
+wrong>; see docs/guide/specialists.md"`). The key itself is never part of any response.
 
 **Run object** (`R`):
 
@@ -170,6 +178,9 @@ Request: `{ "text": "…", "files"?: ["/abs/file", …], "wait"?: false, "timeou
 - `files`: up to 20 absolute paths of existing regular files. They are appended to the message as
   `\n\nFiles for this task:\n- /abs/file` and their folders are passed to Claude as `--add-dir`, so a
   non-bypass permission mode can read them. Contents are never inlined.
+- `openai` / `xai`: `files` must be absent or empty (400; these specialists only get the task text),
+  and without a usable key the answer is 409 `no key for <provider>: <what is wrong>; see
+  docs/guide/specialists.md`. Nothing is started in either case.
 - `wait`: `true` holds the request until the run reaches a final state or `timeoutSec` (1–1800,
   default 300) passes.
 - Response: `{ "ok": true, …R }`, plus `"timedOut": true` when the wait ended first (poll with the
@@ -188,7 +199,9 @@ Request: `{ "text": "…", "files"?: ["/abs/file", …], "wait"?: false, "timeou
 Request: `{ "text": "…", "wait"?: false, "timeoutSec"?: 300 }`. Run mode only (400 for a thread
 runId: ask the thread instead). Resumes the run's conversation in the same tmux name (relaunching it
 with `--resume <sessionId>` if it ended), sets `state` back to `working`, `turns + 1`, and replaces
-`text` with the new turn's result. 409 while the run is not in a final state. Response as `ask`.
+`text` with the new turn's result. 409 while the run is not in a final state, and when the profile's
+provider changed between Claude and `openai` / `xai` since the run was made (ask again instead). The
+no-key 409 of `ask` applies too. Response as `ask`.
 
 ## 4. Runs
 
@@ -213,6 +226,34 @@ folder on the profile's account, with `--model` / `--effort` when set. `permissi
 `bypassPermissions` keeps today's `--dangerously-skip-permissions`; any other value passes
 `--permission-mode <value>` and keeps `--permission-prompt-tool stdio`, so prompts reach the
 dashboard's permission UI.
+
+### OpenAI and xAI runs
+
+An `openai` / `xai` run is a plain chat with the provider's `/chat/completions` endpoint, run by
+`bin/api-runner.js` in the same tmux layout and over the same runner socket as a Claude run, so
+runs, records, `wait`, `bd-ask`, the chat view and the states below behave the same.
+
+- **Text only**: no tools, no files, no MCP servers, no skills, no permission prompts. The model
+  sees the system prompt and the conversation, nothing else on the machine.
+- **System prompt**: the profile's `CLAUDE.md`, with `@file` imports resolved the way Claude Code
+  does it for text: relative to the importing file, up to 5 levels deep, not inside code fences or
+  inline code. An import is only read when it stays inside the profile folder (by path and after
+  resolving links), is a regular file and not a symlink; at most 256 KiB per file and 1 MiB in
+  total. Anything else stays in the text as the literal `@…`.
+- **Conversation**: the user message is the task. Every turn is one request. The conversation is
+  kept in `.bd/conversations/<sessionId>.jsonl` (mode 0600, Claude Code's transcript format, which
+  the chat view reads); a thread or a `send` replays it, keeping the newest 500 KiB of messages.
+  This file is the run's `transcriptPath`. It only grows; the runner reads its last 4 MiB, so a
+  long thread keeps working and simply forgets its oldest turns. When the task cannot be read back
+  from it, the turn ends in `error` and nothing is sent.
+- **Restart**: restarting the session during a turn drops the pending request and sends the same
+  task again; the run waits for that answer.
+- **Errors**: a request ends after 300 s. An answer over 8 MiB is refused as an error. A refused key (401/403), a wrong model or base URL (404),
+  a rate limit or quota (429), a server error (5xx) and an unreachable host each end the run in
+  `error` with a message that says which; interrupting it ends it in `stopped`. Error texts never
+  contain the key.
+- The key file is read again for every request, so a fixed key works on the next ask without a
+  restart. Changing the provider of a live thread answers 409 until that thread session is ended.
 
 ### States
 
@@ -253,4 +294,45 @@ Specialists run as the same Unix user, on the same Claude login, as every other 
 A profile folder separates instructions, settings, history and memory, not access: with
 `bypassPermissions` a specialist can read and write whatever your user can, and any session can read
 a profile. Do not put secrets (API keys, passwords, tokens) in a profile or its `.mcp.json`; real
-separation (own Unix user, a broker for credentials) is a later phase.
+separation (own Unix user, a broker for credentials) is a later phase. The OpenAI and xAI keys live
+in their own file outside every profile (section 6).
+
+## 6. Adding an xAI or OpenAI key
+
+The dashboard never asks for a key and never writes one. You add it by hand:
+
+1. Create the key file, readable only by you:
+
+   ```sh
+   mkdir -p ~/.config/beast-dash
+   touch ~/.config/beast-dash/providers.json
+   chmod 600 ~/.config/beast-dash/providers.json
+   ```
+
+2. Put your keys in it (only the providers you use):
+
+   ```json
+   {
+     "openai": { "apiKey": "sk-your-openai-key" },
+     "xai": { "apiKey": "xai-your-xai-key" }
+   }
+   ```
+
+   `baseUrl` is optional and overrides the default endpoint (`https://api.openai.com/v1`,
+   `https://api.x.ai/v1`), e.g. `"baseUrl": "https://gateway.example.com/v1"`. It must be `https://`
+   (`http://` only for `127.0.0.1`, `localhost` or `[::1]`) and have no user, query or fragment.
+
+3. In the dashboard, open the specialist, go to **Profile**, pick **OpenAI** or **xAI** as the
+   provider, type the model id (e.g. `gpt-5`, `grok-4`) and save. A new specialist can pick its
+   provider in the create dialog.
+
+Rules the dashboard checks before every ask (the message says what to fix):
+
+- The file is `~/.config/beast-dash/providers.json`; `BD_PROVIDERS_FILE` points it elsewhere.
+- It must be a regular file, not a symlink, owned by you, with no group or other permissions
+  (`chmod 600`), at most 64 KiB, and a JSON object.
+- Each `apiKey` is one line of printable ASCII without spaces, at most 4096 chars.
+- The server reads the file to check it, and the runner reads it for each request; neither keeps
+  it. The key is never returned by the API,
+  logged, passed on a command line or in a child's environment, or written into run records,
+  transcripts or error messages.

@@ -14,6 +14,7 @@ const node = (tag, attrs, kids) => {
   n.append = (...k) => { n.kids.push(...k); };
   n.contains = () => false;
   n.focus = () => {};
+  if (n.attrs.value !== undefined) n.value = n.attrs.value;
   return n;
 };
 const text = n => typeof n === 'string' || typeof n === 'number' ? String(n) : n == null ? '' : (n.kids || []).map(text).join(' ');
@@ -171,6 +172,30 @@ test('the page loads the specialist and asking posts without waiting, then opens
   await ask.onclick();
   assert.deepStrictEqual(JSON.parse(JSON.stringify(sb.calls.find(c => c[0].endsWith('/ask')))), ['specialist/writer/ask', { text: 'Reply to Ana', wait: false }]);
   assert.strictEqual(sb.opened, 'claude-spec-writer-261111-0930');
+});
+
+test('an api provider shows its model id as given, a provider chip and the missing-key message', async () => {
+  const sb = build([P('scout', { provider: 'xai', model: 'grok-4', keyError: 'no key for xai: see the docs' })], []);
+  await sb.FEAT.specialists.refresh(true);
+  assert.match(text(railRows(sb.FEAT.specialists.railSection('rail'))[0]), /grok-4/);
+  sb.FEAT.specialists.open('scout');
+  await new Promise(r => setTimeout(r, 10));
+  const chips = find(sb.shown, n => n.attrs.class === 'sp-chips')[0];
+  assert.match(text(chips), /xAI\s+grok-4/);
+  assert.strictEqual(find(sb.shown, n => /sp-key/.test(n.attrs.class || ''))[0].textContent, 'no key for xai: see the docs');
+});
+
+test('switching the provider in the profile sends the provider with the typed model id', async () => {
+  const sb = build([P('writer', { effort: null, permissionMode: 'default', account: 'personal', updatedAt: 5 })], []);
+  await sb.FEAT.specialists.refresh(true);
+  sb.FEAT.specialists.open('writer', { tab: 'profile' });
+  await new Promise(r => setTimeout(r, 10));
+  const provider = find(sb.shown, n => n.tag === 'select' && find(n, o => o.attrs.value === 'xai').length)[0];
+  const id = find(sb.shown, n => n.tag === 'input' && n.attrs.maxlength === 128)[0];
+  provider.value = 'xai'; provider.onchange(); id.value = ' grok-4 ';
+  sb.calls.length = 0;
+  await find(sb.shown, n => n.tag === 'button' && text(n) === 'Save')[0].onclick();
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(sb.calls[0])), ['specialist/writer', { provider: 'xai', model: 'grok-4', ifUpdatedAt: 5 }]);
 });
 
 const memStore = () => { const m = new Map(); return { getItem: k => m.has(k) ? m.get(k) : null, setItem: (k, v) => m.set(k, String(v)), m }; };
