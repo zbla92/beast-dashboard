@@ -16,17 +16,30 @@
 #        ./bin/enable-https.sh off      # remove the serve config again
 set -euo pipefail
 name="$(tailscale status --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))')"
-if [ "${1:-}" = "off" ]; then sudo tailscale serve reset; echo "serve config removed"; exit 0; fi
-echo "==> checking HTTPS certificates for $name"
-certdir="$(mktemp -d)"; trap 'sudo rm -rf "$certdir"' EXIT
-if ! sudo tailscale cert --cert-file "$certdir/test.crt" --key-file "$certdir/test.key" "$name" >/dev/null 2>&1; then
-  echo "HTTPS certificates are not enabled for this tailnet."
-  echo "Enable them once at https://login.tailscale.com/admin/dns (HTTPS Certificates -> Enable HTTPS), then re-run."
-  exit 1
+# macOS: the Tailscale app's CLI needs no sudo, and 443 often serves another app on a Mac already, so the dashboard
+# gets its own port (BD_HTTPS_PORT, default 8443) and `off` removes only that port, never the whole serve config.
+S=sudo; PORT=443
+if [ "$(uname)" = Darwin ]; then S=; PORT="${BD_HTTPS_PORT:-8443}"; fi
+if [ "${1:-}" = "off" ]; then
+  if [ "$(uname)" = Darwin ]; then tailscale serve --https="$PORT" --set-path /term off || true; tailscale serve --https="$PORT" off; else sudo tailscale serve reset; fi
+  echo "serve config removed"; exit 0
+fi
+if [ "$(uname)" = Darwin ]; then
+  taken="$(tailscale serve status --json | python3 -c 'import json,sys; d=json.load(sys.stdin); p=d.get("Web",{}).get(sys.argv[1],{}).get("Handlers",{}).get("/",{}).get("Proxy",""); print("" if p in ("","http://127.0.0.1:8787") else p)' "$name:$PORT")"
+  [ -z "$taken" ] || { echo "https port $PORT already serves $taken — pick another: BD_HTTPS_PORT=<port> $0"; exit 1; }
+else
+  echo "==> checking HTTPS certificates for $name"
+  certdir="$(mktemp -d)"; trap 'sudo rm -rf "$certdir"' EXIT
+  if ! sudo tailscale cert --cert-file "$certdir/test.crt" --key-file "$certdir/test.key" "$name" >/dev/null 2>&1; then
+    echo "HTTPS certificates are not enabled for this tailnet."
+    echo "Enable them once at https://login.tailscale.com/admin/dns (HTTPS Certificates -> Enable HTTPS), then re-run."
+    exit 1
+  fi
 fi
 echo "==> tailscale serve: / -> dashboard, /term -> terminal"
 # serve strips the mount path and prepends the target's path, and routes by Host header (the MagicDNS name)
-sudo tailscale serve --bg --https=443 --set-path / http://127.0.0.1:8787 >/dev/null
-sudo tailscale serve --bg --https=443 --set-path /term http://127.0.0.1:7681/term >/dev/null
-sudo tailscale serve status
-printf '\n\033[1;32mhttps://%s/\033[0m  (open this on the phone + Mac; then Settings -> Push -> Enable on this device)\n' "$name"
+$S tailscale serve --bg --https="$PORT" --set-path / http://127.0.0.1:8787 >/dev/null
+$S tailscale serve --bg --https="$PORT" --set-path /term http://127.0.0.1:7681/term >/dev/null
+$S tailscale serve status
+url="https://$name/"; [ "$PORT" = 443 ] || url="https://$name:$PORT/"
+printf '\n\033[1;32m%s\033[0m  (open this on the phone + Mac; then Settings -> Push -> Enable on this device)\n' "$url"
