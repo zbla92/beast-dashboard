@@ -8,7 +8,7 @@
 
   // sessions waiting for you, in tmux (alphabetical) order; "Seen" hides one until its state changes
   const waiting = () => {
-    const out = termSessions().claude.filter(it => WAIT.has(it.claude?.state) && !it.claude.settled).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    const out = termSessions(true).claude.filter(it => WAIT.has(it.claude?.state) && !it.claude.settled && !(it.claude.specialist && it.claude.state === 'needs-you')).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
     return out.filter(it => IBX.seen.get(it.name) !== it.claude.since);
   };
   const lineOf = it => {

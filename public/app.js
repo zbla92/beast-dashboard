@@ -592,11 +592,14 @@ const chatTitle = cl => (cl && (cl.label || withoutLeadingPaths(cl.title) || sho
 const sessTitle = s => isNewChat(s.name) ? chatTitle(s.claude) : (s.claude?.label || (s.project && byId()[s.project]?.name) || s.name);
 const newSessionModal = (tab, text, opts) => FEAT.session ? FEAT.session.open(tab, text, opts) : newTerminalModal();
 function claudeOf(name) { const s = S.runtime.sessions.find(x => x.name === name); return s && s.claude || null; }
+const isSpecRun = s => !!s.claude?.specialist;
+const sessCount = () => S.runtime.sessions.filter(s => !isSpecRun(s)).length;
 const isClaudeSession = s => s.name.startsWith('claude-') || s.current === 'claude' || !!s.claude;
 // Claude first, and within Claude: the ones that need you, then the ones working, then idle.
-function termSessions() {
+function termSessions(withRuns) {
   const P = byId(); const out = { claude: [], dev: [], other: [], all: [] };
   for (const s of S.runtime.sessions) {
+    if (!withRuns && isSpecRun(s)) continue;
     const pr = P[s.project]; const item = { name: s.name, pid: s.project, project: pr?.name || s.cwd?.split('/').pop() || '?', org: pr?.org || '', group: pr?.group, cpu: s.cpu, mem: s.mem, started: s.startedAt, cwd: s.cwd, current: s.current, attached: s.attached, ports: (s.ports || []).filter(p => !p.ephemeral), managed: s.managed, claude: s.claude || null };
     if (isClaudeSession(s)) out.claude.push({ ...item, account: s.claude?.account || (s.name.endsWith('-company') ? 'company' : 'personal') });
     else if (s.managed) out.dev.push({ ...item, label: s.label });
@@ -642,7 +645,7 @@ function plusClaude(ev, pid) { ev.stopPropagation(); const p = pid && byId()[pid
 // branch / worktree tag: a worktree gets its own colour and the path on hover
 const nice = n => n.startsWith('claude-') ? n.replace(/^claude-/, '').replace(/-company$/, ' (' + acctL('company') + ')') : n.startsWith('bd_') ? n.replace(/^bd_/, '').replace('__', ' · ') : n === 'shell' ? 'bash' : n.startsWith('sh-') ? n : n;
 function renderTermPanel(force) {
-  const el = $('#termpanel'); const live = S.runtime.sessions.length; $('#term-count').textContent = live;
+  const el = $('#termpanel'); const live = sessCount(); $('#term-count').textContent = live;
   if (TERM.open && !document.body.classList.contains('term-open')) TERM.pageY = window.scrollY;   // body goes position:fixed -> remember where the page was
   el.classList.toggle('hidden', !TERM.open); document.body.classList.toggle('term-open', TERM.open);
   document.body.classList.toggle('sess-list', TERM.open && TERM.showList); markTab();
@@ -709,7 +712,8 @@ function renderTermPanel(force) {
   list.append(...(S3.claude.length ? [h('div', { class: 'tsec' }, 'Claude instances', h('span', { class: 'n' }, S3.claude.length)), ...claudeRows] : []), ...section('Dev servers', S3.dev, 'dev'), ...section('Other tmux', S3.other, 'other'));
   // opened frames whose session vanished (or plain shells)
   if (extra.length) list.append(h('div', { class: 'tsec' }, 'Open tabs', h('span', { class: 'n' }, extra.length)), ...extra.map(k => h('div', { class: 'titem other' + (TERM.active === k ? ' on' : ''), onclick: () => { TERM.active = k; renderTermPanel(true); } }, h('span', { class: 'dot', style: k === 'shell' ? 'background:var(--accent)' : 'background:var(--dim)' }), h('div', { class: 'tt' }, h('div', { class: 'tn' }, k === 'shell' ? 'bash · ' + home(S.host.devRoot || '~') : k), h('div', { class: 'ts' }, k === 'shell' ? 'plain shell' : 'session ended')), h('button', { class: 'x', title: 'close tab', onclick: ev => { ev.stopPropagation(); dropFrame(k); } }, ico('x', 13)))));
-  if (!S.runtime.sessions.length && !TERM.frames.size) list.append(h('div', { class: 'note', style: 'padding:12px' }, 'No tmux sessions. Start a Claude session from a project card (', ico('sparkle', 13), ' Claude ', ico('chevronDown', 11), ') or a dev server (', ico('play', 12), '), or open a shell.'));
+  if (!sessCount() && !TERM.frames.size) list.append(h('div', { class: 'note', style: 'padding:12px' }, 'No tmux sessions. Start a Claude session from a project card (', ico('sparkle', 13), ' Claude ', ico('chevronDown', 11), ') or a dev server (', ico('play', 12), '), or open a shell.'));
+  list.append(...feat('railSection', 'list'));
   const bar = $('#term-bar'); bar.innerHTML = '';
   const barAdd = (...xs) => bar.append(...xs.filter(x => x != null && x !== false)); // Element.append() would render a literal "null" for sessions without a project
   const act = S.runtime.sessions.find(s => s.name === TERM.active); const cl = act && act.claude;
@@ -789,7 +793,7 @@ function renderHeader() {
   const need = FEAT.inbox?.count ? FEAT.inbox.count() : S.runtime.sessions.filter(s => s.claude && s.claude.needsYou).length; const nb = $('#need-count'); if (nb) { nb.textContent = need; nb.classList.toggle('hidden', !need); }
   // phone tab bar badges
   const tbn = (id, n) => { const e = $(id); if (e) { e.textContent = n > 99 ? '99+' : n; e.classList.toggle('hidden', !n); } };
-  tbn('#tb-need', need); tbn('#tb-sess', S.runtime.sessions.length); tbn('#tb-tasks', (S.claude?.tasks || []).filter(t => t.status !== 'done').length);
+  tbn('#tb-need', need); tbn('#tb-sess', sessCount()); tbn('#tb-tasks', (S.claude?.tasks || []).filter(t => t.status !== 'done').length);
   document.title = (need ? `(${need}) ` : '') + 'Beast Dash';
 }
 
@@ -2921,7 +2925,7 @@ function render() {
   renderHeader(); renderBanner(); renderTunnels(); renderRail();
   if (UI.view === 'home') { renderStats(); renderFeatHome(); renderTermStrip(); renderRunning(); } else if (UI.view === 'tasks') renderTasks(); else if (UI.view !== 'code') renderMain();
   if (UI.drawer) renderDrawer(false);
-  if (TERM.open) { renderTermPanel(); renderChatPane(false); } else $('#term-count').textContent = S.runtime.sessions.length;
+  if (TERM.open) { renderTermPanel(); renderChatPane(false); } else $('#term-count').textContent = sessCount();
   gcFrames();
   if (PAL.open) renderPalette();
   feat('onState');
@@ -2975,6 +2979,7 @@ function renderRail() {
   if (S3.dev.length) out.push(h('div', { class: 'rsec' }, 'Dev servers'), ...S3.dev.map(it => row(it, 'dev')));
   if (S3.other.length) out.push(h('div', { class: 'rsec' }, 'Shells'), ...S3.other.map(it => row(it, 'other')));
   if (!out.length) out.push(h('div', { class: 'rempty' }, 'No sessions yet.'));
+  out.push(...feat('railSection', 'rail'));
   el.replaceChildren(...out);
 }
 
