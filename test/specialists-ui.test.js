@@ -162,11 +162,11 @@ const pageSetup = async (o = {}) => {
   await new Promise(r => setTimeout(r, 20));
   return { sb, calls, toasts, field, reply, tick: () => tick(), cleared: () => cleared, S: sb.FEAT.specialists, view: () => find(sb.FEAT.specialists.emptyChat(PAGE), () => true) };
 };
-const cards = t => find(t.S.emptyChat(PAGE), n => /sppage-card/.test(n.attrs.class || ''));
 const run = (id, o = {}) => ({ runId: id, specialist: 'writer', tmux: id, mode: 'run', state: 'done', task: 'Reply to ' + id + '\nmore', preview: 'Hi ' + id, startedAt: Date.now(), endedAt: Date.now() + 5000, ...o });
 
 test('the page poll stops once another chat replaced the page', async () => {
-  const t = await pageSetup();
+  const w = run('w', { state: 'working' });
+  const t = await pageSetup({ runs: [w], full: { ...w, text: null } });
   t.calls.length = 0;
   t.tick();
   assert.strictEqual(t.calls.filter(c => c[0] === 'specialist/writer?runs=50').length, 1);
@@ -175,7 +175,7 @@ test('the page poll stops once another chat replaced the page', async () => {
   t.tick();
   assert.strictEqual(t.cleared(), before + 1);
   assert.strictEqual(t.S.termBar(PAGE), null);
-  assert.strictEqual(t.S.emptyChat(PAGE), null);
+  assert.strictEqual(t.S.transcript(PAGE), null);
   const calls = t.calls.length;
   t.tick();
   assert.strictEqual(t.calls.length, calls);
@@ -205,71 +205,137 @@ test('the specialist is a phantom chat with its title in the header', async () =
   assert.strictEqual(t.S.emptyChat('claude-other'), null);
 });
 
-test('the page lists runs as cards with task, preview, state and age and an invitation when empty', async () => {
-  const t = await pageSetup({ runs: [run('r2', { state: 'working', preview: null }), run('r1')] });
+const done = (id, over = {}) => ({ ...run(id), text: 'Hi ' + id, turns: 1, ...over });
+const turnTexts = t => Array.from(t.S.transcript(PAGE).turns, x => x.role === 'user' ? x.text : x.steps[0].text);
+
+test('the page is one conversation: the latest run as a user turn and its answer, an invitation when empty', async () => {
+  const t = await pageSetup({ runs: [run('r2'), run('r1')], full: done('r2', { task: 'Reply to Ana', text: 'Hi Ana, thanks.' }) });
   assert.strictEqual(t.calls.find(c => c[0].startsWith('specialist/writer?'))[0], 'specialist/writer?runs=50');
-  const [first, second] = cards(t);
-  assert.match(text(first), /Reply to r2\s+Working on it…\s+working\s+1m ago/);
-  assert.match(text(second), /Reply to r1\s+Hi r1\s+done/);
-  assert.match(text(t.S.emptyChat(PAGE)), /does writer/);
+  assert.ok(t.calls.some(c => c[0] === 'specialist/run/r2'));
+  assert.deepStrictEqual(turnTexts(t), ['Reply to Ana', 'Hi Ana, thanks.']);
+  assert.strictEqual(t.S.transcript(PAGE).pending, null);
   const e = await pageSetup();
-  assert.strictEqual(cards(e).length, 0);
+  assert.strictEqual(e.S.transcript(PAGE).turns.length, 0);
+  assert.match(text(e.S.emptyChat(PAGE)), /does writer/);
   assert.match(text(e.S.emptyChat(PAGE)), /Ask Writer something/);
 });
 
-test('a live run opens in the chat view and a finished one opens its answer with Improve and Copy', async () => {
-  const t = await pageSetup({ runs: [run('live', { state: 'working' }), run('r1')], live: ['live'], full: { runId: 'r1', tmux: 'r1', mode: 'run', state: 'done', task: 'Reply to Ana', text: 'Hi Ana, thanks.' } });
-  const [live, done] = cards(t);
-  fire(live);
-  assert.strictEqual(t.sb.opened, 'live');
-  t.sb.TERM.active = PAGE;
-  t.S.termShown();
-  await new Promise(r => setTimeout(r, 20));
-  await fire(cards(t)[1]);
-  await new Promise(r => setTimeout(r, 10));
-  const view = t.S.emptyChat(PAGE);
-  assert.match(text(view), /Reply to Ana\s+Hi Ana, thanks\./);
-  assert.ok(btn(view, 'Improve'));
-  assert.ok(btn(view, 'Copy'));
-  assert.strictEqual(find(view, n => n.tag === 'input').length, 0);
+test('a working run shows as pending with the live transcript turns and a run that errored says so', async () => {
+  const live = { turns: [{ role: 'user', text: 'Reply to Ana', h: 'a' }, { role: 'assistant', steps: [{ k: 'text', text: 'Drafting' }], h: 'b' }], sig: 'x1', since: 5 };
+  const w = await pageSetup({ runs: [run('w', { state: 'working' })], full: { ...run('w', { state: 'working' }), text: null }, api: p => p.startsWith('transcript/') ? live : undefined });
+  const t = w.S.transcript(PAGE);
+  assert.strictEqual(t.pending, 'working');
+  assert.strictEqual(t.since, 5);
+  assert.deepStrictEqual(turnTexts(w), ['Reply to Ana', 'Drafting']);
+  const e = await pageSetup({ runs: [run('e', { state: 'error' })], full: { ...run('e', { state: 'error' }), text: null, error: 'boom' } });
+  assert.deepStrictEqual(turnTexts(e), ['Reply to e\nmore', 'It could not finish: boom']);
+});
+
+test('the answers carry Copy and Improve, once each', async () => {
+  const t = await pageSetup({ runs: [run('r1')], full: done('r1', { task: 'Reply to Ana', text: 'Hi Ana, thanks.' }) });
+  const turns = t.S.transcript(PAGE).turns;
+  const user = node('div', {}, []); user._turn = turns[0];
+  const answer = node('div', {}, []); answer._turn = turns[1];
+  const conv = node('div', {}, []); conv.children = [user, answer];
+  t.S.conversation(PAGE, conv);
+  assert.strictEqual(user.kids.length, 0);
+  assert.ok(btn(answer, 'Copy'));
+  assert.ok(btn(answer, 'Improve'));
+  t.S.conversation('claude-other', conv);
+  assert.strictEqual(answer.kids.length, 1);
+});
+
+test('the composer continues the latest finished run in place and never opens another session', async () => {
+  const t = await pageSetup({ runs: [run('r1')], full: done('r1', { task: 'Reply to Ana', text: 'Hi Ana, thanks.' }), api: p => p.endsWith('/send') ? { ok: true, ...done('r1', { state: 'working', text: null, turns: 2 }) } : undefined });
   t.S.composerShown(t.sb.modal);
-  assert.strictEqual(t.reply.placeholder, 'Continue this run…');
+  assert.strictEqual(t.reply.placeholder, 'Reply to Writer…');
   t.calls.length = 0;
-  await t.S.trainSend(PAGE, 'Make it shorter');
+  const r = await t.S.trainSend(PAGE, 'Make it shorter');
+  assert.ok(r);
   assert.deepStrictEqual(JSON.parse(JSON.stringify(t.calls.find(c => c[0].endsWith('/send')))), ['specialist/run/r1/send', { text: 'Make it shorter' }]);
-  assert.strictEqual(t.sb.opened, 'r1');
-  t.sb.TERM.active = PAGE;
-  t.S.termShown();
-  await new Promise(r => setTimeout(r, 20));
-  t.S.open('writer', { run: 'r1' });
-  await new Promise(r => setTimeout(r, 20));
-  fire(btn(t.S.emptyChat(PAGE), 'All runs'));
-  await new Promise(r => setTimeout(r, 20));
-  assert.strictEqual(cards(t).length, 2);
+  assert.strictEqual(t.sb.opened, null);
+  assert.strictEqual(t.S.transcript(PAGE).pending, 'working');
+});
+
+test('a message while the run is still working is refused and nothing is sent', async () => {
+  const t = await pageSetup({ runs: [run('w', { state: 'working' })], full: { ...run('w', { state: 'working' }), text: null } });
+  t.calls.length = 0;
+  await assert.rejects(t.S.trainSend(PAGE, 'More'), /Still working/);
+  assert.strictEqual(t.calls.length, 0);
+});
+
+test('a run made with another provider falls back to a new ask', async () => {
+  const t = await pageSetup({ runs: [run('r1')], full: done('r1'), api: p => { if (p.endsWith('/send')) throw Object.assign(new Error('this run was made with another provider; ask the specialist again instead'), { status: 409 }); } });
+  await t.S.trainSend(PAGE, 'Again');
+  assert.ok(t.calls.some(c => c[0] === 'specialist/writer/ask'));
+});
+
+test('New conversation empties the page, the next message asks, and Earlier switches back', async () => {
+  const t = await pageSetup({ runs: [run('r2'), run('r1')], full: done('r2') });
+  const bar = () => ({ attrs: {}, kids: t.S.termBar(PAGE) });
+  assert.strictEqual(t.S.transcript(PAGE).turns.length, 2);
+  fire(btn(bar(), 'New conversation'));
+  assert.strictEqual(t.S.transcript(PAGE).turns.length, 0);
+  assert.match(text(btn(bar(), 'New conversation: on')), /New conversation: on/);
   t.S.composerShown(t.sb.modal);
   assert.strictEqual(t.reply.placeholder, 'Ask Writer…');
+  t.calls.length = 0;
+  await t.S.trainSend(PAGE, 'Fresh task');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(t.calls.find(c => c[0].endsWith('/ask')))), ['specialist/writer/ask', { text: 'Fresh task', wait: false }]);
+  assert.strictEqual(t.sb.opened, null);
+  assert.ok(btn(bar(), 'New conversation'));
+});
+
+test('Earlier lists the runs in the side panel and picking one shows it as the conversation', async () => {
+  const t = await pageSetup({ runs: [run('r2'), run('r1', { task: 'Old task' })], full: done('r2') });
+  fire(btn({ attrs: {}, kids: t.S.termBar(PAGE) }, 'Earlier'));
+  const cardsIn = find({ attrs: {}, kids: [t.sb.modal] }, n => /sppage-card/.test(n.attrs.class || ''));
+  assert.strictEqual(cardsIn.length, 2);
+  assert.match(text(cardsIn[1]), /Old task\s+done\s+1m ago/);
+  t.calls.length = 0;
+  fire(cardsIn[1]);
+  await new Promise(r => setTimeout(r, 20));
+  assert.ok(t.calls.some(c => c[0] === 'specialist/run/r1'));
+  assert.strictEqual(t.sb.opened, null);
+});
+
+test('a thread specialist has no New conversation or Earlier and continues by asking', async () => {
+  const t = await pageSetup({ list: [P('writer', { mode: 'thread' })], spec: { mode: 'thread' }, runs: [run('t_2', { mode: 'thread' })], full: done('t_2', { mode: 'thread' }) });
+  const bar = { attrs: {}, kids: t.S.termBar(PAGE) };
+  assert.strictEqual(btn(bar, 'New conversation'), undefined);
+  assert.strictEqual(btn(bar, 'Earlier'), undefined);
+  t.calls.length = 0;
+  await t.S.trainSend(PAGE, 'Next');
+  assert.ok(t.calls.some(c => c[0] === 'specialist/writer/ask'));
+  assert.ok(!t.calls.some(c => c[0].endsWith('/send')));
 });
 
 test('openRun and open with a run show that run on the page', async () => {
-  const t = await pageSetup({ full: { runId: 'r9', tmux: 'r9', mode: 'run', state: 'done', task: 'Old task', text: 'Old answer' } });
+  const t = await pageSetup({ runs: [run('r1')], full: done('r9', { runId: 'r9', tmux: 'r9', task: 'Old task', text: 'Old answer' }) });
   t.S.open('writer', { run: 'r9' });
-  await new Promise(r => setTimeout(r, 10));
-  assert.match(text(t.S.emptyChat(PAGE)), /Old task\s+Old answer/);
+  await new Promise(r => setTimeout(r, 20));
+  assert.deepStrictEqual(turnTexts(t), ['Old task', 'Old answer']);
   assert.ok(t.calls.some(c => c[0] === 'specialist/run/r9'));
 });
 
-test('asking from the composer posts without waiting, sends attached files, then opens the run', async () => {
+test('asking from the composer posts without waiting, sends attached files and stays on the page', async () => {
   const t = await pageSetup();
   assert.strictEqual(t.S.trainSend('claude-other', 'hi'), null);
-  t.sb.PENDING[PAGE] = [{ text: 'Reply to Ana', ts: 1 }];
   await t.S.attachFile(PAGE, { name: 'a.pdf', size: 3 });
   t.S.composerShown(t.sb.modal);
   assert.match(text(find(t.field, n => /sptr-chips/.test(n.attrs.class || ''))[0]), /a\.pdf/);
   assert.strictEqual(t.reply.placeholder, 'Ask Writer…');
   await t.S.trainSend(PAGE, 'Reply to Ana');
   assert.deepStrictEqual(JSON.parse(JSON.stringify(t.calls.find(c => c[0].endsWith('/ask')))), ['specialist/writer/ask', { text: 'Reply to Ana', wait: false, files: ['/pasted/a.pdf'] }]);
-  assert.strictEqual(t.sb.opened, 'claude-spec-writer-261111-0930');
-  assert.strictEqual(t.sb.PENDING[PAGE].length, 0);
+  assert.strictEqual(t.sb.opened, null);
+});
+
+test('the stop button targets the working run and nothing when it is idle', async () => {
+  const w = await pageSetup({ runs: [run('w', { state: 'working' })], full: { ...run('w', { state: 'working' }), text: null } });
+  assert.strictEqual(w.S.keyTarget(PAGE), 'w');
+  const d = await pageSetup({ runs: [run('r1')], full: done('r1') });
+  assert.strictEqual(d.S.keyTarget(PAGE), null);
+  assert.strictEqual(d.S.keyTarget('claude-other'), null);
 });
 
 test('a failed ask rejects so the composer keeps the text, and a plain ask has no files', async () => {
