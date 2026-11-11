@@ -591,7 +591,7 @@ const shortPrompt = s => s && (s.length > 40 ? s.slice(0, 39) + '…' : s);
 const chatTitle = cl => (cl && (cl.label || withoutLeadingPaths(cl.title) || shortPrompt(withoutLeadingPaths(cl.firstPrompt)))) || 'New chat';
 const sessTitle = s => isNewChat(s.name) ? chatTitle(s.claude) : (s.claude?.label || (s.project && byId()[s.project]?.name) || s.name);
 const newSessionModal = (tab, text, opts) => FEAT.session ? FEAT.session.open(tab, text, opts) : newTerminalModal();
-function claudeOf(name) { const s = S.runtime.sessions.find(x => x.name === name); return s && s.claude || null; }
+function claudeOf(name) { const s = S.runtime.sessions.find(x => x.name === name); return s && s.claude || FEAT.specialists?.phantom(name) || null; }
 const isSpecRun = s => !!s.claude?.specialist;
 const sessCount = () => S.runtime.sessions.filter(s => !isSpecRun(s)).length;
 const isClaudeSession = s => s.name.startsWith('claude-') || s.current === 'claude' || !!s.claude;
@@ -719,11 +719,11 @@ function renderTermPanel(force) {
   const act = S.runtime.sessions.find(s => s.name === TERM.active); const cl = act && act.claude;
   const actAcc = act && (cl || isClaudeSession(act)) ? (cl?.account || (act.name.endsWith('-company') ? 'company' : 'personal')) : null;
   const accTag = () => actAcc ? h('span', { class: 'tacc ' + actAcc, title: 'Claude Code account: ' + acct(actAcc) }, acct(actAcc)) : null;
-  const mobName = act ? sessTitle(act) : (TERM.active || 'Sessions');
+  const mobName = act ? sessTitle(act) : (FEAT.specialists?.trainTitle(TERM.active) || TERM.active || 'Sessions');
   const toList = () => { TERM.showList = true; renderTermPanel(true); retop(); };
   barAdd(h('button', { class: 'btn sm ghost mob icon', title: 'back to the sessions (they keep running)', onclick: toList }, ico('back', 17)),
     h('button', { class: 'mob msess', title: 'switch session', onclick: toList }, act ? avatar(act.project, 'sm') : null, h('span', { class: 'nm' }, mobName), accTag(), instOf(act || { name: TERM.active || '' }).n ? h('span', { class: 'grp' }, '#' + instOf(act).n) : null, cl && IS_PHONE ? stateBadge(cl, true) : null));
-  const actName = act ? sessTitle(act) : TERM.active;
+  const actName = act ? sessTitle(act) : (FEAT.specialists?.trainTitle(TERM.active) || TERM.active);
   const isChatS = cl && cl.mode === 'chat'; const logOn = isChatS && TERM.view[TERM.active] === 'term';
   const updatePending = !!cl && (!!S.claude?.update || needsRestart(cl));
   if (TERM.active) barAdd(h('button', { class: 'btn sm ghost icon desk', title: 'back to the dashboard — every session keeps running  (Esc)', onclick: closeTermPanel }, ico('back', 15)),
@@ -1637,7 +1637,7 @@ function renderConversation(box, name, t, o) {
   const starts = m => !turnAt(lv) || m.at <= turnAt(lv) + 1500;
   const shownTurns = lv && lv.turn ? t.turns.filter(x => !(x.role === 'assistant' && (x.ts || 0) >= lv.turn.startedAt - 3000)) : t.turns;
   for (const turn of shownTurns) { let el = turn.h && old.get(turn.h); if (!el) { el = convTurn(turn, name); if (turn.h) el.dataset.h = turn.h; } el._turn = turn; items.push(el); }
-  if (!t.turns.length && !(PENDING[name] || []).length && !(claudeOf(name) || {}).menu) items.push(h('div', { class: 'dim', style: 'padding:24px 4px' }, 'New conversation — nothing said yet. Type your first message below.'));
+  if (!t.turns.length && !(PENDING[name] || []).length && !(claudeOf(name) || {}).menu) items.push(FEAT.specialists?.emptyChat(name) || h('div', { class: 'dim', style: 'padding:24px 4px' }, 'New conversation — nothing said yet. Type your first message below.'));
   const cl = claudeOf(name) || {};
   // busy: hooks / pane say so, or the transcript ends in a tool call that hasn't returned yet (Claude is running it)
   const busy = lv ? lv.state === 'working' || !!lv.turn : cl.state === 'working' || cl.state === 'background' || !!t.pending; const justSent = (PENDING[name] || []).length > 0;
@@ -1693,7 +1693,7 @@ function composer(box, name, cl, conv, scroller, o, busy, justSent, jobs, prevDr
   const send = async () => { if (shellMode()) return runShell(); const typed = ta.value.trim(), v = FEAT.quotes ? FEAT.quotes.message(name, typed) : typed; if (!v) return; if ((claudeOf(name) || {}).menu) { toast('Claude is asking something — pick an option above first', 'err'); return; } const chips = FEAT.quotes?.take(name, typed); FEAT.plan2?.answersSent(chips); ta.value = ''; grow();
     const pm = { text: v, ts: Date.now() }; (PENDING[name] = PENDING[name] || []).push(pm);
     conv.append(h('div', { class: 'turn user pending' }, h('div', { class: 'who' }, gl('❯ you'), h('span', { class: 'dim' }, ' sending…')), userBody(v))); scroller.scrollTop = scroller.scrollHeight;
-    try { const r = await api('send', { session: name, text: v }); if (r && r.id) pm.id = r.id; } catch (e) { toast(e.message, 'err'); PENDING[name] = PENDING[name].filter(x => x !== pm); ta.value = typed; grow(); FEAT.quotes?.restore(name, chips); FEAT.plan2?.answersBack(chips); }
+    try { const r = await (FEAT.specialists?.trainSend(name, v) || api('send', { session: name, text: v })); if (r && r.id) pm.id = r.id; } catch (e) { toast(e.message, 'err'); PENDING[name] = PENDING[name].filter(x => x !== pm); ta.value = typed; grow(); FEAT.quotes?.restore(name, chips); FEAT.plan2?.answersBack(chips); }
     for (const ms of [400, 1200, 2500, 5000]) setTimeout(o.refresh, ms); };
   ta.addEventListener('input', grow);
   const busyNow = cl.state === 'working' || cl.state === 'background' || cl.state === 'permission';
@@ -1711,7 +1711,7 @@ function composer(box, name, cl, conv, scroller, o, busy, justSent, jobs, prevDr
   // 📎 attach: any file (photo / screenshot downscaled, everything else as-is) -> ~/dev/.pasted -> its path goes into the message (Claude reads it)
   const fileIn = h('input', { type: 'file', multiple: true, style: 'display:none' });
   const attachFiles = async files => { files = [...files].filter(Boolean); if (!files.length) return;
-    for (const f of files) { if (files.length > 1 || f.size > 2e6) toast('uploading ' + (f.name || 'image') + '…'); try { const p = await uploadFile(f, { session: name }); ta.value = (ta.value ? ta.value.replace(/\s*$/, ' ') : '') + p + ' '; grow(); } catch (e) { toast('upload failed: ' + e.message, 'err'); } }
+    for (const f of files) { if (files.length > 1 || f.size > 2e6) toast('uploading ' + (f.name || 'image') + '…'); try { const up = FEAT.specialists?.attachFile(name, f); if (up) { await up; continue; } const p = await uploadFile(f, { session: name }); ta.value = (ta.value ? ta.value.replace(/\s*$/, ' ') : '') + p + ' '; grow(); } catch (e) { toast('upload failed: ' + e.message, 'err'); } }
     ta.focus(); toast(files.length > 1 ? `${files.length} files attached — describe what to do with them and send` : 'attached — describe what to do with it and send', 'ok'); };
   fileIn.addEventListener('change', () => { const fs = [...fileIn.files]; fileIn.value = ''; attachFiles(fs); });
   ta.addEventListener('paste', ev => { const dt = ev.clipboardData; if (!dt) return; const txt = dt.getData('text/plain'); if (txt.length >= PASTE_AS_FILE) { ev.preventDefault(); attachFiles([new File([txt], `paste-${new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '')}.txt`, { type: 'text/plain' })]); return; } if (txt) return; const fs = [...(dt.files || [])]; if (fs.length) { ev.preventDefault(); attachFiles(fs); } });

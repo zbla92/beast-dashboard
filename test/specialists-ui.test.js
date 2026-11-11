@@ -317,30 +317,40 @@ test('the palette ask entry opens the ask dialog and posts without waiting in no
 });
 
 const commit = (id, o = {}) => ({ id: id.repeat(40).slice(0, 40), short: id.repeat(7), message: 'Shorter greetings', source: 'trainer', at: Date.now(), undoOf: null, undone: false, files: [{ path: 'style.md', change: 'modified' }], ...o });
+const TMUX = 'claude-spec-writer_train';
 const trainSetup = async (o = {}) => {
-  const calls = []; const fetches = [];
-  const overview = { ok: true, trainer: null, history: { ready: true, head: 'a', commits: [commit('a'), commit('b', { source: 'start', message: 'Starting point' })] }, feedback: [], accesses: [{ name: 'DB_URL', note: 'read replica', bytes: 5, updatedAt: 'x' }], uploads: { files: 0, bytes: 0 }, ...o.overview };
-  const sb = build([P('writer')], [], false, {
-    convTurn: t => ({ tag: 'div', attrs: {}, kids: [t.text] }),
+  const calls = []; const fetches = []; const toasts = [];
+  const overview = { ok: true, trainer: null, history: { ready: true, head: 'a', commits: [commit('a'), commit('b', { source: 'start', message: 'Starting point' })] }, feedback: [], accesses: [{ name: 'DB_URL', note: 'read replica', bytes: 5, updatedAt: 'x' }], uploads: { files: 0, bytes: 0, maxFiles: 500, maxBytes: 209715200 }, ...o.overview };
+  const sb = build([P('writer')], o.sessions || [], false, {
+    TERM: { open: true, active: TMUX, showList: false },
+    feat: (hook, ...a) => Object.values(sb.FEAT).flatMap(f => f[hook] ? [f[hook](...a)] : []).filter(x => x != null && x !== false).flat(),
+    document: { hidden: true, body: node('body', {}, []), addEventListener() {}, removeEventListener() {} },
+    setTimeout: () => 0,
+    toast: (m, k) => toasts.push([m, k]),
     fetch: async (u, init) => { fetches.push([u, init]); return o.fetch ? o.fetch(u, init) : { ok: true, status: 201, json: async () => ({ ok: true, file: { path: 'knowledge/files/a.pdf', bytes: 3 } }) }; },
     api: async (p, body) => {
       calls.push([p, body]);
       if (o.api) { const r = await o.api(p, body); if (r !== undefined) return r; }
       if (p === 'specialist/writer/train') return overview;
-      if (p.startsWith('transcript/')) return { total: 0, turns: [], sig: 's' };
       if (p === 'specialists') return { ok: true, specialists: [P('writer')], templates: [] };
       return { ok: true, specialist: { ...P('writer'), instructions: '' }, runs: [], thread: null };
     }
   });
+  const field = node('div', {}, []);
+  field.insertBefore = c => field.kids.push(c);
+  sb.modal.style = { setProperty() {} };
+  sb.modal.querySelector = () => field;
   await sb.FEAT.specialists.refresh(true);
-  sb.FEAT.specialists.open('writer', { tab: 'train' });
+  sb.FEAT.specialists.termShown();
   await new Promise(r => setTimeout(r, 20));
-  return { sb, calls, fetches, box: () => sb.shown };
+  const tab = label => { fire(find(sb.modal, n => n.tag === 'button' && /segb/.test(n.attrs.class || '') && text(n).startsWith(label))[0]); return sb.modal; };
+  return { sb, calls, fetches, toasts, field, tab, box: () => sb.modal };
 };
 const btn = (box, label) => find(box, n => n.tag === 'button' && text(n) === label)[0];
 const fire = (n, ev = 'onclick') => (n[ev] || n.attrs[ev])();
+const sentBodies = t => t.calls.filter(c => c[0] === 'specialist/writer/train/send').map(c => JSON.parse(JSON.stringify(c[1])));
 
-test('the create dialog ends on the Train tab with the opening prompt', async () => {
+test('the create dialog ends in the trainer chat and the specialist dialog has a Train button', async () => {
   const sb = build([P('writer')], [], false);
   await sb.FEAT.specialists.refresh(true);
   sb.FEAT.specialists.create();
@@ -349,48 +359,77 @@ test('the create dialog ends on the Train tab with the opening prompt', async ()
   nameIn.value = 'writer'; nameIn.oninput();
   await fire(btn(box, 'Create'));
   await new Promise(r => setTimeout(r, 20));
-  assert.match(text(sb.shown), /What is this specialist for, and how should it behave\?/);
-  assert.ok(sb.calls.some(c => c[0] === 'specialist/writer/train'));
+  assert.strictEqual(sb.opened, TMUX);
+  sb.opened = null;
+  sb.FEAT.specialists.open('writer');
+  await new Promise(r => setTimeout(r, 20));
+  assert.ok(!find(sb.shown, n => /segb/.test(n.attrs.class || '') && text(n) === 'Train').length);
+  fire(btn(sb.shown, 'Train'));
+  assert.strictEqual(sb.opened, TMUX);
 });
 
-test('train send posts text, uploaded files and fresh, and shows a busy trainer in plain words', async () => {
+test('the company account gets its own trainer session', async () => {
+  const sb = build([P('writer', { account: 'company' })], [], false);
+  await sb.FEAT.specialists.refresh(true);
+  sb.FEAT.specialists.openTrain('writer');
+  assert.strictEqual(sb.opened, 'claude-spec-writer_train-company');
+});
+
+test('a trainer that is not running still opens as a chat, with the opening question', async () => {
+  const t = await trainSetup();
+  const ph = t.sb.FEAT.specialists.phantom(TMUX);
+  assert.strictEqual(ph.mode, 'chat');
+  assert.strictEqual(t.sb.FEAT.specialists.phantom('claude-spec-ghost_train'), null);
+  assert.strictEqual(t.sb.FEAT.specialists.phantom('claude-other'), null);
+  assert.match(text(t.sb.FEAT.specialists.emptyChat(TMUX)), /What is this specialist for, and how should it behave\?/);
+  assert.strictEqual(t.sb.FEAT.specialists.emptyChat('claude-other'), null);
+  assert.strictEqual(t.sb.FEAT.specialists.trainTitle(TMUX), 'Train Writer');
+});
+
+test('trainer sends go through train/send, other chats keep the normal path', async () => {
   const st = { busy: true };
-  const t = await trainSetup({ api: (p) => { if (p.endsWith('/train/send')) { if (st.busy) throw Object.assign(new Error('trainer is busy'), { status: 409 }); return { ok: true, trainer: { live: true, state: 'working', turns: 1, tmux: 'claude-spec-writer_train' } }; } } });
-  const box = t.box();
-  find(box, n => n.tag === 'textarea')[0].value = 'Be brief';
-  await fire(btn(box, 'Send'));
-  assert.match(text(box), /The trainer is busy with a turn/);
+  const t = await trainSetup({ api: p => { if (p.endsWith('/train/send')) { if (st.busy) throw Object.assign(new Error('trainer is busy'), { status: 409 }); return { ok: true, trainer: { live: true, state: 'working', turns: 1, tmux: TMUX } }; } } });
+  const S = t.sb.FEAT.specialists;
+  assert.strictEqual(S.trainSend('claude-other', 'hi'), null);
+  await assert.rejects(S.trainSend(TMUX, 'Be brief'), /The trainer is busy with a turn/);
   st.busy = false;
-  fire(btn(box, 'New conversation: on') || btn(box, 'New conversation'));
-  await fire(btn(box, 'Send'));
-  const sends = t.calls.filter(c => c[0] === 'specialist/writer/train/send');
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(sends[1][1])), { text: 'Be brief', fresh: true });
+  const bar = S.termBar(TMUX);
+  fire(find({ attrs: {}, kids: bar }, n => n.tag === 'button' && /New conversation/.test(text(n)))[0]);
+  await S.trainSend(TMUX, 'Be brief');
+  await S.trainSend(TMUX, 'Again');
+  assert.deepStrictEqual(sentBodies(t), [{ text: 'Be brief' }, { text: 'Be brief', fresh: true }, { text: 'Again' }]);
 });
 
-test('uploads post raw bytes, name the files in the next message and explain 415 and 413', async () => {
+test('attaching in the chat uploads raw bytes, shows a chip and rides on the next send as files', async () => {
   const net = { status: 201 };
-  const t = await trainSetup({ fetch: async () => net.status === 201 ? { ok: true, status: 201, json: async () => ({ ok: true, file: { path: 'knowledge/files/a.pdf', bytes: 3 } }) }   : { ok: false, status: net.status, statusText: 'x', json: async () => ({ error: ".exe files can't be used for training: save it as PDF or text" }) } });
-  const box = t.box();
-  const input = find(box, n => n.tag === 'input' && n.attrs.type === 'file')[0];
-  const drop = find(box, n => /sp-drop/.test(n.attrs.class || ''))[0];
-  assert.ok(drop);
-  const fileInput = input;
-  fileInput.files = [{ name: 'a b.pdf', size: 3 }];
-  await fire(fileInput, 'onchange');
+  const t = await trainSetup({ fetch: async () => net.status === 201 ? { ok: true, status: 201, json: async () => ({ ok: true, file: { path: 'knowledge/files/a.pdf', bytes: 3 } }) } : { ok: false, status: net.status, statusText: 'x', json: async () => ({ error: ".exe files can't be used for training: save it as PDF or text" }) } });
+  const S = t.sb.FEAT.specialists;
+  assert.strictEqual(S.attachFile('claude-other', { name: 'a.pdf', size: 3 }), null);
+  await S.attachFile(TMUX, { name: 'a b.pdf', size: 3 });
+  S.composerShown(t.sb.modal);
   assert.match(t.fetches[0][0], /\/api\/specialist\/writer\/train\/upload\?filename=a%20b\.pdf$/);
-  assert.match(text(box), /a\.pdf/);
-  await fire(btn(box, 'Send'));
-  const send = t.calls.find(c => c[0] === 'specialist/writer/train/send');
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(send[1].files)), ['knowledge/files/a.pdf']);
+  assert.strictEqual(t.fetches[0][1].method, 'POST');
+  const chips = find(t.field, n => /sptr-chips/.test(n.attrs.class || ''))[0];
+  assert.match(text(chips), /a\.pdf/);
+  await S.trainSend(TMUX, 'Read this');
+  assert.deepStrictEqual(sentBodies(t), [{ text: 'Read this', files: ['knowledge/files/a.pdf'] }]);
+  assert.ok(!text(chips).includes('a.pdf'));
   net.status = 415;
-  fileInput.files = [{ name: 'x.exe', size: 3 }];
-  await fire(fileInput, 'onchange');
-  assert.match(text(box), /x\.exe: \.exe files can't be used/);
-  fileInput.files = [{ name: 'big.pdf', size: 21 * 1024 * 1024 }];
+  await assert.rejects(S.attachFile(TMUX, { name: 'x.exe', size: 3 }), /\.exe files can't be used/);
   const before = t.fetches.length;
-  await fire(fileInput, 'onchange');
+  await assert.rejects(S.attachFile(TMUX, { name: 'big.pdf', size: 21 * 1024 * 1024 }), /Too big/);
   assert.strictEqual(t.fetches.length, before);
-  assert.match(text(box), /big\.pdf: Too big/);
+});
+
+test('the panel drop zone uploads through the same path and lists what was added', async () => {
+  const t = await trainSetup();
+  const box = t.tab('Files');
+  const input = find(box, n => n.tag === 'input' && n.attrs.type === 'file')[0];
+  assert.ok(find(box, n => /sp-drop/.test(n.attrs.class || '')).length);
+  input.files = [{ name: 'notes.txt', size: 3 }];
+  await fire(input, 'onchange');
+  assert.match(text(t.tab('Files')), /Added in this chat/);
+  assert.match(text(t.box()), /a\.pdf/);
 });
 
 test('the change list shows source, loads a diff as text and undoes only after confirmation', async () => {
@@ -398,7 +437,7 @@ test('the change list shows source, loads a diff as text and undoes only after c
     if (p.startsWith('specialist/writer/train/commit/')) return { ok: true, commit: commit('a'), diff: '@@ -1 +1 @@\n-old <b>x</b>\n+new', truncated: false };
     if (p === 'specialist/writer/train/undo') return { ok: true, commit: commit('c', { source: 'undo' }) };
   } });
-  const box = t.box();
+  const box = t.tab('What changed');
   assert.match(text(box), /Shorter greetings/);
   assert.match(text(box), /trainer/);
   const views = find(box, n => n.tag === 'button' && text(n) === 'View');
@@ -415,7 +454,7 @@ test('the change list shows source, loads a diff as text and undoes only after c
 
 test('accesses list names and notes, use a password field and never show a saved value', async () => {
   const t = await trainSetup();
-  const box = t.box();
+  const box = t.tab('Accesses');
   assert.match(text(box), /DB_URL/);
   assert.match(text(box), /read replica/);
   assert.match(text(box), /never the values/);
@@ -431,6 +470,17 @@ test('accesses list names and notes, use a password field and never show a saved
   nm.value = 'bad name'; pw.value = 'v';
   await fire(btn(box, 'Save access'));
   assert.match(text(box), /Use a name like DB_URL/);
+});
+
+test('the chat header shows the trainer status and waiting notes, and the bar key follows them', async () => {
+  const t = await trainSetup({ overview: { feedback: [{ id: 'f1', state: 'pending' }] } });
+  const S = t.sb.FEAT.specialists;
+  assert.match(text({ kids: S.termBar(TMUX) }), /Not started/);
+  assert.match(text({ kids: S.termBar(TMUX) }), /1 note waiting/);
+  assert.strictEqual(S.termBar('claude-other'), null);
+  const before = JSON.stringify(S.termBarKey(TMUX));
+  fire(find({ attrs: {}, kids: S.termBar(TMUX) }, n => n.tag === 'button' && /New conversation/.test(text(n)))[0]);
+  assert.notStrictEqual(JSON.stringify(S.termBarKey(TMUX)), before);
 });
 
 test('feedbackBody needs a changed answer or a note and omits an unchanged answer', () => {
