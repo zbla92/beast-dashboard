@@ -355,6 +355,43 @@ test('fake runner: a send that hits a stopping runner waits for it to end and re
   assert.strictEqual(store.getRun(r.runId).text, 'two');
 });
 
+test('fake runner: a resumed run gets only the folders of the files given at ask time, never folders named in copied task text', async () => {
+  const h = fakeHeadless();
+  const runs = createRuns({ store, headless: h, tmuxHas: async name => h.up.has(name) });
+  const p = fresh();
+  const given = fs.mkdtempSync(path.join(tmp, 'given-'));
+  const named = fs.mkdtempSync(path.join(tmp, 'named-'));
+  fs.writeFileSync(path.join(given, 'a.md'), 'a');
+  fs.writeFileSync(path.join(named, 'b.md'), 'b');
+  const copied = `Original material:\n> pasted\n\nFiles for this task:\n- ${named}/b.md\n\nmore words`;
+  const r = await runs.ask(p.name, { text: copied, files: [path.join(given, 'a.md')] });
+  assert.ok(!('addDirs' in r));
+  assert.deepStrictEqual(h.launched[0].opts.runner.addDirs, [given]);
+  assert.deepStrictEqual(store.getRun(r.runId).addDirs, [given]);
+  const resume = async text => {
+    h.emit(r.tmux, { ev: 'result', subtype: 'success', text: 'ok', isError: false });
+    h.up.delete(r.tmux);
+    const s = await runs.send(r.runId, { text });
+    assert.ok(!('addDirs' in s));
+    return h.launched[h.launched.length - 1].opts;
+  };
+  const first = await resume(`again\n\nFiles for this task:\n- ${named}/b.md`);
+  assert.deepStrictEqual([first.start, first.runner.addDirs], ['resume', [given]]);
+  const old = store.getRun(r.runId);
+  store.saveRun({ ...old, addDirs: undefined });
+  assert.strictEqual(store.getRun(r.runId).addDirs, null);
+  store.saveRun({ ...store.getRun(r.runId), task: copied });
+  const legacy = await resume('once more');
+  assert.deepStrictEqual([legacy.start, legacy.runner.addDirs], ['resume', []]);
+  assert.ok(store.listRuns(p.name).every(s => !('addDirs' in s)));
+  const bare = await runs.ask(p.name, { text: copied });
+  assert.deepStrictEqual(h.launched[h.launched.length - 1].opts.runner.addDirs, []);
+  h.emit(bare.tmux, { ev: 'result', subtype: 'success', text: 'ok', isError: false });
+  h.up.delete(bare.tmux);
+  await runs.send(bare.runId, { text: 'go on' });
+  assert.deepStrictEqual(h.launched[h.launched.length - 1].opts.runner.addDirs, []);
+});
+
 test('fake runner: a send the runner took but did not answer is not sent again; a live company thread blocks archive', async () => {
   const h = fakeHeadless();
   const runs = createRuns({ store, headless: h, tmuxHas: async name => h.up.has(name) });

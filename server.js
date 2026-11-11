@@ -63,9 +63,10 @@ const claudeupdate = require('./lib/claudeupdate');
 claudever.init({ stateDir: STATE, versionsDir: process.env.BD_CLAUDE_VERSIONS, link: process.env.BD_CLAUDE_LINK, fake: TEST && !(process.env.BD_CLAUDE_VERSIONS && process.env.BD_CLAUDE_LINK) ? (process.env.BD_FAKE_CLAUDE || 'claude') : null, onChange: (st, prev) => { setTimeout(() => pushState(false), 0); if (st.using && st.using !== prev) setTimeout(rollChats, 0); } });
 headless.init({ port: settings.get().port, test: TEST, claudeBin: () => claudever.chatBin() });
 const specialists = require('./lib/specialists');
-const training = require('./lib/training').createTraining({ store: specialists, headless, tmuxHas: actions.sessionExists, claudeGet: claude.get });
-const specialistRuns = require('./lib/specialist-runs').createRuns({ store: specialists, headless, tmuxHas: actions.sessionExists, claudeGet: claude.get, training, liveSessions: async () => { const r = await run('tmux', ['list-sessions', '-F', '#{session_name}']); if (!r.ok && !/no server running|error connecting to/.test(r.stderr || '')) throw new Error('tmux list-sessions failed'); return r.ok ? r.stdout.split('\n').filter(Boolean) : []; } });
-const specialistApi = require('./lib/specialist-api').createSpecialistApi({ store: specialists, runs: specialistRuns, training, readBody, onChange: () => setTimeout(tick, 200) });
+const specialistSkills = require('./lib/specialist-skill').createSkills({ store: specialists });
+const training = require('./lib/training').createTraining({ store: specialists, headless, tmuxHas: actions.sessionExists, claudeGet: claude.get, skills: specialistSkills });
+const specialistRuns = require('./lib/specialist-runs').createRuns({ store: specialists, headless, tmuxHas: actions.sessionExists, claudeGet: claude.get, training, skills: specialistSkills, liveSessions: async () => { const r = await run('tmux', ['list-sessions', '-F', '#{session_name}']); if (!r.ok && !/no server running|error connecting to/.test(r.stderr || '')) throw new Error('tmux list-sessions failed'); return r.ok ? r.stdout.split('\n').filter(Boolean) : []; } });
+const specialistApi = require('./lib/specialist-api').createSpecialistApi({ store: specialists, runs: specialistRuns, training, skills: specialistSkills, readBody, onChange: () => setTimeout(tick, 200) });
 claude.setProjects(p => history.projectFor(p, projects));
 roots.init({ projects: () => projects });
 const liveOf = id => { const r = Object.values(claude.all()).find(x => !x.gone && x.sessionId === id); return r ? r.tmux : null; };
@@ -1400,7 +1401,7 @@ async function bindTailnet(port) {
   await sys.sample();
   await tick();
   history.refresh(true).catch(e => console.error('history', e));
-  specialistRuns.boot().then(() => training.boot()).catch(e => console.error('specialists', e));
+  specialistRuns.boot().then(() => training.boot()).then(() => specialistSkills.boot()).catch(e => console.error('specialists', e));
   setPace();   // starts at the calm pace; the first client speeds it up
   planStore.watch(ev => broadcast('plan', ev));
   if (!TEST) {

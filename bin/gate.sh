@@ -26,7 +26,8 @@ TMP="$(mktemp -d /tmp/bd-gate-XXXX)"
 mkdir -p "$TMP/state" && printf '{"port": %s, "autoExpose": false}\n' "$PORT" > "$TMP/state/settings.json"
 cp "$REPO/state/claude-sessions.json" "$TMP/state/" 2>/dev/null   # read-only copy: lets /api/subagents resolve the live sessions' transcripts
 PLANS="$TMP/plans-store"; cp -r "$TMP/test/fixtures/plans/store" "$PLANS"
-(cd "$TMP" && BD_TEST=1 BEAST_PLANS_DIR="$PLANS" BD_SPECIALISTS_DIR="$TMP/specialists" BD_PROVIDERS_FILE="$TMP/providers.json" exec node server.js > "$TMP/server.log" 2>&1) & PID=$!
+SKH="$TMP/skills-home"; mkdir -p "$SKH/.claude"
+(cd "$TMP" && BD_TEST=1 BEAST_PLANS_DIR="$PLANS" BD_SPECIALISTS_DIR="$TMP/specialists" BD_SKILLS_HOME="$SKH" BD_PROVIDERS_FILE="$TMP/providers.json" exec node server.js > "$TMP/server.log" 2>&1) & PID=$!
 cleanup() { kill "$PID" 2>/dev/null; sleep 0.3; kill -9 "$PID" 2>/dev/null; rm -rf "$TMP"; rm -f /tmp/gate-$$.*; }
 trap cleanup EXIT
 B="http://127.0.0.1:$PORT"
@@ -192,8 +193,11 @@ r="$(sp specialist '{"name":"gate-scout","provider":"openai"}') $(sp specialist 
 [ "$r" = "400 400 201" ] && ok "POST specialist openai without model / reserved provider -> 400, with model -> 201" || fail "POST specialist provider -> $r $(head -c 200 /tmp/gate-$$.body)"
 r="$(sp specialist/gate-scout/ask '{"text":"x"}')"
 [ "$r" = 409 ] && grep -q '"no key for openai: ' /tmp/gate-$$.body && [ "$(get /api/specialist/gate-scout | cut -d' ' -f1)" = 200 ] && grep -q '"keyError":"no key for openai: ' /tmp/gate-$$.body && [ ! -e "$TMP/providers.json" ] && ok "POST specialist ask without a key -> 409 no key, GET shows keyError" || fail "POST specialist ask without a key -> $r $(head -c 200 /tmp/gate-$$.body)"
+GSK="$SKH/.claude/skills/specialist-gate-writer/SKILL.md"
+r="$(sp specialist/gate-writer/skill/sync '{"force":true}') $(jq1 'j.ok&&j.skill.name==="specialist-gate-writer"&&j.skill.accounts.map(a=>a.account+":"+a.state).join(",")') $(sp specialist/gate-writer/skill/sync '{"force":1}') $(sp specialist/gate-nope/skill/sync '{}')"
+[ "$r" = "200 personal:ok 400 404" ] && grep -q '^<!-- beast-dash generated skill · specialist: gate-writer · sha256: [0-9a-f]\{64\} -->$' "$GSK" && [ ! -e "$SKH/.claude-company" ] && ok "POST specialist skill/sync -> SKILL.md in the test home only, bad force -> 400, unknown -> 404" || fail "POST specialist skill/sync -> $r $(head -c 200 /tmp/gate-$$.body)"
 r="$(sp specialist/gate-writer/archive '')"
-[ "$r" = 200 ] && grep -q '"archivedAs":"_archive/gate-writer-' /tmp/gate-$$.body && [ -d "$TMP/specialists/_archive" ] && [ "$(get /api/specialist/gate-writer | cut -d' ' -f1)" = 404 ] && ok "POST specialist archive -> moved to _archive" || fail "POST specialist archive -> $r $(head -c 200 /tmp/gate-$$.body)"
+[ "$r" = 200 ] && [ ! -e "$GSK" ] && grep -q '"archivedAs":"_archive/gate-writer-' /tmp/gate-$$.body && [ -d "$TMP/specialists/_archive" ] && [ "$(get /api/specialist/gate-writer | cut -d' ' -f1)" = 404 ] && ok "POST specialist archive -> moved to _archive" || fail "POST specialist archive -> $r $(head -c 200 /tmp/gate-$$.body)"
 out="$(BEAST_DASH_PORT=1 "$TMP/bin/bd-ask" --list 2>&1)"; rc=$?
 [ $rc = 3 ] && [[ "$out" == *"cannot reach the dashboard"* ]] && ok "bd-ask with no dashboard -> exit 3" || fail "bd-ask unreachable -> rc=$rc $out"
 r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"id":"gate-tab-1","session":"claude-gate-nope"}' "$B/api/watching")"
