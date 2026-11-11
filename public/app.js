@@ -249,6 +249,11 @@ function releaseHiddenFrame() {
 window.addEventListener('blur', () => setTimeout(releaseHiddenFrame, 0));
 function setMode(mode) { if (TERM.active && isChatSess(TERM.active)) TERM.view[TERM.active] = mode; renderTermPanel(true); renderChatPane(true); if (mode === 'term') { const f = TERM.frames.get(TERM.active); if (f) setTimeout(() => f.focus(), 50); } }
 // Chat mode for the active session: the conversation view in place of the tmux iframe (same tmux session underneath)
+function chatSelected(pane) {
+  const sel = getSelection(); if (!pane || !sel || sel.isCollapsed || !sel.rangeCount || !sel.toString()) return false;
+  const a = document.activeElement; if (a && pane.contains(a) && (a.tagName === 'TEXTAREA' || a.tagName === 'INPUT')) return false;
+  return pane.contains(sel.getRangeAt(0).commonAncestorContainer);
+}
 async function renderChatPane(force) {
   const pane = $('#term-chat'); if (!pane) return; const name = TERM.active; const on = TERM.open && name && chatMode(name);
   liveStream(liveWanted());
@@ -267,6 +272,8 @@ async function renderChatPane(force) {
   chatOffline(pane, !t); if (!t) { if (run.shown) updateFailed(pane); return; }
   cachedDone();
   if (document.body.classList.contains('recording')) return;   // never rebuild the reply box under a running recording; the next poll catches up
+  if (!opening && chatSelected(pane)) { TERM.chatEv.held = true; return; }
+  TERM.chatEv.held = false;
   const cl = claudeOf(name) || {}; const key = [name, t.sig, t.total, cl.state, cl.lastTool, TERM.chatN, (PENDING[name] || []).length, queuedKey(name), (cl.status || '').split(' (')[0], t.pending || '', menuKey(cl.menu), liveKey(name), cl.ask ? cl.ask.rid : '', cl.model, cl.effort].join(':');
   if (!force && TERM.chatEv.key === key) { const st = pane.querySelector('.ag-status'); if (st && cl.status) st.textContent = cl.status; return; }   // same turn: just tick Claude's status line
   TERM.chatEv.key = key;
@@ -316,6 +323,7 @@ function paintLive() {
   }, 80);
 }
 function fillLive(el, turn) {
+  if (!turn && chatSelected(el)) return;
   const tx = el.querySelector('.ltext'), tl = el.querySelector('.ltools'), now = el.querySelector('.ag-now .mono');
   const text = turn ? turn.text : '', tools = turn ? turn.tools : [];
   if (tx._t !== text) { tx._t = text; tx.innerHTML = text ? mdLite(text) : ''; tx.classList.toggle('hidden', !text); }
@@ -386,6 +394,7 @@ function askCard(box, name, req, done) {
 }
 // Poll while a conversation is on screen (panel chat or session drawer): the transcript grows while Claude writes
 // text, and no hook fires for that — 2 s is fast enough to feel live and cheap (a tail read of one file).
+document.addEventListener('selectionchange', () => { if (TERM.chatEv.held && !chatSelected($('#term-chat'))) { TERM.chatEv.held = false; renderChatPane(false); } });
 setInterval(() => {
   if (document.hidden) return;
   if (TERM.open && TERM.active && chatMode(TERM.active)) renderChatPane(false);
