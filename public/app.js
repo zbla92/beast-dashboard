@@ -1590,7 +1590,7 @@ function cachedFirst(box, name, n, still, paint) {
 const cachedDone = () => { if (window.CHATS) CHATS.barOff(); };
 const updateFailed = box => { if (window.CHATS) CHATS.barOn(box, "couldn't update", 6000); };
 async function transcriptOf(name, n) {
-  if (FEAT.specialists?.noTranscript(name)) return NO_TRANSCRIPT;
+  if (FEAT.specialists?.noTranscript(name)) return FEAT.specialists.transcript(name) || NO_TRANSCRIPT;
   try { return await fetchTranscript(name, n); } catch (e) { return e.status && e.status < 500 ? NO_TRANSCRIPT : null; }
 }
 function chatOffline(box, on) {
@@ -1682,7 +1682,7 @@ function dropZone(box, el) {
   el.addEventListener('drop', ev => { if (!hasFiles(ev)) return; ev.preventDefault(); box.classList.remove('cdrop'); const c = box.querySelector('.cbox2'); if (c && c._c) c._c.attachFiles(ev.dataTransfer.files); });
 }
 function composer(box, name, cl, conv, scroller, o, busy, justSent, jobs, prevDraft, compKey) {
-  const stop = async () => { const chat = cl.mode === 'chat', last = chat ? null : (PENDING[name] || []).slice(-1)[0]; const waiting = chat ? waitingIn(liveOf(name)).length : 0; try { await api('key', { session: name, key: 'esc' }); } catch {} if (!chat) PENDING[name] = []; if (last && !ta.value.trim()) { ta.value = last.text; grow(); } ta.focus(); toast(waiting ? `stopped — ${waiting} waiting message${waiting > 1 ? 's go' : ' goes'} to Claude next` : last ? 'stopped — your text is back in the box' : 'stopped'); setTimeout(o.refresh, 600); };
+  const stop = async () => { const chat = cl.mode === 'chat', last = chat ? null : (PENDING[name] || []).slice(-1)[0]; const waiting = chat ? waitingIn(liveOf(name)).length : 0; try { await api('key', { session: FEAT.specialists?.keyTarget(name) || name, key: 'esc' }); } catch {} if (!chat) PENDING[name] = []; if (last && !ta.value.trim()) { ta.value = last.text; grow(); } ta.focus(); toast(waiting ? `stopped — ${waiting} waiting message${waiting > 1 ? 's go' : ' goes'} to Claude next` : last ? 'stopped — your text is back in the box' : 'stopped'); setTimeout(o.refresh, 600); };
   // reply box: textarea that grows to 6 lines; Enter sends, Shift+Enter = newline; Esc button interrupts Claude
   const ta = h('textarea', { class: 'creply', rows: 1, placeholder: cl.menu ? 'pick an option above first' : cl.mode === 'chat' && cl.state === 'permission' ? 'answer above, or type a message…' : cl.state === 'permission' ? 'y / n, or type…' : 'Message Claude…', title: 'Enter sends · Shift+Enter = new line', name: 'chatsearch', autocomplete: 'off', autocapitalize: 'sentences', spellcheck: true });
   ta.value = prevDraft;

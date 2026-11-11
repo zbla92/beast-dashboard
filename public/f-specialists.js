@@ -453,9 +453,10 @@ FEAT.specialists = (() => {
   const PANEL_KEY = 'bd.spec.trainpanel';
   const POLL_MS = 4000;
   const PAGE_POLL_MS = 5000;
+  const PAGE_TICK_MS = 2000;
   const TAB_LABEL = [['files', 'Files'], ['changes', 'What changed'], ['accesses', 'Accesses']];
 
-  const PG_EMPTY = { name: null, tmux: null, run: null, data: null, err: null, files: [], chips: null, node: null, key: '', focus: false, panel: false, sheet: false, profile: null, full: new Map(), el: null, tabs: null, body: null, scrim: null };
+  const PG_EMPTY = { name: null, tmux: null, cur: null, fresh: false, tab: 'earlier', at: 0, data: null, err: null, files: [], chips: null, key: '', focus: false, panel: false, sheet: false, profile: null, earlier: null, full: new Map(), tx: new Map(), el: null, tabs: null, body: null, scrim: null };
   const PG = { ...PG_EMPTY, timer: null };
   const TR = { name: null, tmux: null, ov: null, err: null, files: [], added: [], fresh: false, panel: store.get(PANEL_KEY) !== '0', sheet: false, tab: 'files', open: new Map(), undoAsk: null, rmAsk: null, more: null, moreFlag: false, busy: false, timer: null, keys: {}, view: null, el: null, tabs: null, body: null, scrim: null };
   const PHANTOM = new Map();
@@ -593,27 +594,38 @@ FEAT.specialists = (() => {
 
   const attachFile = (tmux, file) => tmux && tmux === TR.tmux ? uploadOne(file) : tmux && tmux === PG.tmux ? attachToAsk(file) : null;
 
-  const continuing = () => {
-    const f = PG.run && PG.full.get(PG.run);
-    return f && !f.failed && f.mode === 'run' && isFinal(f) ? f : null;
+  const runsOf = () => PG.data?.runs || [];
+  const curId = () => {
+    if (pageSpec().mode === 'thread') return runsOf()[0]?.runId || null;
+    if (PG.fresh) return null;
+    return PG.cur || runsOf()[0]?.runId || null;
   };
-  const pagePlaceholder = () => continuing() ? 'Continue this run…' : 'Ask ' + (pageSpec().title || PG.name) + '…';
+  const curRun = () => { const f = PG.full.get(curId()); return f && !f.failed ? f : null; };
+  const pagePlaceholder = () => curRun() ? 'Reply to ' + (pageSpec().title || PG.name) + '…' : 'Ask ' + (pageSpec().title || PG.name) + '…';
+  const withFiles = text => PG.files.length ? text + '\n\nFiles for this task:\n' + PG.files.map(f => '- ' + f).join('\n') : text;
+
+  const adopt = r => {
+    PG.full.set(r.runId, r); PG.tx.delete(r.runId);
+    PG.cur = r.runId; PG.fresh = false; PG.files = [];
+    paintPageChips(); renderTermPanel(); paintPage();
+    refresh(true); loadPage();
+  };
 
   async function sendAsk(text) {
-    const run = continuing();
-    if (run) {
-      await api('specialist/run/' + enc(run.runId) + '/send', { text });
-      PENDING[PG.tmux] = [];
-      openTerm(run.tmux || run.runId);
-      return null;
+    const id = curId();
+    const run = id && pageSpec().mode !== 'thread' ? PG.full.get(id) || await fetchRun(id) : null;
+    if (run && !run.failed) {
+      if (!isFinal(run)) throw new Error('Still working on your last message. Send the next one when it has answered.');
+      try {
+        const r = await api('specialist/run/' + enc(run.runId) + '/send', { text: withFiles(text) });
+        adopt(r);
+        return r;
+      } catch (e) { if (!(e.status === 409 && /provider/i.test(e.message))) throw e; }
     }
     const body = { text, wait: false };
     if (PG.files.length) body.files = PG.files;
     const r = await api('specialist/' + enc(PG.name) + '/ask', body);
-    PENDING[PG.tmux] = [];
-    PG.files = []; paintPageChips();
-    refresh(true); loadPage();
-    openTerm(r.tmux || r.runId);
+    adopt(r);
     return r;
   }
 
@@ -633,7 +645,7 @@ FEAT.specialists = (() => {
   const sendMessage = (tmux, text) => tmux && tmux === TR.tmux ? sendTrain(text) : tmux && tmux === PG.tmux ? sendAsk(text) : null;
 
   function emptyChat(tmux) {
-    if (tmux && tmux === PG.tmux) return PG.node;
+    if (tmux && tmux === PG.tmux) return pageEmpty();
     if (!trainerOf(tmux)) return null;
     return h('div', { class: 'turn assistant sptr-open' }, h('div', { class: 'who' }, gl('✦ trainer')),
       h('div', { class: 'ttext' }, TR.ov?.trainer ? 'This trainer is stopped. Your next message resumes it.' : OPENING_PROMPT));
@@ -808,23 +820,37 @@ FEAT.specialists = (() => {
     for (const o of [TR, PG]) if (o.tmux && o.panel) { o.panel = false; mountPanel(o); renderTermPanel(); }
   };
 
+  const pageTabs = () => pageSpec().mode === 'thread' ? [['profile', 'Profile']] : [['earlier', 'Earlier'], ['profile', 'Profile']];
+  const panelOpen = () => IS_PHONE ? PG.sheet : PG.panel;
+  function openPanelTab(tab) {
+    if (panelOpen() && PG.tab === tab) { togglePanel(PG); return; }
+    PG.tab = tab; paintPanel();
+    if (!panelOpen()) togglePanel(PG); else renderTermPanel();
+  }
+  function toggleFreshPage() {
+    PG.fresh = !PG.fresh; PG.cur = null;
+    if (PG.fresh) toast('Your next message starts a new conversation. The old one is kept.');
+    renderTermPanel(); paintPage(); loadConv();
+  }
+
   function pageBar() {
-    const p = pageSpec(); const t = PG.data?.thread; const open = IS_PHONE ? PG.sheet : PG.panel;
+    const p = pageSpec(); const open = panelOpen(); const runMode = p.mode !== 'thread';
     return [
       h('span', { class: 'sppage-chips desk' },
         isApi(p.provider) ? h('span', { class: 'badge tag' }, providerLabel(p.provider)) : null,
         h('span', { class: 'badge tag' }, modelLabel(p.model, p.provider)),
-        h('span', { class: 'badge tag' }, p.mode === 'thread' ? 'Thread' : 'Fresh run per task'),
+        h('span', { class: 'badge tag' }, runMode ? 'Fresh run per task' : 'Thread'),
         !isApi(p.provider) && p.account && p.account !== 'personal' ? h('span', { class: 'badge tag acc ' + p.account }, acct(p.account)) : null),
-      t?.live ? h('button', { class: 'btn sm ghost sptr-btn', title: 'open the live thread', onclick: () => openTerm(t.tmux) }, ico('chat', 14), h('span', { class: 'desk' }, 'Thread')) : null,
+      runMode ? h('button', { class: 'btn sm ghost sptr-btn' + (PG.fresh ? ' on' : ''), title: 'The next message starts a new conversation. The old one is kept.', 'aria-pressed': PG.fresh ? 'true' : 'false', onclick: toggleFreshPage }, ico('plus', 14), h('span', { class: 'desk' }, PG.fresh ? 'New conversation: on' : 'New conversation')) : null,
+      runMode ? h('button', { class: 'btn sm ghost sptr-btn' + (open && PG.tab === 'earlier' ? ' on' : ''), title: 'Earlier conversations', 'aria-pressed': open && PG.tab === 'earlier' ? 'true' : 'false', onclick: () => openPanelTab('earlier') }, ico('clock', 14), h('span', { class: 'desk' }, 'Earlier')) : null,
       h('button', { class: 'btn sm ghost sptr-btn', title: 'talk to the trainer', onclick: () => openTrain(PG.name) }, ico('brain', 14), h('span', { class: 'desk' }, 'Train')),
-      h('button', { class: 'btn sm ghost sptr-btn' + (open ? ' on' : ''), title: 'Instructions, settings and archive', 'aria-pressed': open ? 'true' : 'false', onclick: () => togglePanel(PG) }, ico('gear', 14), h('span', { class: 'desk' }, 'Profile'))
+      h('button', { class: 'btn sm ghost sptr-btn' + (open && PG.tab === 'profile' ? ' on' : ''), title: 'Instructions, settings and archive', 'aria-pressed': open && PG.tab === 'profile' ? 'true' : 'false', onclick: () => openPanelTab('profile') }, ico('gear', 14), h('span', { class: 'desk' }, 'Profile'))
     ];
   }
   const pageBarKey = tmux => {
     if (!tmux || tmux !== PG.tmux) return null;
     const p = pageSpec();
-    return [PG.panel, PG.sheet, p.model, p.mode, p.provider, p.account, PG.data?.thread?.live, PG.data?.thread?.tmux];
+    return [PG.panel, PG.sheet, PG.tab, PG.fresh, p.model, p.mode, p.provider, p.account];
   };
 
   function termBar(tmux) {
@@ -845,83 +871,124 @@ FEAT.specialists = (() => {
     openTerm(trainerTmux(name, p?.account));
   }
 
-  const askNote = () => PG.data?.specialist?.mode === 'thread' ? 'It keeps one thread. Each ask goes into it.' : 'Each task gets its own run.';
+  const askNote = () => pageSpec().mode === 'thread' ? 'It keeps one thread. Each message goes into it.' : 'Each new conversation is its own run.';
 
-  function openRunView(id) {
-    if (FIN.has(id)) { markSeen(id, FIN.get(id).endedAt); FIN.delete(id); announce(); }
-    PG.run = id; PG.key = '';
-    loadFull(id); paintPage();
-  }
-  const closeRunView = () => { PG.run = null; PG.key = ''; paintPage(); loadPage(); };
-
-  async function loadFull(id) {
-    const tmux = PG.tmux; const cur = PG.full.get(id);
-    if (cur && isFinal(cur)) return;
-    try { const r = await api('specialist/run/' + enc(id)); if (PG.tmux === tmux) PG.full.set(id, r); } catch (e) { if (PG.tmux === tmux) PG.full.set(id, { error: e.message, failed: true }); }
-    if (PG.tmux === tmux) paintPage();
+  function pageEmpty() {
+    const p = pageSpec();
+    return h('div', { class: 'sppage' },
+      p.description ? h('div', { class: 'sppage-desc' }, p.description) : null,
+      isApi(p.provider) && p.keyError ? h('div', { class: 'ns-status' }, p.keyError) : null,
+      PG.data ? h('div', { class: 'sppage-empty' }, tile(p, 'md'), h('b', null, 'Ask ' + (p.title || PG.name) + ' something'), h('span', { class: 'dim' }, askNote())) : h('div', { class: 'dim sp-none' }, PG.err || 'Loading…'));
   }
 
-  function runCard(r) {
-    const st = r.state || 'done'; const running = st === 'starting' || st === 'working';
-    const prev = firstLine(r.preview);
-    return h('button', { class: 'sppage-card rs-' + st, type: 'button', onclick: () => claudeOf(r.tmux) ? openTerm(r.tmux) : openRunView(r.runId) },
+  async function fetchRun(id) {
+    const tmux = PG.tmux;
+    try { const r = await api('specialist/run/' + enc(id)); if (PG.tmux === tmux) PG.full.set(id, r); return r; }
+    catch (e) { const r = { error: e.message, failed: true }; if (PG.tmux === tmux && !PG.full.get(id)) PG.full.set(id, r); return PG.full.get(id) || r; }
+  }
+
+  async function loadConv() {
+    const tmux = PG.tmux; const id = curId(); if (!tmux || !id) return;
+    const known = PG.full.get(id);
+    if (!known || known.failed || !isFinal(known)) await fetchRun(id);
+    if (PG.tmux !== tmux || curId() !== id) return;
+    const run = PG.full.get(id);
+    if (!run || run.failed) { paintPage(); return; }
+    const sig = [run.state, run.turns, run.endedAt].join(':');
+    if (!isFinal(run) || PG.tx.get(id)?.sig !== sig) {
+      const t = await api('transcript/' + enc(run.tmux || id) + '?n=60').catch(() => null);
+      if (PG.tmux !== tmux) return;
+      PG.tx.set(id, { sig, t });
+    }
+    paintPage();
+  }
+
+  const stepsText = turn => (turn.steps || []).filter(x => x.k === 'text').map(x => x.text).join('\n\n');
+  const turnsOf = run => {
+    const tx = PG.tx.get(run.runId)?.t;
+    const turns = tx?.turns?.length ? [...tx.turns] : [];
+    if (!turns.length && run.task) turns.push({ role: 'user', text: run.task, ts: run.startedAt, h: 'u' + run.runId });
+    const answered = turns.length && turns[turns.length - 1].role === 'assistant';
+    if (!answered && isFinal(run) && (run.text || run.error)) turns.push({ role: 'assistant', steps: [{ k: 'text', text: run.text || 'It could not finish: ' + run.error }], ts: run.endedAt, h: 'a' + run.runId + ':' + (run.text || run.error || '').length });
+    return turns;
+  };
+
+  function transcript(tmux) {
+    if (!tmux || tmux !== PG.tmux) return null;
+    const run = curRun();
+    if (!run) return { total: 0, turns: [], size: 0, pending: null, more: false, empty: true, sig: ['empty', !!PG.data, PG.err, pageSpec().title, pageSpec().description, pageSpec().keyError, curId()].join(':') };
+    const turns = turnsOf(run); const live = !isFinal(run); const tx = PG.tx.get(run.runId)?.t;
+    return { total: turns.length, turns, size: 0, pending: live ? 'working' : null, since: live ? tx?.since || run.startedAt : null, more: false, sig: [run.runId, run.state, tx?.sig, turns.length, (run.text || '').length].join(':') };
+  }
+
+  const keyTarget = tmux => {
+    if (tmux !== PG.tmux) return null;
+    const run = curRun();
+    return run && !isFinal(run) ? run.tmux || run.runId : null;
+  };
+
+  function answerActions(turn) {
+    const text = stepsText(turn); if (!text) return null;
+    return h('div', { class: 'sppage-acts' },
+      h('button', { class: 'btn sm ghost', type: 'button', onclick: () => navigator.clipboard.writeText(text).then(() => toast('Copied', 'ok'), () => toast('Could not copy', 'err')) }, ico('copy', 13), 'Copy'),
+      improveButton(PG.name, pageSpec().title || PG.name, curId(), text));
+  }
+
+  function conversation(tmux, conv) {
+    if (!tmux || tmux !== PG.tmux) return;
+    for (const el of conv.children) {
+      const turn = el._turn;
+      if (!turn || turn.role !== 'assistant' || el.querySelector(':scope > .sppage-acts')) continue;
+      const acts = answerActions(turn);
+      if (acts) el.append(acts);
+    }
+  }
+
+  function earlierRow(r) {
+    const st = r.state || 'done';
+    return h('button', { class: 'sppage-card rs-' + st + (curId() === r.runId ? ' on' : ''), type: 'button', onclick: () => pickRun(r.runId) },
       h('div', { class: 'sppage-task' }, firstLine(r.task) || r.runId),
-      prev ? h('div', { class: 'sppage-prev' }, prev) : h('div', { class: 'sppage-prev dim' }, running ? 'Working on it…' : r.error || 'No answer yet.'),
       h('div', { class: 'sppage-foot' }, stateDot(st), h('span', { class: 'sppage-st' }, RUN_STATE[st] || st), h('span', { class: 'sp' }), h('span', { class: 'dim' }, ago(r.startedAt) + ' ago')));
   }
 
-  function listView() {
-    const p = pageSpec(); const runs = PG.data?.runs || [];
-    const out = [];
-    if (p.description) out.push(h('div', { class: 'sppage-desc' }, p.description));
-    if (isApi(p.provider) && p.keyError) out.push(h('div', { class: 'ns-status' }, p.keyError));
-    if (!PG.data) { out.push(h('div', { class: 'dim sp-none' }, PG.err || 'Loading…')); return out; }
-    if (!runs.length) {
-      out.push(h('div', { class: 'sppage-empty' }, tile(p, 'md'), h('b', null, 'Ask ' + (p.title || PG.name) + ' something'), h('span', { class: 'dim' }, askNote())));
-      return out;
-    }
-    out.push(h('div', { class: 'sptr-h' }, 'Runs'), ...runs.map(runCard));
-    return out;
+  function pickRun(id) {
+    PG.cur = id; PG.fresh = false;
+    if (IS_PHONE) PG.sheet = false;
+    mountPanel(PG); renderTermPanel(); paintPage(); loadConv();
   }
 
-  function runView() {
-    const full = PG.full.get(PG.run);
-    const back = h('button', { class: 'btn sm ghost', type: 'button', onclick: closeRunView }, ico('back', 14), 'All runs');
-    if (!full || full.failed) return [h('div', { class: 'sppage-rh' }, back), h('div', { class: 'dim sp-none' }, full ? full.error : 'Loading…')];
-    const st = full.state || 'done';
-    return [
-      h('div', { class: 'sppage-rh' }, back, h('span', { class: 'sp' }), stateDot(st), h('span', { class: 'sppage-st' }, RUN_STATE[st] || st), h('span', { class: 'dim' }, ago(full.startedAt) + ' ago')),
-      full.task ? h('div', { class: 'turn user' }, h('div', { class: 'who' }, gl('❯ you')), h('div', { class: 'ttext sppage-text' }, full.task)) : null,
-      h('div', { class: 'turn assistant' }, full.text ? h('div', { class: 'ttext sppage-text' }, full.text) : h('div', { class: 'dim sp-none' }, full.error || 'No result yet.')),
-      h('div', { class: 'sppage-acts' },
-        full.text ? h('button', { class: 'btn sm', type: 'button', onclick: () => navigator.clipboard.writeText(full.text).then(() => toast('Copied', 'ok'), () => toast('Could not copy', 'err')) }, ico('copy', 13), 'Copy') : null,
-        full.text ? improveButton(PG.name, pageSpec().title || PG.name, full.runId, full.text) : null)];
+  function paintEarlier() {
+    const runs = runsOf();
+    PG.earlier.replaceChildren(...(runs.length ? runs.map(earlierRow) : [h('div', { class: 'dim sp-none' }, PG.data ? 'No earlier conversations yet.' : PG.err || 'Loading…')]));
   }
 
   function paintPanel() {
     if (!PG.body) return;
     const d = PG.data?.specialist;
     if (!d) { if (!PG.body.firstChild) PG.body.replaceChildren(h('div', { class: 'dim sp-none' }, PG.err || 'Loading…')); return; }
-    if (PG.profile && PG.body.contains(PG.profile)) return;
-    PG.profile = profileTab(d, async () => { PG.profile = null; await loadPage(); refresh(true); }, () => closeTermPanel());
-    PG.body.replaceChildren(PG.profile);
+    const tabs = pageTabs();
+    if (!tabs.some(([k]) => k === PG.tab)) PG.tab = tabs[0][0];
+    PG.tabs.classList.toggle('hidden', tabs.length < 2);
+    PG.tabs.replaceChildren(...tabs.map(([k, l]) => h('button', { class: 'segb' + (PG.tab === k ? ' on' : ''), onclick: () => { PG.tab = k; paintPanel(); renderTermPanel(); } }, l)));
+    if (!PG.profile) PG.profile = profileTab(d, async () => { PG.profile = null; await loadPage(); refresh(true); }, () => closeTermPanel());
+    paintEarlier();
+    const view = PG.tab === 'profile' ? PG.profile : PG.earlier;
+    if (PG.body.firstChild !== view || PG.body.childNodes.length !== 1) PG.body.replaceChildren(view);
   }
 
   function paintPage() {
-    if (!PG.node || !pageShown()) return;
+    if (!pageShown()) return;
     paintPanel();
-    const p = pageSpec();
-    const key = JSON.stringify(PG.run
-      ? [PG.run, PG.full.get(PG.run)?.state, PG.full.get(PG.run)?.text, PG.full.get(PG.run)?.error, Math.floor(Date.now() / 60000)]
-      : [PG.err, !!PG.data, p.description, p.title, p.mode, p.keyError, p.icon, (PG.data?.runs || []).map(r => [r.runId, r.state, r.task, r.preview, r.error, r.startedAt, !!claudeOf(r.tmux)]), Math.floor(Date.now() / 60000)]);
+    const key = JSON.stringify([transcript(PG.tmux)?.sig, curId(), PG.data?.runs?.map(r => r.runId + r.state).join(',')]);
     if (key === PG.key) return;
     PG.key = key;
-    PG.node.replaceChildren(...(PG.run ? runView() : listView()).filter(Boolean));
+    if (typeof renderChatPane === 'function') renderChatPane(true);
     placeChips();
   }
 
   async function loadPage() {
     const tmux = PG.tmux; if (!tmux) return;
+    PG.at = Date.now();
     try {
       const r = await api('specialist/' + enc(PG.name) + '?runs=50');
       if (PG.tmux !== tmux) return;
@@ -931,20 +998,22 @@ FEAT.specialists = (() => {
         for (const x of fresh) { FIN.delete(x.runId); markSeen(x.runId, x.endedAt); }
         if (fresh.length) announce();
       }
-      if (PG.run) loadFull(PG.run);
     } catch (e) { if (PG.tmux === tmux) PG.err = e.message; }
-    if (PG.tmux === tmux) paintPage();
+    if (PG.tmux !== tmux) return;
+    paintPage();
+    await loadConv();
   }
+  const working = () => { const r = curRun(); return !!r && !isFinal(r); };
 
   function startPage(name, tmux) {
     teardownPage();
-    Object.assign(PG, { ...PG_EMPTY, full: new Map(), files: [], name, tmux, node: h('div', { class: 'sppage' }), chips: h('div', { class: 'sptr-chips hidden' }) });
-    buildPanel(PG, 'Profile', false);
+    Object.assign(PG, { ...PG_EMPTY, full: new Map(), files: [], name, tmux, chips: h('div', { class: 'sptr-chips hidden' }), earlier: h('div', { class: 'sptr-view' }) });
+    buildPanel(PG, 'Specialist', true);
     paintPage(); loadPage();
     PG.timer = setInterval(() => {
       if (!pageShown()) { teardownPage(); return; }
-      if (!document.hidden) loadPage();
-    }, PAGE_POLL_MS);
+      if (!document.hidden && (working() || Date.now() - PG.at >= PAGE_POLL_MS - 200)) loadPage();
+    }, PAGE_TICK_MS);
   }
 
   function teardownPage() {
@@ -962,11 +1031,12 @@ FEAT.specialists = (() => {
     openTerm(tmux);
     if (PG.tmux !== tmux) return;
     PG.focus = !!o.focus;
-    if (o.run) openRunView(o.run); else if (PG.run) closeRunView(); else { PG.key = ''; paintPage(); }
+    if (o.run) { PG.cur = o.run; PG.fresh = false; }
+    PG.key = ''; paintPage(); loadConv();
     placeChips();
   }
 
   setInterval(() => { if (!document.hidden) refresh(true); }, 30000);
 
-  return { phantom, noTranscript: tmux => !!pageOf(tmux), trainSend: sendMessage, attachFile, termBar, termShown, rightOpen, composerShown: placeChips, emptyChat, trainTitle, termTile, openTrain, onState, termBarKey, railSection, paletteItems, homeTiles, unseenRuns, dismissRun, markSeen: seenByUser, trimSeen, feedbackBody, feedbackError, trackFeedback, pollFeedback, improve: openImprove, openRun, open: openPage, create: openCreate, refresh };
+  return { phantom, noTranscript: tmux => !!pageOf(tmux), transcript, keyTarget, conversation, trainSend: sendMessage, attachFile, termBar, termShown, rightOpen, composerShown: placeChips, emptyChat, trainTitle, termTile, openTrain, onState, termBarKey, railSection, paletteItems, homeTiles, unseenRuns, dismissRun, markSeen: seenByUser, trimSeen, feedbackBody, feedbackError, trackFeedback, pollFeedback, improve: openImprove, openRun, open: openPage, create: openCreate, refresh };
 })();
