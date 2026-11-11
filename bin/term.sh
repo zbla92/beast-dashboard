@@ -7,6 +7,8 @@ if [ "$name" = "shell" ]; then
   # devRoot from state/settings.json (written by the Settings UI); falls back to ~/dev.
   root="$(python3 -c 'import json,sys,os; print(json.load(open(sys.argv[1])).get("devRoot",""))' "$(dirname "$0")/../state/settings.json" 2>/dev/null || true)"
   cd "${root:-$HOME/dev}" 2>/dev/null || cd "$HOME"
+  # macOS: the user's login shell (zsh), where Homebrew and nvm are set up
+  if [ "$(uname)" = Darwin ]; then export DISABLE_AUTO_UPDATE=true; exec "${SHELL:-/bin/zsh}" -l; fi
   exec bash -l
 fi
 if ! [[ "$name" =~ ^[A-Za-z0-9_.-]+$ ]]; then echo "bad session name"; sleep 2; exit 1; fi
