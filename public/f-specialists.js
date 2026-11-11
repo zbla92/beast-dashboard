@@ -334,7 +334,7 @@ FEAT.specialists = (() => {
         const r = await api('specialist', body);
         await refresh(true);
         toast('Created ' + (r.specialist?.title || body.name), 'ok');
-        openPage(body.name);
+        openPage(body.name, { tab: 'train', focus: true });
       } catch (e) { go.disabled = false; err.textContent = e.message; err.classList.remove('hidden'); }
     };
     go.onclick = create;
@@ -368,6 +368,100 @@ FEAT.specialists = (() => {
     if (PG.name === name) PG.paint && PG.paint();
   }
 
+  const FB = { tracked: new Map(), timer: null, ov: null };
+  const FB_POLL_MS = 4000;
+  const feedbackError = e => {
+    if (e.status === 413) return 'That is too long to send. Shorten the answer or the note.';
+    if (e.status === 429) return 'Too much feedback is waiting. Try again once the trainer has caught up.';
+    if (e.status === 404) return 'This specialist or run no longer exists.';
+    return e.message;
+  };
+  const feedbackBody = ({ runId, original, better, note }) => {
+    const o = String(original || ''), b = String(better || '').trim(), n = String(note || '').trim();
+    const changed = !!b && b !== o.trim();
+    if (!changed && !n) return { error: 'Change the answer or add a note first.' };
+    const body = { original: o };
+    if (runId) body.runId = runId;
+    if (changed) body.better = String(better);
+    if (n) body.note = n;
+    return { body };
+  };
+  const feedbackToast = (msg, kind, action) => {
+    const t = h('div', { class: 'toast ' + kind }, msg);
+    const host = $('#toasts');
+    if (!host) { toast(msg, kind); return; }
+    if (action) t.append(h('button', { class: 'btn sm sp-fb-act', type: 'button', onclick: () => { t.remove(); action.run(); } }, action.label));
+    host.append(t);
+    setTimeout(() => t.remove(), action ? 20000 : 5000);
+  };
+  const retryFeedback = async (name, title, id) => {
+    try { await api('specialist/' + enc(name) + '/train/feedback/' + enc(id) + '/retry', {}); trackFeedback(name, title, id); toast('Sent to training again', 'ok'); }
+    catch (e) { toast(feedbackError(e), 'err'); }
+  };
+  async function pollFeedback() {
+    FB.timer = null;
+    if (!FB.tracked.size) return;
+    if (!document.hidden) {
+      const groups = new Map();
+      for (const [id, t] of FB.tracked) groups.set(t.name, [...(groups.get(t.name) || []), id]);
+      for (const [name, ids] of groups) {
+        try {
+          const r = await api('specialist/' + enc(name) + '/train/feedback?ids=' + ids.map(enc).join(','));
+          const seen = new Set();
+          for (const f of r.feedback || []) {
+            seen.add(f.id);
+            const t = FB.tracked.get(f.id);
+            if (!t) continue;
+            if (f.state === 'applied') { FB.tracked.delete(f.id); feedbackToast(t.title + ' learned from your note', 'ok'); }
+            else if (f.state === 'failed') { FB.tracked.delete(f.id); feedbackToast('Training did not take your note' + (f.error ? ': ' + f.error : '.'), 'err', { label: 'Retry', run: () => retryFeedback(t.name, t.title, f.id) }); }
+          }
+          for (const id of ids) if (!seen.has(id)) FB.tracked.delete(id);
+        } catch (e) { if (e.status === 404) for (const id of ids) FB.tracked.delete(id); }
+      }
+    }
+    if (FB.tracked.size && !FB.timer) FB.timer = setTimeout(pollFeedback, FB_POLL_MS);
+  }
+  function trackFeedback(name, title, id) {
+    FB.tracked.set(id, { name, title });
+    if (!FB.timer) FB.timer = setTimeout(pollFeedback, FB_POLL_MS);
+  }
+  const closeImprove = () => { if (FB.ov) { FB.ov.remove(); FB.ov = null; } };
+  function openImprove({ name, title, runId, text }) {
+    closeImprove();
+    const better = h('textarea', { class: 'sp-fb-better', rows: 9, spellcheck: 'true', 'aria-label': 'Better answer' });
+    better.value = text || '';
+    const note = h('textarea', { class: 'sp-fb-note', rows: 2, placeholder: 'Why, or what to do differently (optional)', spellcheck: 'true', 'aria-label': 'Note' });
+    const status = h('div', { class: 'ns-status hidden' });
+    const go = h('button', { class: 'btn primary', type: 'button' }, 'Send');
+    const submit = async () => {
+      if (go.disabled) return;
+      const v = feedbackBody({ runId, original: text, better: better.value, note: note.value });
+      if (v.error) { status.textContent = v.error; status.classList.remove('hidden'); return; }
+      go.disabled = true; status.classList.add('hidden');
+      try {
+        const r = await api('specialist/' + enc(name) + '/train/feedback', v.body);
+        trackFeedback(name, title, r.feedback.id);
+        closeImprove();
+        toast('Sent to training', 'ok');
+      } catch (e) { go.disabled = false; status.textContent = feedbackError(e); status.classList.remove('hidden'); }
+    };
+    go.onclick = submit;
+    const onKey = ev => {
+      if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); closeImprove(); }
+      else if (ev.key === 'Enter' && !ev.isComposing && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); submit(); }
+    };
+    const box = h('div', { class: 'sp-fb-box' },
+      h('div', { class: 'sh' }, h('h3', null, 'Improve this answer')),
+      h('div', { class: 'dim sp-fb-help' }, 'Edit it into the version you wanted. ' + title + ' learns from the difference.'),
+      better, note, status,
+      h('div', { class: 'sp-fb-foot' }, h('span', { class: 'sp' }), h('button', { class: 'btn', type: 'button', onclick: closeImprove }, 'Cancel'), go));
+    const ov = h('div', { class: 'sp-fb-ov', onclick: ev => { if (ev.target === ov) closeImprove(); }, onkeydown: onKey }, box);
+    FB.ov = ov;
+    document.body.append(ov);
+    better.focus();
+  }
+  const improveButton = (name, title, runId, text) => h('button', { class: 'btn sm', type: 'button', title: 'edit this answer into a better one and send it to training', onclick: () => openImprove({ name, title, runId, text }) }, ico('pencil', 13), 'Improve');
+
   async function showRunText(r, slot) {
     if (!PG.full.has(r.runId) || !isFinal(PG.full.get(r.runId))) {
       try { PG.full.set(r.runId, await api('specialist/run/' + enc(r.runId))); } catch (e) { slot.replaceChildren(h('div', { class: 'ns-status' }, e.message)); return; }
@@ -387,6 +481,7 @@ FEAT.specialists = (() => {
       full.text ? h('div', { class: 'sp-out' }, full.text) : h('div', { class: 'dim sp-none' }, full.error ? full.error : 'No result yet.'),
       h('div', { class: 'sp-acts' },
         full.text ? h('button', { class: 'btn sm', onclick: () => navigator.clipboard.writeText(full.text).then(() => toast('Copied', 'ok'), () => toast('Could not copy', 'err')) }, ico('copy', 13), 'Copy') : null,
+        full.text && PG.name ? improveButton(PG.name, PG.data?.specialist?.title || PG.name, r.runId, full.text) : null,
         canSend ? [sendIn, sendBtn] : null),
       status);
   }
@@ -427,7 +522,7 @@ FEAT.specialists = (() => {
     const ins = h('textarea', { class: 'sp-ins', spellcheck: 'false' }); ins.value = p.instructions || '';
     const err = h('div', { class: 'ns-status hidden' });
     const save = h('button', { class: 'btn primary ns-send' }, 'Save');
-    const fail = (msg, reload) => { err.replaceChildren(msg, reload ? h('button', { class: 'btn sm ghost sp-reload', onclick: reload }, 'Reload') : null); err.classList.remove('hidden'); };
+    const fail = (msg, reload) => { err.replaceChildren(...[msg, reload ? h('button', { class: 'btn sm ghost sp-reload', onclick: reload }, 'Reload') : null].filter(Boolean)); err.classList.remove('hidden'); };
     save.onclick = async () => {
       const cur = { title: title.value.trim(), icon: icon.value.trim(), description: desc.value.trim(), provider: provider.value, model: model.value(provider.value), effort: effort.value || null, mode: mode.value, permissionMode: perm.value, account: account.value };
       const base = { title: p.title || '', icon: p.icon || '', description: p.description || '', provider: p.provider || 'claude', model: p.model || null, effort: p.effort || null, mode: p.mode, permissionMode: p.permissionMode, account: p.account };
@@ -456,6 +551,224 @@ FEAT.specialists = (() => {
       h('div', { class: 'sp-foot' }, arch, h('span', { class: 'sp' }), save));
   }
 
+  const OPENING_PROMPT = 'What is this specialist for, and how should it behave?';
+  const UPLOAD_MAX = 20 * 1024 * 1024;
+  const ACCESS_RE = /^[A-Z][A-Z0-9_]{1,63}$/;
+  const SOURCE_LABEL = { start: 'start', trainer: 'trainer', upload: 'upload', profile: 'profile', outside: 'outside', undo: 'undo' };
+  const CHANGE_LABEL = { added: 'added', modified: 'changed', deleted: 'deleted' };
+  const TRAINER_STATE = { idle: 'Ready', working: 'Working…', waiting: 'Needs an answer' };
+
+  const trainError = (e, what) => {
+    if (e.status === 413) return what === 'upload' ? 'Too big. A file can be 20 MiB at most, and the training folder holds 500 files and 200 MiB.' : e.message;
+    if (e.status === 400 && what === 'upload') return 'That file name can not be used. Rename the file and try again.';
+    if (e.status === 409 && /busy/.test(e.message)) return 'The trainer is busy with a turn. Try again in a moment.';
+    return e.message;
+  };
+
+  async function uploadTraining(name, file) {
+    const r = await fetch('/api/specialist/' + enc(name) + '/train/upload?filename=' + enc(file.name), { method: 'POST', body: file });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw Object.assign(new Error(j.error || r.statusText), { status: r.status });
+    return j;
+  }
+
+  function diffView(diff, truncated) {
+    const cls = l => l.startsWith('+') && !l.startsWith('+++') ? 'add' : l.startsWith('-') && !l.startsWith('---') ? 'del' : l.startsWith('@@') ? 'hunk' : '';
+    return h('div', { class: 'sp-diff' },
+      h('pre', null, diff.split('\n').map(l => h('span', { class: 'dl ' + cls(l) }, l + '\n'))),
+      truncated ? h('div', { class: 'dim sp-note' }, 'The diff is cut short because it is large.') : null);
+  }
+
+  function trainTab(name) {
+    const T = { ov: null, tr: null, err: null, files: [], fresh: false, sending: false, open: new Map(), undoAsk: null, rmAsk: null, more: null, keys: {}, extra: [], busy: false, moreFlag: false };
+    const status = h('div', { class: 'sp-tstatus' });
+    const conv = h('div', { class: 'conv sp-tconv' });
+    const chips = h('div', { class: 'sp-chipsrow' });
+    const ta = h('textarea', { class: 'sp-ask', rows: 3, placeholder: 'Tell the trainer…', spellcheck: 'true' });
+    const sendBtn = h('button', { class: 'btn primary ns-send' }, 'Send');
+    const freshBtn = h('button', { class: 'btn sm ghost', title: 'The old conversation is kept as it is' });
+    const sendErr = h('div', { class: 'ns-status hidden' });
+    const upErr = h('div', { class: 'ns-status hidden' });
+    const fileIn = h('input', { type: 'file', multiple: true, class: 'hidden' });
+    const drop = h('div', { class: 'sp-drop' });
+    const hist = h('div', { class: 'sp-hist' });
+    const histErr = h('div', { class: 'ns-status hidden' });
+    const acc = h('div', { class: 'sp-accs' });
+    const accName = h('input', { class: 'txt', placeholder: 'NAME, e.g. DB_URL', maxlength: 64, autocapitalize: 'characters', autocomplete: 'off', spellcheck: 'false' });
+    const accValue = h('input', { class: 'txt', type: 'password', placeholder: 'Value', autocomplete: 'new-password', spellcheck: 'false' });
+    const accNote = h('input', { class: 'txt', placeholder: 'Note, e.g. read replica', maxlength: 200, autocomplete: 'off' });
+    const accSave = h('button', { class: 'btn primary' }, 'Save access');
+    const accErr = h('div', { class: 'ns-status hidden' });
+    const accHelp = h('div', { class: 'dim sp-note' });
+
+    const fail = (el, msg) => { el.replaceChildren(msg || ''); el.classList.toggle('hidden', !msg); };
+    const trainer = () => T.ov?.trainer || null;
+    const base = () => 'specialist/' + enc(name) + '/train';
+    const provider = () => PG.data?.specialist?.provider || V.list.find(p => p.name === name)?.provider;
+
+    const paintStatus = () => {
+      const t = trainer(); const pf = PG.data?.specialist?.trainer?.pendingFeedback || 0;
+      const text = !T.ov ? (T.err || 'Loading…') : !t ? 'Not started' : !t.live ? 'Stopped. The next message resumes it.' : TRAINER_STATE[t.state] || 'Ready';
+      status.replaceChildren(...[h('i', { class: 'sp-dot rs-' + (t?.live && t.state === 'working' ? 'working' : t?.live && t.state === 'waiting' ? 'waiting' : 'done') }), h('span', null, text),
+        pf ? h('span', { class: 'dim' }, ' · ' + plural(pf, 'feedback note') + ' waiting') : null, h('span', { class: 'sp' }), t ? h('span', { class: 'dim' }, plural(t.turns || 0, 'turn')) : null].filter(Boolean));
+    };
+
+    const paintConv = () => {
+      const t = trainer(); const turns = T.tr?.turns || [];
+      const key = [t?.sessionId, T.tr?.sig, T.tr?.total, turns.length, t?.state, t?.live].join(':');
+      if (T.keys.conv === key) return;
+      T.keys.conv = key;
+      const atEnd = conv.scrollHeight - conv.scrollTop - conv.clientHeight < 60;
+      const first = !turns.length ? h('div', { class: 'turn assistant sp-open' }, h('div', { class: 'who' }, 'Trainer'), h('div', { class: 'ttext' }, OPENING_PROMPT)) : null;
+      conv.replaceChildren(...(first ? [first] : turns.map(x => convTurn(x, t.tmux))));
+      if (atEnd) conv.scrollTop = conv.scrollHeight;
+    };
+
+    const paintChips = () => {
+      chips.replaceChildren(...T.files.map(f => h('span', { class: 'badge tag sp-file' }, f.split('/').pop(), h('button', { class: 'sp-x', title: 'Do not mention it', 'aria-label': 'Do not mention it', onclick: () => { T.files = T.files.filter(x => x !== f); paintChips(); } }, '×'))));
+      chips.classList.toggle('hidden', !T.files.length);
+      sendBtn.disabled = T.sending;
+    };
+    const paintFresh = () => { freshBtn.replaceChildren(T.fresh ? 'New conversation: on' : 'New conversation'); freshBtn.classList.toggle('on', T.fresh); };
+
+    const sendMsg = async () => {
+      const typed = ta.value.trim();
+      if ((!typed && !T.files.length) || T.sending) return;
+      const body = { text: typed || 'I added these files for you to use.' };
+      if (T.files.length) body.files = T.files;
+      if (T.fresh) body.fresh = true;
+      T.sending = true; paintChips(); fail(sendErr, '');
+      try {
+        const r = await api(base() + '/send', body);
+        ta.value = ''; T.files = []; T.fresh = false; paintFresh();
+        if (T.ov) T.ov.trainer = r.trainer;
+        T.keys.conv = ''; paintStatus();
+        for (const ms of [1200, 3500]) setTimeout(refresh, ms);
+        refresh();
+      } catch (e) { fail(sendErr, trainError(e, 'send')); }
+      T.sending = false; paintChips();
+    };
+    sendBtn.onclick = sendMsg;
+    freshBtn.onclick = () => { T.fresh = !T.fresh; paintFresh(); };
+    ta.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing && ((e.metaKey || e.ctrlKey) || (!IS_PHONE && !e.shiftKey))) { e.preventDefault(); sendMsg(); } };
+
+    const addFiles = async list => {
+      const files = [...list].filter(Boolean); if (!files.length) return;
+      fail(upErr, '');
+      const errors = [];
+      drop.classList.add('busy');
+      for (const f of files) {
+        if (f.size > UPLOAD_MAX) { errors.push(f.name + ': ' + trainError({ status: 413, message: '' }, 'upload')); continue; }
+        try { const r = await uploadTraining(name, f); T.files.push(r.file.path); } catch (e) { errors.push(f.name + ': ' + trainError(e, 'upload')); }
+      }
+      drop.classList.remove('busy');
+      paintChips(); fail(upErr, errors.join('\n'));
+      refresh();
+    };
+    fileIn.onchange = () => { const fs = [...fileIn.files]; fileIn.value = ''; return addFiles(fs); };
+    const hasFiles = ev => [...(ev.dataTransfer?.types || [])].includes('Files');
+    drop.addEventListener('dragover', ev => { if (!hasFiles(ev)) return; ev.preventDefault(); drop.classList.add('over'); });
+    drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+    drop.addEventListener('drop', ev => { if (!hasFiles(ev)) return; ev.preventDefault(); drop.classList.remove('over'); addFiles(ev.dataTransfer.files); });
+    drop.replaceChildren(h('span', { class: 'dim' }, 'Drop files here, or '), h('button', { class: 'btn sm', onclick: () => fileIn.click() }, ico('clip', 14), 'Add files'), fileIn,
+      h('div', { class: 'dim sp-note' }, 'They go into the knowledge folder. Text, PDF and images, up to 20 MiB each.'));
+
+    const loadCommit = async c => {
+      try { const r = await api(base() + '/commit/' + enc(c.id)); T.open.set(c.id, { diff: r.diff, truncated: r.truncated, files: r.commit?.files || c.files }); } catch (e) { T.open.set(c.id, { error: e.message }); }
+      paintHist(true);
+    };
+    const toggleCommit = c => {
+      if (T.open.has(c.id)) { T.open.delete(c.id); paintHist(true); return; }
+      T.open.set(c.id, { loading: true }); paintHist(true); loadCommit(c);
+    };
+    const doUndo = async c => {
+      T.undoAsk = null; fail(histErr, '');
+      try { await api(base() + '/undo', { commit: c.id }); toast('Change undone', 'ok'); T.more = null; await refresh(); } catch (e) { fail(histErr, trainError(e, 'undo')); paintHist(true); }
+    };
+    const commitRow = c => {
+      const o = T.open.get(c.id);
+      const canUndo = c.source !== 'start' && !c.undone;
+      const acts = T.undoAsk === c.id
+        ? [h('span', { class: 'dim' }, 'Undo this change?'), h('button', { class: 'btn sm danger solid', onclick: () => doUndo(c) }, 'Undo'), h('button', { class: 'btn sm ghost', onclick: () => { T.undoAsk = null; paintHist(true); } }, 'Cancel')]
+        : [h('button', { class: 'btn sm ghost', onclick: () => toggleCommit(c) }, o ? 'Hide' : 'View'), canUndo ? h('button', { class: 'btn sm', onclick: () => { T.undoAsk = c.id; paintHist(true); } }, 'Undo') : null];
+      return h('div', { class: 'sp-commit' + (c.undone ? ' undone' : '') },
+        h('div', { class: 'sp-crow' },
+          h('div', { class: 'sp-cm' }, h('div', { class: 'sp-ct' }, c.message || c.short), h('div', { class: 'dim sp-cs' }, h('span', { class: 'badge tag' }, SOURCE_LABEL[c.source] || c.source), ' ', ago(c.at) + ' ago', c.undone ? ' · undone' : '')),
+          h('div', { class: 'sp-cacts' }, acts)),
+        o ? h('div', { class: 'sp-cdetail' },
+          o.loading ? h('div', { class: 'dim' }, 'Loading…') : o.error ? h('div', { class: 'ns-status' }, o.error) : [
+            h('div', { class: 'sp-cfiles' }, (o.files || []).map(f => h('span', { class: 'badge tag' }, f.path + ' · ' + (CHANGE_LABEL[f.change] || f.change)))),
+            o.diff ? diffView(o.diff, o.truncated) : h('div', { class: 'dim' }, 'No text changes.')]) : null);
+    };
+    const loadMore = async () => {
+      const list = T.more || T.ov?.history?.commits || []; const last = list[list.length - 1]; if (!last) return;
+      try { const r = await api(base() + '/history?limit=50&before=' + enc(last.id)); T.more = [...list, ...r.commits]; T.moreFlag = r.more; paintHist(true); } catch (e) { fail(histErr, e.message); }
+    };
+    const paintHist = force => {
+      const commits = T.more || T.ov?.history?.commits || [];
+      const more = T.more ? T.moreFlag : commits.length >= 20;
+      const key = JSON.stringify([commits.map(c => [c.id, c.undone]), more, T.ov?.history?.ready]);
+      if (!force && T.keys.hist === key) return;
+      T.keys.hist = key;
+      hist.replaceChildren(...[...(commits.length ? commits.map(commitRow) : [h('div', { class: 'dim sp-none' }, T.ov?.history?.ready ? 'No changes yet.' : 'Nothing yet. Changes show here after the first message or upload.')]),
+        more ? h('button', { class: 'btn sm ghost', onclick: loadMore }, 'Show older') : null].filter(Boolean));
+    };
+
+    const accForm = () => {
+      accHelp.replaceChildren('The trainer sees the names and notes, never the values.' + (isApi(provider()) ? ' OpenAI and xAI specialists do not get accesses.' : ' Claude runs get them as environment variables.'));
+    };
+    const removeAccess = async a => {
+      T.rmAsk = null; fail(accErr, '');
+      try { await api('specialist/' + enc(name) + '/accesses/' + enc(a.name) + '/delete', {}); toast('Removed ' + a.name, 'ok'); await refresh(); } catch (e) { fail(accErr, e.message); paintAcc(true); }
+    };
+    const paintAcc = force => {
+      const list = T.ov?.accesses || [];
+      const key = JSON.stringify([list.map(a => [a.name, a.note, a.updatedAt]), T.rmAsk]);
+      if (!force && T.keys.acc === key) return;
+      T.keys.acc = key;
+      acc.replaceChildren(...(list.length ? list.map(a => h('div', { class: 'sp-acc' },
+        h('div', { class: 'sp-cm' }, h('div', { class: 'sp-ct mono' }, a.name), h('div', { class: 'dim sp-cs' }, a.note || 'No note', ' · value saved')),
+        h('div', { class: 'sp-cacts' }, T.rmAsk === a.name
+          ? [h('span', { class: 'dim' }, 'Remove it?'), h('button', { class: 'btn sm danger solid', onclick: () => removeAccess(a) }, 'Remove'), h('button', { class: 'btn sm ghost', onclick: () => { T.rmAsk = null; paintAcc(true); } }, 'Cancel')]
+          : [h('button', { class: 'btn sm', onclick: () => { accName.value = a.name; accNote.value = a.note || ''; accValue.focus(); } }, 'Replace'), h('button', { class: 'btn sm danger', onclick: () => { T.rmAsk = a.name; paintAcc(true); } }, 'Remove')]))) : [h('div', { class: 'dim sp-none' }, 'No accesses yet.')]));
+    };
+    accName.oninput = () => { accName.value = accName.value.toUpperCase(); fail(accErr, ''); };
+    accSave.onclick = async () => {
+      const n = accName.value.trim(); const v = accValue.value;
+      if (!ACCESS_RE.test(n)) { fail(accErr, 'Use a name like DB_URL: capital letters, digits and underscores.'); return; }
+      if (!v) { fail(accErr, 'Type the value.'); return; }
+      accSave.disabled = true; fail(accErr, '');
+      const body = { name: n, value: v };
+      if (accNote.value.trim()) body.note = accNote.value.trim();
+      try { await api('specialist/' + enc(name) + '/accesses', body); accValue.value = ''; accName.value = ''; accNote.value = ''; toast('Saved ' + n, 'ok'); await refresh(); } catch (e) { fail(accErr, e.message); }
+      accSave.disabled = false;
+    };
+
+    async function refresh() {
+      if (T.busy || PG.name !== name) return;
+      T.busy = true;
+      try {
+        const ov = await api(base());
+        T.ov = ov; T.err = null;
+        const tmux = ov.trainer?.tmux;
+        T.tr = tmux ? await api('transcript/' + enc(tmux) + '?n=60').catch(() => null) : null;
+      } catch (e) { T.err = e.message; }
+      T.busy = false;
+      if (PG.name !== name) return;
+      paintStatus(); paintConv(); paintHist(); paintAcc(); accForm();
+    }
+
+    const section = (title, ...kids) => h('section', { class: 'sp-sec' }, h('h4', null, title), kids);
+    const el = h('div', { class: 'sp-train' },
+      status, conv,
+      h('div', { class: 'sp-composer' }, chips, ta, h('div', { class: 'ns-bar' }, freshBtn, h('span', { class: 'sp' }), sendBtn), sendErr),
+      section('Files', drop, upErr),
+      section('What changed', hist, histErr),
+      section('Accesses', accHelp, acc, h('div', { class: 'sp-accform' }, accName, accValue, accNote, accSave), accErr));
+    paintStatus(); paintConv(); paintChips(); paintFresh(); paintHist(); paintAcc(); accForm();
+    return { el, refresh, focus: () => ta.focus() };
+  }
+
   function openPage(name, o = {}) {
     const m = $('#modal'); m.classList.remove('hidden');
     if (PG.onEsc) document.removeEventListener('keydown', PG.onEsc, true);
@@ -473,27 +786,33 @@ FEAT.specialists = (() => {
     const askBtn = h('button', { class: 'btn primary ns-send' }, 'Ask');
     const askStatus = h('div', { class: 'ns-status hidden' });
     const runsBox = h('div', { class: 'sp-runs' });
+    const trainBox = { tab: null };
 
     const paintHead = () => {
       const p = PG.data?.specialist || known; const t = PG.data?.thread;
-      head.replaceChildren(tile(p, 'md'), h('div', { class: 'sp-ht' }, h('h3', null, p.title || name), h('div', { class: 'sp-chips' }, isApi(p.provider) ? h('span', { class: 'badge tag' }, providerLabel(p.provider)) : null, h('span', { class: 'badge tag' }, modelLabel(p.model, p.provider)), h('span', { class: 'badge tag' }, p.mode === 'thread' ? 'Thread' : 'Fresh run per task'), !isApi(p.provider) && p.account && p.account !== 'personal' ? h('span', { class: 'badge tag acc ' + p.account }, acct(p.account)) : null)),
+      head.replaceChildren(...[tile(p, 'md'), h('div', { class: 'sp-ht' }, h('h3', null, p.title || name), h('div', { class: 'sp-chips' }, isApi(p.provider) ? h('span', { class: 'badge tag' }, providerLabel(p.provider)) : null, h('span', { class: 'badge tag' }, modelLabel(p.model, p.provider)), h('span', { class: 'badge tag' }, p.mode === 'thread' ? 'Thread' : 'Fresh run per task'), !isApi(p.provider) && p.account && p.account !== 'personal' ? h('span', { class: 'badge tag acc ' + p.account }, acct(p.account)) : null)),
         h('span', { class: 'sp' }), t?.live ? h('button', { class: 'btn sm', title: 'open the live thread', onclick: () => { closeModal(); openTerm(t.tmux); } }, 'Open thread') : null,
-        h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', 'aria-label': 'close', onclick: closeModal }, ico('x', 15)));
+        h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', 'aria-label': 'close', onclick: closeModal }, ico('x', 15))].filter(Boolean));
       desc.textContent = p.description || ''; desc.classList.toggle('hidden', !p.description);
       keyNote.textContent = isApi(p.provider) && p.keyError || ''; keyNote.classList.toggle('hidden', !keyNote.textContent);
       ask.placeholder = 'Ask ' + (p.title || name) + '…';
     };
-    const paintTabs = () => tabs.replaceChildren(...[['runs', 'Runs'], ['profile', 'Profile']].map(([k, l]) => h('button', { class: 'segb' + (PG.tab === k ? ' on' : ''), onclick: () => { PG.tab = k; paintTabs(); paintBody(); } }, l)));
+    const paintTabs = () => tabs.replaceChildren(...[['runs', 'Runs'], ['train', 'Train'], ['profile', 'Profile']].map(([k, l]) => h('button', { class: 'segb' + (PG.tab === k ? ' on' : ''), onclick: () => { PG.tab = k; paintTabs(); paintBody(); } }, l)));
     const paintBody = () => {
       if (PG.tab === 'runs') {
         body.replaceChildren(h('div', { class: 'sp-composer' }, ask, h('div', { class: 'ns-bar' }, h('span', { class: 'sp' }), askBtn), askStatus), runsBox);
         paintRuns(runsBox);
         if (o.focus) setTimeout(() => ask.focus(), 30);
         o.focus = false;
+      } else if (PG.tab === 'train') {
+        if (!trainBox.tab) trainBox.tab = trainTab(name);
+        body.replaceChildren(trainBox.tab.el); trainBox.tab.refresh();
+        if (o.focus) setTimeout(() => trainBox.tab.focus(), 30);
+        o.focus = false;
       } else if (!PG.data) body.replaceChildren(h('div', { class: 'dim sp-none' }, PG.err || 'Loading…'));
       else { PG.profile = profileTab(PG.data.specialist, async () => { await loadPage(); refresh(true); paintHead(); paintBody(); }, closeModal); body.replaceChildren(PG.profile); }
     };
-    PG.paint = () => { paintHead(); if (PG.tab === 'runs') paintRuns(runsBox); else if (!PG.profile || !body.contains(PG.profile)) paintBody(); };
+    PG.paint = () => { paintHead(); if (PG.tab === 'runs') paintRuns(runsBox); else if (PG.tab === 'train') trainBox.tab?.refresh(); else if (!PG.profile || !body.contains(PG.profile)) paintBody(); };
 
     const sendAsk = async () => {
       const text = ask.value.trim(); if (!text || askBtn.disabled) return;
@@ -517,5 +836,5 @@ FEAT.specialists = (() => {
 
   setInterval(() => { if (!document.hidden) refresh(true); }, 30000);
 
-  return { onState, termBarKey, railSection, paletteItems, homeTiles, unseenRuns, dismissRun, markSeen: seenByUser, trimSeen, openRun, openAsk, open: openPage, create: openCreate, refresh };
+  return { onState, termBarKey, railSection, paletteItems, homeTiles, unseenRuns, dismissRun, markSeen: seenByUser, trimSeen, feedbackBody, feedbackError, trackFeedback, pollFeedback, improve: openImprove, openRun, openAsk, open: openPage, create: openCreate, refresh };
 })();

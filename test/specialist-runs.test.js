@@ -40,6 +40,7 @@ const claude = require('../lib/claude');
 const headless = require('../lib/headless');
 const { createRuns, transcriptText, finalOf, taskText } = require('../lib/specialist-runs');
 const { createSpecialistApi } = require('../lib/specialist-api');
+const { createTraining } = require('../lib/training');
 const { readBody } = require('../lib/util');
 headless.init({ port: PORT, test: true, claudeBin: FAKE });
 
@@ -293,7 +294,7 @@ test('fake runner: permission prompts move the run to waiting and back; a runner
   const r = await runs.ask(p.name, { text: 'go' });
   assert.strictEqual(r.state, 'working');
   assert.strictEqual(h.launched[0].opts.specialist, p.name);
-  assert.deepStrictEqual(h.launched[0].opts.runner, { permissionMode: 'bypassPermissions', model: null, effort: null, addDirs: [], exitAfterResult: true });
+  assert.deepStrictEqual(h.launched[0].opts.runner, { permissionMode: 'bypassPermissions', model: null, effort: null, addDirs: [], exitAfterResult: true, accesses: p.dir });
   h.snaps.set(r.tmux, { pending: [{ rid: 'q' }] });
   h.emit(r.tmux, { ev: 'pending', req: { rid: 'q' } });
   assert.strictEqual(store.getRun(r.runId).state, 'waiting');
@@ -484,8 +485,9 @@ test('restorable skips specialist sessions; markChat keeps the specialist on a l
 
 test('http routes: create, list, get, update, archive and errors as { ok: false, error }', async t => {
   const h = fakeHeadless();
-  const runs = createRuns({ store, headless: h, tmuxHas: async name => h.up.has(name) });
-  const api = createSpecialistApi({ store, runs, readBody });
+  const training = createTraining({ store, headless: h, tmuxHas: async name => h.up.has(name) });
+  const runs = createRuns({ store, headless: h, tmuxHas: async name => h.up.has(name), training });
+  const api = createSpecialistApi({ store, runs, training, readBody });
   const send = (res, code, obj) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(obj)); };
   const srv = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://x');

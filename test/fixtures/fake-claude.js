@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 const fs = require('fs');
+const path = require('path');
 
-if (process.env.FAKE_ARGS) fs.appendFileSync(process.env.FAKE_ARGS, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), config: process.env.CLAUDE_CONFIG_DIR || null, child: process.env.CLAUDE_CODE_CHILD_SESSION || null, other: process.env.CLAUDE_CODE_OTHER || null, window: process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW || null }) + '\n');
+if (process.env.FAKE_ARGS) fs.appendFileSync(process.env.FAKE_ARGS, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd(), config: process.env.CLAUDE_CONFIG_DIR || null, child: process.env.CLAUDE_CODE_CHILD_SESSION || null, other: process.env.CLAUDE_CODE_OTHER || null, window: process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW || null, ...(process.env.FAKE_ENV_SHOW ? { env: Object.fromEntries(process.env.FAKE_ENV_SHOW.split(',').map(k => [k, process.env[k] === undefined ? null : process.env[k]])) } : {}) }) + '\n');
 if (process.env.FAKE_TOUCH) fs.writeFileSync(process.env.FAKE_TOUCH, 'x');
 if (process.env.FAKE_BROKEN) { process.stderr.write('fake: broken build\n'); process.exit(1); }
 if (process.env.FAKE_NO_CONV && process.argv.includes('--resume')) { process.stderr.write(`No conversation found with session ID: ${process.argv[process.argv.indexOf('--resume') + 1]}\n`); process.exit(1); }
@@ -92,6 +93,15 @@ async function turn(text, uuid, content = text) {
     await say(r.behavior === 'deny' ? 'denied: ' + r.message : 'written');
     return done();
   }
+  const dirs = process.argv.flatMap((a, i) => a === '--add-dir' ? [process.argv[i + 1]] : []);
+  for (const [, rel, body] of text.matchAll(/^(?:> )?write (\S+?)=(.*)$/gm)) {
+    const file = path.join(dirs[dirs.length - 1] || process.cwd(), rel);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, body.replace(/\\n/g, '\n'));
+  }
+  for (const [, rel, count] of text.matchAll(/^(?:> )?fill (\S+?) (\d+)$/gm)) fs.writeFileSync(path.join(dirs[dirs.length - 1] || process.cwd(), rel), 'x'.repeat(+count));
+  if (/^(?:> )?hang turn$/m.test(text)) { await say('Thinking'); while (!aborted) await sleep(10); return; }
+  if (/^(?:> )?fail turn$/m.test(text)) { await say('Could not do it'); return done('error_during_execution', 'model_error'); }
   await say('Echo: ' + text);
   done();
 }

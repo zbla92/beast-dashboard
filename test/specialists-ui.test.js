@@ -13,8 +13,11 @@ const node = (tag, attrs, kids) => {
   n.replaceChildren = (...k) => { n.kids = k.flat(Infinity); };
   n.append = (...k) => { n.kids.push(...k); };
   n.contains = () => false;
+  n.remove = () => {};
   n.focus = () => {};
+  n.addEventListener = () => {};
   if (n.attrs.value !== undefined) n.value = n.attrs.value;
+  else if (tag === 'input' || tag === 'textarea') n.value = '';
   return n;
 };
 const text = n => typeof n === 'string' || typeof n === 'number' ? String(n) : n == null ? '' : (n.kids || []).map(text).join(' ');
@@ -311,4 +314,179 @@ test('the palette ask entry opens the ask dialog and posts without waiting in no
   await go.onclick();
   const call = sb.calls.find(c => c[0] === 'specialist/writer/ask');
   assert.deepStrictEqual(JSON.parse(JSON.stringify(call[1])), { text: 'Do it', wait: false });
+});
+
+const commit = (id, o = {}) => ({ id: id.repeat(40).slice(0, 40), short: id.repeat(7), message: 'Shorter greetings', source: 'trainer', at: Date.now(), undoOf: null, undone: false, files: [{ path: 'style.md', change: 'modified' }], ...o });
+const trainSetup = async (o = {}) => {
+  const calls = []; const fetches = [];
+  const overview = { ok: true, trainer: null, history: { ready: true, head: 'a', commits: [commit('a'), commit('b', { source: 'start', message: 'Starting point' })] }, feedback: [], accesses: [{ name: 'DB_URL', note: 'read replica', bytes: 5, updatedAt: 'x' }], uploads: { files: 0, bytes: 0 }, ...o.overview };
+  const sb = build([P('writer')], [], false, {
+    convTurn: t => ({ tag: 'div', attrs: {}, kids: [t.text] }),
+    fetch: async (u, init) => { fetches.push([u, init]); return o.fetch ? o.fetch(u, init) : { ok: true, status: 201, json: async () => ({ ok: true, file: { path: 'knowledge/files/a.pdf', bytes: 3 } }) }; },
+    api: async (p, body) => {
+      calls.push([p, body]);
+      if (o.api) { const r = await o.api(p, body); if (r !== undefined) return r; }
+      if (p === 'specialist/writer/train') return overview;
+      if (p.startsWith('transcript/')) return { total: 0, turns: [], sig: 's' };
+      if (p === 'specialists') return { ok: true, specialists: [P('writer')], templates: [] };
+      return { ok: true, specialist: { ...P('writer'), instructions: '' }, runs: [], thread: null };
+    }
+  });
+  await sb.FEAT.specialists.refresh(true);
+  sb.FEAT.specialists.open('writer', { tab: 'train' });
+  await new Promise(r => setTimeout(r, 20));
+  return { sb, calls, fetches, box: () => sb.shown };
+};
+const btn = (box, label) => find(box, n => n.tag === 'button' && text(n) === label)[0];
+const fire = (n, ev = 'onclick') => (n[ev] || n.attrs[ev])();
+
+test('the create dialog ends on the Train tab with the opening prompt', async () => {
+  const sb = build([P('writer')], [], false);
+  await sb.FEAT.specialists.refresh(true);
+  sb.FEAT.specialists.create();
+  const box = sb.shown;
+  const nameIn = find(box, n => n.attrs.placeholder === 'name, e.g. writer')[0];
+  nameIn.value = 'writer'; nameIn.oninput();
+  await fire(btn(box, 'Create'));
+  await new Promise(r => setTimeout(r, 20));
+  assert.match(text(sb.shown), /What is this specialist for, and how should it behave\?/);
+  assert.ok(sb.calls.some(c => c[0] === 'specialist/writer/train'));
+});
+
+test('train send posts text, uploaded files and fresh, and shows a busy trainer in plain words', async () => {
+  const st = { busy: true };
+  const t = await trainSetup({ api: (p) => { if (p.endsWith('/train/send')) { if (st.busy) throw Object.assign(new Error('trainer is busy'), { status: 409 }); return { ok: true, trainer: { live: true, state: 'working', turns: 1, tmux: 'claude-spec-writer_train' } }; } } });
+  const box = t.box();
+  find(box, n => n.tag === 'textarea')[0].value = 'Be brief';
+  await fire(btn(box, 'Send'));
+  assert.match(text(box), /The trainer is busy with a turn/);
+  st.busy = false;
+  fire(btn(box, 'New conversation: on') || btn(box, 'New conversation'));
+  await fire(btn(box, 'Send'));
+  const sends = t.calls.filter(c => c[0] === 'specialist/writer/train/send');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(sends[1][1])), { text: 'Be brief', fresh: true });
+});
+
+test('uploads post raw bytes, name the files in the next message and explain 415 and 413', async () => {
+  const net = { status: 201 };
+  const t = await trainSetup({ fetch: async () => net.status === 201 ? { ok: true, status: 201, json: async () => ({ ok: true, file: { path: 'knowledge/files/a.pdf', bytes: 3 } }) }   : { ok: false, status: net.status, statusText: 'x', json: async () => ({ error: ".exe files can't be used for training: save it as PDF or text" }) } });
+  const box = t.box();
+  const input = find(box, n => n.tag === 'input' && n.attrs.type === 'file')[0];
+  const drop = find(box, n => /sp-drop/.test(n.attrs.class || ''))[0];
+  assert.ok(drop);
+  const fileInput = input;
+  fileInput.files = [{ name: 'a b.pdf', size: 3 }];
+  await fire(fileInput, 'onchange');
+  assert.match(t.fetches[0][0], /\/api\/specialist\/writer\/train\/upload\?filename=a%20b\.pdf$/);
+  assert.match(text(box), /a\.pdf/);
+  await fire(btn(box, 'Send'));
+  const send = t.calls.find(c => c[0] === 'specialist/writer/train/send');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(send[1].files)), ['knowledge/files/a.pdf']);
+  net.status = 415;
+  fileInput.files = [{ name: 'x.exe', size: 3 }];
+  await fire(fileInput, 'onchange');
+  assert.match(text(box), /x\.exe: \.exe files can't be used/);
+  fileInput.files = [{ name: 'big.pdf', size: 21 * 1024 * 1024 }];
+  const before = t.fetches.length;
+  await fire(fileInput, 'onchange');
+  assert.strictEqual(t.fetches.length, before);
+  assert.match(text(box), /big\.pdf: Too big/);
+});
+
+test('the change list shows source, loads a diff as text and undoes only after confirmation', async () => {
+  const t = await trainSetup({ api: p => {
+    if (p.startsWith('specialist/writer/train/commit/')) return { ok: true, commit: commit('a'), diff: '@@ -1 +1 @@\n-old <b>x</b>\n+new', truncated: false };
+    if (p === 'specialist/writer/train/undo') return { ok: true, commit: commit('c', { source: 'undo' }) };
+  } });
+  const box = t.box();
+  assert.match(text(box), /Shorter greetings/);
+  assert.match(text(box), /trainer/);
+  const views = find(box, n => n.tag === 'button' && text(n) === 'View');
+  await fire(views[0]);
+  await new Promise(r => setTimeout(r, 10));
+  const lines = find(t.box(), n => /(^| )dl( |$)/.test(n.attrs.class || ''));
+  assert.ok(lines.some(l => /del/.test(l.attrs.class) && text(l).includes('<b>x</b>')));
+  assert.ok(find(t.box(), n => n.tag === 'button' && text(n) === 'Undo').length === 1);
+  fire(find(t.box(), n => n.tag === 'button' && text(n) === 'Undo')[0]);
+  assert.ok(!t.calls.some(c => c[0] === 'specialist/writer/train/undo'));
+  await fire(find(t.box(), n => n.tag === 'button' && text(n) === 'Undo' && /solid/.test(n.attrs.class))[0]);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(t.calls.find(c => c[0] === 'specialist/writer/train/undo')[1])), { commit: 'a'.repeat(40) });
+});
+
+test('accesses list names and notes, use a password field and never show a saved value', async () => {
+  const t = await trainSetup();
+  const box = t.box();
+  assert.match(text(box), /DB_URL/);
+  assert.match(text(box), /read replica/);
+  assert.match(text(box), /never the values/);
+  const pw = find(box, n => n.tag === 'input' && n.attrs.type === 'password')[0];
+  assert.ok(pw);
+  const nm = find(box, n => n.attrs.placeholder === 'NAME, e.g. DB_URL')[0];
+  nm.value = 'API_TOKEN'; pw.value = 'sekret'; find(box, n => n.attrs.placeholder === 'Note, e.g. read replica')[0].value = 'prod';
+  await fire(btn(box, 'Save access'));
+  const post = t.calls.find(c => c[0] === 'specialist/writer/accesses');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(post[1])), { name: 'API_TOKEN', value: 'sekret', note: 'prod' });
+  assert.strictEqual(pw.value, '');
+  assert.ok(!text(t.box()).includes('sekret'));
+  nm.value = 'bad name'; pw.value = 'v';
+  await fire(btn(box, 'Save access'));
+  assert.match(text(box), /Use a name like DB_URL/);
+});
+
+test('feedbackBody needs a changed answer or a note and omits an unchanged answer', () => {
+  const sb = build([P('writer')], []);
+  const f = sb.FEAT.specialists.feedbackBody;
+  assert.ok(f({ runId: 'r1', original: 'Hi', better: 'Hi', note: '' }).error);
+  assert.ok(f({ original: 'Hi', better: '  ', note: ' ' }).error);
+  assert.deepStrictEqual({ ...f({ runId: 'r1', original: 'Hi', better: 'Hello', note: '' }).body }, { original: 'Hi', runId: 'r1', better: 'Hello' });
+  assert.deepStrictEqual({ ...f({ original: 'Hi', better: 'Hi', note: ' Be warm ' }).body }, { original: 'Hi', note: 'Be warm' });
+});
+
+test('feedbackError gives plain words for 413, 429 and 404', () => {
+  const f = build([P('writer')], []).FEAT.specialists.feedbackError;
+  assert.match(f({ status: 413, message: 'x' }), /too long/);
+  assert.match(f({ status: 429, message: 'x' }), /Too much feedback/);
+  assert.match(f({ status: 404, message: 'x' }), /no longer exists/);
+  assert.strictEqual(f({ status: 500, message: 'boom' }), 'boom');
+});
+
+test('tracked feedback is polled until applied or failed, then polling stops', async () => {
+  const toasts = [], polls = [];
+  const states = [['pending'], ['applied']];
+  const host = { append: n => toasts.push(n) };
+  const sb = build([P('writer')], [], false, {
+    document: { hidden: false, addEventListener() {}, removeEventListener() {} },
+    $: sel => sel === '#toasts' ? host : null,
+    toast: (m, k) => toasts.push({ m, k }),
+    api: async p => { polls.push(p); return { ok: true, feedback: [{ id: 'fb-1', state: states.shift()[0] }] }; },
+    setTimeout: (fn, ms) => { if (ms === 4000) sb.next = fn; return 1; },
+  });
+  sb.FEAT.specialists.trackFeedback('writer', 'Writer', 'fb-1');
+  await sb.next();
+  assert.strictEqual(toasts.length, 0);
+  assert.ok(sb.next);
+  const second = sb.next; sb.next = null;
+  await second();
+  assert.strictEqual(sb.next, null);
+  assert.match(text(toasts[0]), /Writer learned from your note/);
+  assert.match(polls[0], /^specialist\/writer\/train\/feedback\?ids=fb-1$/);
+});
+
+test('a failed feedback record shows a Retry that posts to the retry endpoint', async () => {
+  const toasts = [], calls = [];
+  const host = { append: n => toasts.push(n) };
+  const sb = build([P('writer')], [], false, {
+    document: { hidden: false, addEventListener() {}, removeEventListener() {} },
+    $: sel => sel === '#toasts' ? host : null,
+    api: async (p, b) => { calls.push([p, b]); return p.includes('retry') ? { ok: true, feedback: { id: 'fb-2', state: 'pending' } } : { ok: true, feedback: [{ id: 'fb-2', state: 'failed', error: 'stopped' }] }; },
+    setTimeout: (fn, ms) => { if (ms === 4000) sb.next = fn; return 1; },
+  });
+  sb.FEAT.specialists.trackFeedback('writer', 'Writer', 'fb-2');
+  await sb.next();
+  assert.match(text(toasts[0]), /stopped/);
+  const retry = find(toasts[0], n => n.tag === 'button')[0];
+  retry.attrs.onclick();
+  await new Promise(r => setImmediate(r));
+  assert.strictEqual(calls[1][0], 'specialist/writer/train/feedback/fb-2/retry');
+  assert.deepStrictEqual({ ...calls[1][1] }, {});
 });

@@ -19,8 +19,13 @@ the runner, the `bd-ask` command and the UI share. Change it only on purpose, an
     .claude/settings.json             optional: permissions, hooks
     .claude/skills/, .claude/agents/  optional: its skills and subagents
     .mcp.json                         optional: its MCP servers
-    .bd/                              owned by the dashboard: runs/<runId>.json, thread.json
-    …                                 anything else (style.md, examples/, notes) is its own business
+    .bd/                              owned by the dashboard: runs/<runId>.json, thread.json,
+                                      trainer.json, feedback.jsonl (section 7)
+    style.md, knowledge/, examples/   what training writes besides CLAUDE.md (section 7)
+    .git/, .gitignore                 training history, made on first training (section 7)
+    .secrets/accesses.json            credentials the specialist gets as env vars (section 7)
+    …                                 anything else (notes, scripts) is its own business
+  .trainers/<name>/                   working folder of a specialist's trainer session (section 7)
   _archive/<name>-<YYYYMMDD-HHMMSS>/  archived profiles (section 5)
 ```
 
@@ -100,12 +105,13 @@ All `/api/*` guards of the server apply (Host allow-list, same-origin, no cross-
 
 | Status | When |
 |---|---|
-| 400 | bad JSON, unknown or non-editable field, invalid value, bad name or runId, `files` for an `openai` / `xai` specialist |
-| 404 | no such specialist or run |
-| 409 | name already exists, profile invalid, `ifUpdatedAt` mismatch, thread busy, archive while runs are active, no usable key for an `openai` / `xai` specialist, a run continued on another provider than it was made with |
-| 413 | instructions over 256 KiB, task text over 100 000 chars |
-| 429 | 4 runs of this specialist are already active |
-| 500 | the run could not be started (tmux or runner failed) |
+| 400 | bad JSON, unknown or non-editable field, invalid value, bad name or runId, `files` for an `openai` / `xai` specialist, bad upload file name, bad access name, undoing the starting point |
+| 404 | no such specialist, run, commit, feedback or access |
+| 409 | name already exists, profile invalid, `ifUpdatedAt` mismatch, thread busy, archive while runs are active, no usable key for an `openai` / `xai` specialist, a run continued on another provider than it was made with, trainer busy, an undo that conflicts with later changes, a training path that is a symlink |
+| 413 | instructions over 256 KiB, task text over 100 000 chars, upload over 20 MiB, `knowledge/files/` full, feedback or access value over its limit |
+| 415 | upload of a file type training does not take |
+| 429 | 4 runs of this specialist are already active, 50 feedback records pending |
+| 500 | the run or trainer could not be started (tmux or runner failed), git failed |
 
 **Profile object** (`P`): every field of section 2 plus
 
@@ -160,7 +166,10 @@ Response 201: `{ "ok": true, "specialist": P }`.
 Request: any editable field, `"instructions"` (replaces `CLAUDE.md`) and optional
 `"ifUpdatedAt": "<updatedAt the client loaded>"` (409 when the profile changed since).
 Response: `{ "ok": true, "specialist": P }`. Changes apply to the next run; a live thread keeps its
-model and effort until it is restarted.
+model and effort until it is restarted. Once the profile has a training history (section 7),
+changed instructions are committed to it with source `profile`; every training commit bumps
+`updatedAt`, so an editor holding an older `ifUpdatedAt` gets 409 instead of overwriting the
+trainer's work.
 
 ### `POST /api/specialist/<name>/archive`
 
@@ -212,12 +221,14 @@ no-key 409 of `ask` applies too. Response as `ask`.
 | run mode | `claude-spec-<name>-<YYMMDD-HHMM>[-n]` + `-company` on the company account (local time like `claude-chat-*`; `-2`…`-99` when taken by a tmux session, session record or run record) |
 | thread session | `claude-spec-<name>` + `-company` |
 | thread ask | runId `<thread tmux>_<seq>` (seq 1, 2, … per thread, kept in `.bd/thread.json`); its `tmux` is the thread session |
+| trainer session | `claude-spec-<name>_train` + `-company` (section 7); not a run, has no runId |
 
 All match `^[A-Za-z0-9_.-]+$` and start with `claude-`, so hooks, session state and the chat view
 treat them as dashboard chats. The name rules of section 2 make every id parse back to one
-specialist (`parseRunId`, `specialistOfTmux` in the store). The session record in `lib/claude.js`
-carries `specialist: "<name>"`; the UI uses it to show these sessions under Specialists, not under
-Sessions, and the restore list skips them.
+specialist (`parseRunId`, `specialistOfTmux` in the store); names never contain `_`, so a trainer
+name can't be taken for a run or thread of another specialist. The session record in `lib/claude.js`
+carries `specialist: "<name>"` (and `trainer: true` for a trainer session); the UI uses it to show
+these sessions under Specialists, not under Sessions, and the restore list skips them.
 
 ### Launch
 
@@ -293,9 +304,12 @@ transcript after the turn's prompt. Never the 400-char `lastMessage` of the sess
 Specialists run as the same Unix user, on the same Claude login, as every other dashboard session.
 A profile folder separates instructions, settings, history and memory, not access: with
 `bypassPermissions` a specialist can read and write whatever your user can, and any session can read
-a profile. Do not put secrets (API keys, passwords, tokens) in a profile or its `.mcp.json`; real
-separation (own Unix user, a broker for credentials) is a later phase. The OpenAI and xAI keys live
-in their own file outside every profile (section 6).
+a profile. Do not put secrets (API keys, passwords, tokens) in `CLAUDE.md`, any other tracked
+profile file or `.mcp.json`: credentials a specialist needs go in its **Accesses** (section 7.6),
+which keeps them out of the instructions, the training history and every API response, but not
+away from your user or from the specialist itself (it can print them). Real separation (own Unix
+user, a broker for credentials) is a later phase. The OpenAI and xAI keys live in their own file
+outside every profile (section 6).
 
 ## 6. Adding an xAI or OpenAI key
 
@@ -336,3 +350,246 @@ Rules the dashboard checks before every ask (the message says what to fix):
   it. The key is never returned by the API,
   logged, passed on a command line or in a child's environment, or written into run records,
   transcripts or error messages.
+
+## 7. Training
+
+You train a specialist by talking to its **trainer**: a Claude session that edits the profile for you.
+On create you tell it what the specialist is for and how it behaves and hand it text and files; while
+using the specialist you send it better versions of answers ("say this sentence like that") and
+procedures ("this is how we do a rollback"). Every change the trainer (or anyone) makes to the
+profile becomes a commit you can look at and undo. Credentials go into **Accesses**, never into the
+conversation or the instructions.
+
+### 7.1 What the trainer may change
+
+| Path in the profile | Trainer | Tracked in history |
+|---|---|---|
+| `CLAUDE.md` | read, write | yes |
+| `style.md` | read, write | yes |
+| `knowledge/**` (uploads land in `knowledge/files/`) | read, write | yes |
+| `examples/**` | read, write | yes |
+| `specialist.json`, `.claude/**`, `.mcp.json`, `.bd/**` (past answers in `.bd/runs/`), `.git/**`, `.gitignore` | read only | no |
+| `.secrets/**` | no (not even read) | no |
+
+- `style.md`, `knowledge/` and `examples/` must be a regular file and real folders when they exist;
+  a symlink at any of these paths (or `CLAUDE.md`) makes every training call answer 409.
+- `CLAUDE.md` stays the specialist's entry point. The trainer keeps it short (well under the 256 KiB
+  limit) and puts long material in `knowledge/`: a Claude specialist is told in `CLAUDE.md` which
+  file to read for what; an `openai` / `xai` specialist only ever sees `CLAUDE.md` with its `@`
+  imports (section 4, 1 MiB in total, text only), so the trainer imports what it must know with
+  `@knowledge/…` and turns PDFs and images into text files first.
+- When a trainer turn leaves `CLAUDE.md` over 256 KiB, the dashboard sends the trainer one automatic
+  follow-up ("CLAUDE.md is N KiB, the limit is 256 KiB: move details into knowledge/") before it
+  commits. If it is still too big after that, the commit is made anyway and the profile shows the
+  413 error until it is fixed or undone.
+
+### 7.2 The trainer session
+
+- **One trainer per specialist**, a dashboard headless chat (`bin/headless-runner.js` in tmux) named
+  `claude-spec-<name>_train`, plus `-company` when the specialist's `account` is `company`. It is a
+  Claude session for every provider: `openai` / `xai` specialists are trained by a Claude trainer on
+  the `personal` account. Model and effort are the account defaults.
+- **Working folder** `<store root>/.trainers/<name>/`, outside the profile, so the specialist's
+  `CLAUDE.md`, settings, hooks and MCP servers never load into the trainer. The dashboard owns this
+  folder and rewrites its files at every trainer launch:
+  - `CLAUDE.md`: the trainer's instructions (below).
+  - `context.md`: the specialist's name, title, description, provider, model, mode, the profile
+    path and the names and notes (never values) of its accesses. Rewritten whenever the profile's
+    metadata or accesses change; the trainer reads it at the start of every turn.
+  - `settings.json`: the permission rules of 7.1 as `permissions.allow` (`Read`, `Glob`, `Grep` on
+    the profile and the trainer folder; `Edit`, `Write` on the four trainable paths, as `//<abs path>`
+    rules) and `permissions.deny` (`Read`, `Edit`, `Write` on `.secrets/**`; `Edit`, `Write` on
+    `specialist.json`, `.claude/**`, `.mcp.json`, `.bd/**`, `.git/**`, `.gitignore`).
+- **Launch flags**: `--restricted` (no Bash or other code-running tools, no WebFetch, user, project
+  and local settings files ignored, file tools confined to the working folders), `--tools
+  Read,Glob,Grep,Edit,Write`, `--strict-mcp-config` (no MCP servers), `--permission-mode dontAsk`
+  (anything the rules don't allow is refused, nothing ever asks), `--settings <trainer
+  folder>/settings.json`, `--add-dir <profile>`. Because user settings are ignored, user hooks don't
+  run for the trainer; its state comes from the runner like any headless chat.
+- **Instructions** (`CLAUDE.md` of the trainer folder) say: you shape the specialist described in
+  `context.md`, you are not that specialist; ask the owner when what they want is unclear, one
+  question at a time; write what the owner tells you into the right file (behaviour and rules →
+  `CLAUDE.md`, voice and wording → `style.md`, facts and procedures → `knowledge/`, real samples →
+  `examples/`); work in uploaded files by summarising or importing them, not by copying them into
+  `CLAUDE.md`; never write a credential into any file: when the owner pastes one, tell them to add it
+  under Accesses and refer to it by its variable name; after a turn that changed files, say in plain
+  words what changed and end the reply with one line `Summary: <what changed, under 80 chars>`.
+- **State** is kept in `.bd/trainer.json`:
+
+  ```json
+  { "tmux": "claude-spec-writer_train", "account": "personal",
+    "sessionId": "…uuid…", "transcriptPath": "/abs/…/<sessionId>.jsonl",
+    "startedAt": 1762850000000, "turns": 3, "lastTurnAt": 1762850300000 }
+  ```
+
+  The first message starts the trainer. When its tmux session is gone, the next message relaunches it
+  resuming `sessionId` (a new conversation when that transcript no longer exists). `fresh: true` on
+  a send starts a new conversation; the old one is left as it is. Changing `account` starts a new
+  trainer session; the old one is left alone. The trainer stays up between turns, like a thread.
+- **Turns**: one at a time. The dashboard watches the trainer's runner events; when a turn ends (its
+  `result`), it commits (7.3), updates feedback (7.5) and sends the next pending feedback.
+- Archiving a specialist with a live trainer answers 409, like a live thread. `.trainers/<name>/`
+  stays where it is; a new specialist with the same name reuses the folder (so the trainer's
+  auto-memory), but not the conversation, which is recorded in the archived `.bd/trainer.json`.
+
+### 7.3 History (git)
+
+- The profile becomes a git repository the first time anything in this section touches it (a send,
+  an upload, feedback, an undo). The dashboard runs `git init -b main`, writes `.gitignore` and
+  commits the trainable files as they are, source `start`, message `Starting point`. Before that,
+  `history` is empty and nothing else changes on disk.
+- `.gitignore` is a whitelist the dashboard rewrites before every commit, so only the trainable
+  paths are ever tracked:
+
+  ```
+  /*
+  !/CLAUDE.md
+  !/style.md
+  !/knowledge/
+  !/examples/
+  ```
+
+- **When it commits**: after every trainer turn (source `trainer`, message = the reply's `Summary:`
+  line, or `Training: <changed paths>` without one), after every upload (`upload`, `Added <file>`),
+  after an instructions update from the Profile tab (`profile`, `Edited instructions`), on undo
+  (`undo`, `Undo: <message of the undone commit>`). Before a send, an upload, an undo and an
+  instructions update, any uncommitted change is committed first as `outside`, `Changes made outside
+  training`; at server start, likewise. Changes made by hand while a trainer turn runs end up in that
+  turn's commit. Nothing is committed when nothing changed.
+- Every commit bumps the profile's `updatedAt`. The source and the undone commit are trailers in the
+  commit message (`Bd-Source: trainer`, `Bd-Undo: <sha>`).
+- git runs with the dashboard's own identity and no outside config: `GIT_CONFIG_NOSYSTEM=1`,
+  `GIT_CONFIG_GLOBAL=/dev/null`, `-c core.hooksPath=/dev/null -c core.fsmonitor=false
+  -c commit.gpgsign=false -c user.name=beast-dash -c user.email=beast-dash@localhost`, `-C <profile>`,
+  arguments as an argv array (never a shell string), a 30 s timeout.
+- **Undo** is `git revert` of one commit: a new commit that takes that change back, so undo itself
+  can be undone. When later commits changed the same lines it answers 409 (`later changes touch the
+  same lines; undo those first`) and leaves the files as they were. The `start` commit can't be
+  undone (400).
+
+### 7.4 Uploads
+
+- Files go to `knowledge/files/<file name>`, one file per request, at most 20 MiB each, at most 500
+  files and 200 MiB in `knowledge/files/` (413 beyond that).
+- File types (by extension, case-insensitive; anything else is 415 `.<ext> files can't be used for
+  training: save it as PDF or text`): text `md markdown txt text csv tsv json jsonl yaml yml toml xml
+  html htm eml log sql ini conf sh js ts py`, documents `pdf`, images `png jpg jpeg gif webp`. The
+  content is not checked or converted; the trainer reads it with its Read tool.
+- File name: the base name the client sends, NFC-normalised; every character that isn't a letter,
+  digit, space, `.`, `_`, `(`, `)` or `-` becomes `-`, runs of `-` and spaces collapse, the result is
+  trimmed to 100 chars with its extension kept. Empty, starting with `.` or `-`, or without an
+  allowed extension is 400. When taken, `-2`, `-3`… is added before the extension. The response
+  returns the name used.
+- Written to a temporary file in `knowledge/files/` and renamed into place; the folder must resolve
+  inside the profile and not be a symlink (409). Each upload is its own commit.
+- An upload does not message the trainer. The Train tab uploads the files, then sends one message
+  naming them (`files` in 7.7).
+
+### 7.5 Feedback
+
+Feedback is "this answer, but better": the answer a specialist gave, the version the owner wanted,
+and/or a note. It is kept in `.bd/feedback.jsonl` (one JSON object per line, newest last; rewritten
+atomically on change) and handed to the trainer as a message.
+
+**Feedback object** (`F`):
+
+```json
+{ "id": "fb-mhv0k2a1-4f3a", "runId": "claude-spec-writer-261111-0930", "original": "Hi …",
+  "better": "Hello …", "note": "Never open with Hi to a client.", "state": "applied",
+  "createdAt": 1762850000000, "sentAt": 1762850001000, "appliedAt": 1762850040000,
+  "commit": "3f1c…40 hex", "error": null }
+```
+
+- `id`: `fb-<base36 ms>-<4 hex>`. `runId`: a run of this specialist or `null`. `original`: the
+  answer, up to 200 KiB (when absent and `runId` is set, the run's `text`). `better`: the improved
+  answer, up to 200 KiB, or `null`. `note`: up to 10 000 chars, or `null`. At least one of `better`
+  and `note` is required.
+- **States**: `pending` (waiting for the trainer to be free) → `sent` (its message went to the
+  trainer) → `applied` (that turn ended with success; `commit` is the turn's commit, or `null` when
+  the trainer changed nothing) or `failed` (that turn ended in error or was stopped, or the trainer
+  went away; `error` says why). A failed record can be sent again (7.7).
+- Pending feedback goes out one record per turn, oldest first, as soon as the trainer is idle; a
+  record makes the trainer start when it isn't live. At most 50 records can be pending (429).
+- The message the trainer gets:
+
+  ```
+  Feedback on an answer from <title> (run <runId>):
+
+  The answer it gave:
+  <original as a quoted block>
+
+  A better version:
+  <better as a quoted block>
+
+  Note from the owner: <note>
+
+  Change the profile so future answers come out like the better version. Change only what this
+  feedback is about.
+  ```
+
+  (sections without a value are left out).
+
+### 7.6 Accesses
+
+Credentials a specialist needs (a database URL, a token) are **accesses**: named values the
+dashboard stores for that specialist and hands to its Claude runs as environment variables.
+
+- Stored in `<profile>/.secrets/accesses.json`: folder 0700, file 0600, owned by you, at most 1 MiB,
+  written atomically; refused (409) when either is a symlink or has wider permissions. Shape:
+  `{ "DB_URL": { "value": "…", "note": "read replica", "updatedAt": "2026-11-11T08:30:05.123Z" } }`.
+- `name`: `^[A-Z][A-Z0-9_]{1,63}$`, not `PATH`, `HOME`, `SHELL`, `USER`, `LOGNAME`, `PWD`, `TERM`,
+  `LANG`, `TMPDIR`, `TZ`, and not starting with `LC_`, `LD_`, `DYLD_`, `XDG_`, `NODE_`, `NPM_`,
+  `GIT_`, `SSH_`, `TMUX`, `CLAUDE`, `ANTHROPIC`, `BD_`, `BEAST_`. `value`: a string of 1–65 536
+  bytes without NUL (multi-line allowed). `note`: one line, 0–200 chars. At most 50 accesses.
+- **Use**: when the runner starts or restarts Claude for a run or thread of a `claude` specialist,
+  it reads the file and puts every access into the Claude process's environment (and so the
+  commands it runs). The names and notes, never the values, are added with
+  `--append-system-prompt` ("Accesses, as environment variables: DB_URL (read replica), …; use them
+  by name, never print them"). A live thread keeps the accesses it started with until restarted.
+  The trainer and `openai` / `xai` runs never get the values; the trainer sees names and notes in
+  `context.md`.
+- Values are never returned by the API, logged, put in argv, tmux options or run records, or
+  committed. Typed into the trainer chat instead, a value stays in that chat's transcript; the
+  trainer is told to refuse to write it anywhere.
+
+**Access object** (`A`): `{ "name": "DB_URL", "note": "read replica", "bytes": 58, "updatedAt": "…" }`.
+
+### 7.7 Endpoints
+
+All under `/api/specialist/<name>/`, with the errors of section 3. The specialist must be valid
+(409 otherwise). Times are epoch ms except `updatedAt` of accesses (ISO, like `specialist.json`).
+
+**Trainer object** (`T`): `.bd/trainer.json` plus `"live": true|false` and `"state": "idle" |
+"working" | "waiting" | null` (runner state, `null` when not live). `null` before the first message.
+
+**Commit object** (`C`):
+
+```json
+{ "id": "3f1c…40 hex", "short": "3f1c2ab", "message": "Shorter greetings for clients",
+  "source": "trainer", "at": 1762850040000, "undoOf": null, "undone": false,
+  "files": [ { "path": "style.md", "change": "modified" } ] }
+```
+
+`source`: `start`, `trainer`, `upload`, `profile`, `outside`, `undo`. `change`: `added`,
+`modified`, `deleted`. `undoOf`: the sha this commit undid, or `null`. `undone`: a later commit
+undid this one (and that undo was not itself undone).
+
+| Method and path | Request | Response |
+|---|---|---|
+| `GET train` | — | `{ ok, trainer: T \| null, history: { ready, head: sha \| null, commits: [C…newest 20] }, feedback: [F…newest 20], accesses: [A…], uploads: { files, bytes, maxFiles: 500, maxBytes: 209715200 } }` |
+| `POST train/send` | `{ text, files?: ["knowledge/files/a.pdf", …], fresh?: false }` | `{ ok, trainer: T }`. Starts or resumes the trainer and sends `text`, with `\n\nFiles the owner added:\n- knowledge/files/a.pdf` when `files` (up to 50 paths, each an existing file under `knowledge/files/`) is given. `text` 1–100 000 chars. 409 `trainer is busy` while a turn runs or feedback is being sent |
+| `GET train/history?limit=50&before=<sha>` | — | `{ ok, commits: [C…], more: bool }`, newest first, `limit` 1–200; `commits: []` before the first training |
+| `GET train/commit/<sha>` | — | `{ ok, commit: C, diff: "<unified diff>", truncated: bool }`, diff capped at 512 KiB, binary files as git prints them. `sha`: 7–40 hex, must name a commit in this profile's history (404) |
+| `POST train/undo` | `{ commit: "<sha>" }` | 201 `{ ok, commit: C }` (the new undo commit); 409 while a trainer turn runs or on conflict, 400 for the `start` commit |
+| `POST train/upload?filename=<url-encoded name>` | the raw file bytes as the body (any `Content-Type`) | 201 `{ ok, file: { path: "knowledge/files/a.pdf", bytes }, commit: C }`; 413 as soon as the body passes 20 MiB |
+| `GET train/feedback?limit=50` or `?ids=fb-…,fb-…` | — | `{ ok, feedback: [F…] }`, newest first, `limit` 1–500, `ids` up to 50 |
+| `POST train/feedback` | `{ runId?, original?, better?, note? }` | 201 `{ ok, feedback: F, trainer: T \| null }`; sent at once when the trainer is idle or not live |
+| `POST train/feedback/<id>/retry` | — | `{ ok, feedback: F }`; only for `failed` (409 otherwise), back to `pending` |
+| `GET accesses` | — | `{ ok, accesses: [A…] sorted by name, usedByRuns: provider === "claude" }` |
+| `POST accesses` | `{ name, value, note? }` | `{ ok, access: A }`; creates or replaces |
+| `POST accesses/<NAME>/delete` | — | `{ ok, name }`; 404 when there is no such access |
+
+The trainer's conversation is shown through the chat endpoints every headless chat uses (its tmux
+name and `transcriptPath` are in `T`); messages to it go through `train/send`, so the outside-change
+commit and the busy check apply. `GET /api/specialists` and `GET /api/specialist/<name>` add
+`"trainer": { "live", "state", "pendingFeedback" } | null` to each profile.
