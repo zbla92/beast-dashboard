@@ -143,3 +143,18 @@ test('stored cards are slimmed, truncated text is flagged and the session index 
   assert.strictEqual(JSON.parse(sb.store.get('bd.specask.index')).length, 30);
   assert.ok(!sb.store.has('bd.specask.claude-big'));
 });
+
+test('a done card has an Improve action that hands the full answer to the specialists feature', async () => {
+  const got = [];
+  const feat = { quotes: { blockquote: q => q }, specialists: { markSeen() {}, open() {}, improve: o => got.push(o) } };
+  const sb = build(async p => p.endsWith('/ask') ? { ok: true, runId: 'r1', mode: 'run', state: 'done', text: 'answer' } : { ok: true, specialists: [{ name: 'w', title: 'W' }] }, { FEAT: feat });
+  const nodes = [];
+  sb.h = (tag, attrs, ...kids) => { const n = { isConnected: true, tag, attrs: attrs || {}, kids: kids.flat(Infinity), querySelector: () => null, contains: () => false, replaceChildren(...k) { n.kids = k.flat(Infinity); }, remove() {}, classList: { add() {}, remove() {}, toggle() {}, contains: () => false } }; nodes.push(n); return n; };
+  await sb.FEAT.specAsk.ask({ session: 'claude-x', specialist: 'w', task: 'q' });
+  await new Promise(r => setTimeout(r, 20));
+  const improve = nodes.filter(n => n.tag === 'button' && n.kids.includes('Improve')).pop();
+  assert.ok(improve);
+  await improve.attrs.onclick();
+  assert.strictEqual(got.length, 1);
+  assert.strictEqual(JSON.stringify(got[0]), JSON.stringify({ name: 'w', title: 'w', runId: 'r1', text: 'answer' }));
+});

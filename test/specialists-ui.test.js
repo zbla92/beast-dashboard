@@ -13,6 +13,7 @@ const node = (tag, attrs, kids) => {
   n.replaceChildren = (...k) => { n.kids = k.flat(Infinity); };
   n.append = (...k) => { n.kids.push(...k); };
   n.contains = () => false;
+  n.remove = () => {};
   n.focus = () => {};
   n.addEventListener = () => {};
   if (n.attrs.value !== undefined) n.value = n.attrs.value;
@@ -430,4 +431,62 @@ test('accesses list names and notes, use a password field and never show a saved
   nm.value = 'bad name'; pw.value = 'v';
   await fire(btn(box, 'Save access'));
   assert.match(text(box), /Use a name like DB_URL/);
+});
+
+test('feedbackBody needs a changed answer or a note and omits an unchanged answer', () => {
+  const sb = build([P('writer')], []);
+  const f = sb.FEAT.specialists.feedbackBody;
+  assert.ok(f({ runId: 'r1', original: 'Hi', better: 'Hi', note: '' }).error);
+  assert.ok(f({ original: 'Hi', better: '  ', note: ' ' }).error);
+  assert.deepStrictEqual({ ...f({ runId: 'r1', original: 'Hi', better: 'Hello', note: '' }).body }, { original: 'Hi', runId: 'r1', better: 'Hello' });
+  assert.deepStrictEqual({ ...f({ original: 'Hi', better: 'Hi', note: ' Be warm ' }).body }, { original: 'Hi', note: 'Be warm' });
+});
+
+test('feedbackError gives plain words for 413, 429 and 404', () => {
+  const f = build([P('writer')], []).FEAT.specialists.feedbackError;
+  assert.match(f({ status: 413, message: 'x' }), /too long/);
+  assert.match(f({ status: 429, message: 'x' }), /Too much feedback/);
+  assert.match(f({ status: 404, message: 'x' }), /no longer exists/);
+  assert.strictEqual(f({ status: 500, message: 'boom' }), 'boom');
+});
+
+test('tracked feedback is polled until applied or failed, then polling stops', async () => {
+  const toasts = [], polls = [];
+  const states = [['pending'], ['applied']];
+  const host = { append: n => toasts.push(n) };
+  const sb = build([P('writer')], [], false, {
+    document: { hidden: false, addEventListener() {}, removeEventListener() {} },
+    $: sel => sel === '#toasts' ? host : null,
+    toast: (m, k) => toasts.push({ m, k }),
+    api: async p => { polls.push(p); return { ok: true, feedback: [{ id: 'fb-1', state: states.shift()[0] }] }; },
+    setTimeout: (fn, ms) => { if (ms === 4000) sb.next = fn; return 1; },
+  });
+  sb.FEAT.specialists.trackFeedback('writer', 'Writer', 'fb-1');
+  await sb.next();
+  assert.strictEqual(toasts.length, 0);
+  assert.ok(sb.next);
+  const second = sb.next; sb.next = null;
+  await second();
+  assert.strictEqual(sb.next, null);
+  assert.match(text(toasts[0]), /Writer learned from your note/);
+  assert.match(polls[0], /^specialist\/writer\/train\/feedback\?ids=fb-1$/);
+});
+
+test('a failed feedback record shows a Retry that posts to the retry endpoint', async () => {
+  const toasts = [], calls = [];
+  const host = { append: n => toasts.push(n) };
+  const sb = build([P('writer')], [], false, {
+    document: { hidden: false, addEventListener() {}, removeEventListener() {} },
+    $: sel => sel === '#toasts' ? host : null,
+    api: async (p, b) => { calls.push([p, b]); return p.includes('retry') ? { ok: true, feedback: { id: 'fb-2', state: 'pending' } } : { ok: true, feedback: [{ id: 'fb-2', state: 'failed', error: 'stopped' }] }; },
+    setTimeout: (fn, ms) => { if (ms === 4000) sb.next = fn; return 1; },
+  });
+  sb.FEAT.specialists.trackFeedback('writer', 'Writer', 'fb-2');
+  await sb.next();
+  assert.match(text(toasts[0]), /stopped/);
+  const retry = find(toasts[0], n => n.tag === 'button')[0];
+  retry.attrs.onclick();
+  await new Promise(r => setImmediate(r));
+  assert.strictEqual(calls[1][0], 'specialist/writer/train/feedback/fb-2/retry');
+  assert.deepStrictEqual({ ...calls[1][1] }, {});
 });

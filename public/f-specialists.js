@@ -368,6 +368,100 @@ FEAT.specialists = (() => {
     if (PG.name === name) PG.paint && PG.paint();
   }
 
+  const FB = { tracked: new Map(), timer: null, ov: null };
+  const FB_POLL_MS = 4000;
+  const feedbackError = e => {
+    if (e.status === 413) return 'That is too long to send. Shorten the answer or the note.';
+    if (e.status === 429) return 'Too much feedback is waiting. Try again once the trainer has caught up.';
+    if (e.status === 404) return 'This specialist or run no longer exists.';
+    return e.message;
+  };
+  const feedbackBody = ({ runId, original, better, note }) => {
+    const o = String(original || ''), b = String(better || '').trim(), n = String(note || '').trim();
+    const changed = !!b && b !== o.trim();
+    if (!changed && !n) return { error: 'Change the answer or add a note first.' };
+    const body = { original: o };
+    if (runId) body.runId = runId;
+    if (changed) body.better = String(better);
+    if (n) body.note = n;
+    return { body };
+  };
+  const feedbackToast = (msg, kind, action) => {
+    const t = h('div', { class: 'toast ' + kind }, msg);
+    const host = $('#toasts');
+    if (!host) { toast(msg, kind); return; }
+    if (action) t.append(h('button', { class: 'btn sm sp-fb-act', type: 'button', onclick: () => { t.remove(); action.run(); } }, action.label));
+    host.append(t);
+    setTimeout(() => t.remove(), action ? 20000 : 5000);
+  };
+  const retryFeedback = async (name, title, id) => {
+    try { await api('specialist/' + enc(name) + '/train/feedback/' + enc(id) + '/retry', {}); trackFeedback(name, title, id); toast('Sent to training again', 'ok'); }
+    catch (e) { toast(feedbackError(e), 'err'); }
+  };
+  async function pollFeedback() {
+    FB.timer = null;
+    if (!FB.tracked.size) return;
+    if (!document.hidden) {
+      const groups = new Map();
+      for (const [id, t] of FB.tracked) groups.set(t.name, [...(groups.get(t.name) || []), id]);
+      for (const [name, ids] of groups) {
+        try {
+          const r = await api('specialist/' + enc(name) + '/train/feedback?ids=' + ids.map(enc).join(','));
+          const seen = new Set();
+          for (const f of r.feedback || []) {
+            seen.add(f.id);
+            const t = FB.tracked.get(f.id);
+            if (!t) continue;
+            if (f.state === 'applied') { FB.tracked.delete(f.id); feedbackToast(t.title + ' learned from your note', 'ok'); }
+            else if (f.state === 'failed') { FB.tracked.delete(f.id); feedbackToast('Training did not take your note' + (f.error ? ': ' + f.error : '.'), 'err', { label: 'Retry', run: () => retryFeedback(t.name, t.title, f.id) }); }
+          }
+          for (const id of ids) if (!seen.has(id)) FB.tracked.delete(id);
+        } catch (e) { if (e.status === 404) for (const id of ids) FB.tracked.delete(id); }
+      }
+    }
+    if (FB.tracked.size && !FB.timer) FB.timer = setTimeout(pollFeedback, FB_POLL_MS);
+  }
+  function trackFeedback(name, title, id) {
+    FB.tracked.set(id, { name, title });
+    if (!FB.timer) FB.timer = setTimeout(pollFeedback, FB_POLL_MS);
+  }
+  const closeImprove = () => { if (FB.ov) { FB.ov.remove(); FB.ov = null; } };
+  function openImprove({ name, title, runId, text }) {
+    closeImprove();
+    const better = h('textarea', { class: 'sp-fb-better', rows: 9, spellcheck: 'true', 'aria-label': 'Better answer' });
+    better.value = text || '';
+    const note = h('textarea', { class: 'sp-fb-note', rows: 2, placeholder: 'Why, or what to do differently (optional)', spellcheck: 'true', 'aria-label': 'Note' });
+    const status = h('div', { class: 'ns-status hidden' });
+    const go = h('button', { class: 'btn primary', type: 'button' }, 'Send');
+    const submit = async () => {
+      if (go.disabled) return;
+      const v = feedbackBody({ runId, original: text, better: better.value, note: note.value });
+      if (v.error) { status.textContent = v.error; status.classList.remove('hidden'); return; }
+      go.disabled = true; status.classList.add('hidden');
+      try {
+        const r = await api('specialist/' + enc(name) + '/train/feedback', v.body);
+        trackFeedback(name, title, r.feedback.id);
+        closeImprove();
+        toast('Sent to training', 'ok');
+      } catch (e) { go.disabled = false; status.textContent = feedbackError(e); status.classList.remove('hidden'); }
+    };
+    go.onclick = submit;
+    const onKey = ev => {
+      if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); closeImprove(); }
+      else if (ev.key === 'Enter' && !ev.isComposing && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); submit(); }
+    };
+    const box = h('div', { class: 'sp-fb-box' },
+      h('div', { class: 'sh' }, h('h3', null, 'Improve this answer')),
+      h('div', { class: 'dim sp-fb-help' }, 'Edit it into the version you wanted. ' + title + ' learns from the difference.'),
+      better, note, status,
+      h('div', { class: 'sp-fb-foot' }, h('span', { class: 'sp' }), h('button', { class: 'btn', type: 'button', onclick: closeImprove }, 'Cancel'), go));
+    const ov = h('div', { class: 'sp-fb-ov', onclick: ev => { if (ev.target === ov) closeImprove(); }, onkeydown: onKey }, box);
+    FB.ov = ov;
+    document.body.append(ov);
+    better.focus();
+  }
+  const improveButton = (name, title, runId, text) => h('button', { class: 'btn sm', type: 'button', title: 'edit this answer into a better one and send it to training', onclick: () => openImprove({ name, title, runId, text }) }, ico('pencil', 13), 'Improve');
+
   async function showRunText(r, slot) {
     if (!PG.full.has(r.runId) || !isFinal(PG.full.get(r.runId))) {
       try { PG.full.set(r.runId, await api('specialist/run/' + enc(r.runId))); } catch (e) { slot.replaceChildren(h('div', { class: 'ns-status' }, e.message)); return; }
@@ -387,6 +481,7 @@ FEAT.specialists = (() => {
       full.text ? h('div', { class: 'sp-out' }, full.text) : h('div', { class: 'dim sp-none' }, full.error ? full.error : 'No result yet.'),
       h('div', { class: 'sp-acts' },
         full.text ? h('button', { class: 'btn sm', onclick: () => navigator.clipboard.writeText(full.text).then(() => toast('Copied', 'ok'), () => toast('Could not copy', 'err')) }, ico('copy', 13), 'Copy') : null,
+        full.text && PG.name ? improveButton(PG.name, PG.data?.specialist?.title || PG.name, r.runId, full.text) : null,
         canSend ? [sendIn, sendBtn] : null),
       status);
   }
@@ -741,5 +836,5 @@ FEAT.specialists = (() => {
 
   setInterval(() => { if (!document.hidden) refresh(true); }, 30000);
 
-  return { onState, termBarKey, railSection, paletteItems, homeTiles, unseenRuns, dismissRun, markSeen: seenByUser, trimSeen, openRun, openAsk, open: openPage, create: openCreate, refresh };
+  return { onState, termBarKey, railSection, paletteItems, homeTiles, unseenRuns, dismissRun, markSeen: seenByUser, trimSeen, feedbackBody, feedbackError, trackFeedback, pollFeedback, improve: openImprove, openRun, openAsk, open: openPage, create: openCreate, refresh };
 })();
