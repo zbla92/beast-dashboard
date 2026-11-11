@@ -68,16 +68,8 @@
 .sp-note { font-size: var(--fs-sm); }
 .sp-reload { margin-left: 8px; }
 .spbox .btn.primary:disabled, .sp-fb-box .btn.primary:disabled { opacity: 1; filter: none; background: var(--fill2); color: var(--dim); }
-.sp-train { display: flex; flex-direction: column; gap: var(--sp-4); }
-.sp-tstatus { display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); }
-.sp-tstatus .sp-dot { margin-top: 0; }
-.sp-tconv { display: flex; flex-direction: column; min-height: 140px; max-height: 340px; overflow-y: auto; padding: var(--sp-3); border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--fill); overscroll-behavior: contain; }
-.sp-chipsrow { display: flex; flex-wrap: wrap; gap: 5px; }
-.sp-chipsrow.hidden { display: none; }
 .sp-file { gap: 6px; }
 .sp-x { border: 0; background: none; color: inherit; font: inherit; cursor: pointer; padding: 0 2px; }
-.sp-sec { display: flex; flex-direction: column; gap: var(--sp-2); }
-.sp-sec h4 { margin: var(--sp-2) 0 0; padding: 0 2px; font-size: var(--fs-xs); font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
 .sp-drop { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: var(--sp-2); padding: var(--sp-4); border: 1px dashed var(--line2); border-radius: var(--r-lg); text-align: center; }
 .sp-drop.over { border-color: var(--accent); background: var(--fill2); }
 .sp-drop.busy { opacity: .6; pointer-events: none; }
@@ -98,8 +90,6 @@
 .sp-diff .dl.hunk { color: var(--muted); }
 .sp-accform { display: grid; grid-template-columns: 1fr 1fr 1.4fr auto; gap: var(--sp-2); }
 .sp-accform .btn { height: 38px; }
-.sp-train .ns-status { white-space: pre-line; }
-.sp-train .btn.on { background: var(--panel3); }
 @media (max-width: 900px) {
   .modal .box.spbox { width: 100vw; height: 94vh; height: 94dvh; padding: var(--sp-4); gap: var(--sp-3); }
   .modal .box.spbox.spcreate { height: auto; max-height: 94vh; }
@@ -108,7 +98,6 @@
   .spbox input.txt, .spbox select.txt { height: 44px; }
   .spbox .sp-acts input.txt { height: 36px; }
   .spbox .ntrow { min-height: 44px; }
-  .sp-tconv { max-height: 42dvh; }
   .sp-accform { grid-template-columns: 1fr; }
   .sp-crow, .sp-acc { flex-wrap: wrap; }
   .sp-cacts { justify-content: flex-start; }
@@ -145,4 +134,44 @@
   .sp-fb-ov { align-items: end; padding: 0; }
   .sp-fb-box { width: 100%; padding: var(--sp-4); border-radius: var(--r-xl) var(--r-xl) 0 0; }
   .sp-fb-better, .sp-fb-note { font-size: 16px; }
+}
+
+.termmain.sptr-open { position: relative; }
+.termmain.sptr-open .termframes { margin-right: min(380px, 38vw); }
+.sptr-panel { display: flex; flex-direction: column; gap: var(--sp-3); min-height: 0; padding: var(--sp-4); background: var(--glass-3); -webkit-backdrop-filter: var(--blur-3); backdrop-filter: var(--blur-3); border-left: 1px solid var(--line2); box-shadow: var(--hl); }
+.sptr-panel:not(.sheet) { position: absolute; right: 0; bottom: 0; top: var(--sptr-top, 98px); width: min(380px, 38vw); z-index: 3; transition: transform .24s cubic-bezier(.32,.72,0,1), opacity .2s ease; }
+@starting-style { .sptr-panel:not(.sheet) { transform: translateX(100%); opacity: 0; } }
+.sptr-panel.leaving { transform: translateX(100%); opacity: 0; pointer-events: none; }
+.sptr-scrim { position: fixed; inset: 0; z-index: 59; background: var(--scrim); }
+.sptr-panel.sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 60; height: 82dvh; max-height: 82dvh; border-left: 0; border-top: 1px solid var(--line2); border-radius: var(--r-xl) var(--r-xl) 0 0; box-shadow: var(--hl), var(--shadow-float); padding-bottom: calc(var(--sp-4) + env(safe-area-inset-bottom)); animation: sheet .22s var(--ease); }
+.sptr-grab { display: none; width: 40px; height: 4px; flex: none; border-radius: 2px; background: var(--line2); margin: calc(var(--sp-2) * -1) auto 0; }
+.sptr-panel.sheet .sptr-grab { display: block; }
+body:not(.term-open) .sptr-scrim, body:not(.term-open) .sptr-panel.sheet { display: none; }
+@media (prefers-reduced-motion: reduce) { .termframes, .sptr-panel:not(.sheet) { transition: none; } }
+.sptr-top { flex: none; display: flex; align-items: center; gap: var(--sp-3); }
+.sptr-top .sp { flex: 1; }
+.sptr-tt { display: flex; flex-direction: column; min-width: 0; }
+.sptr-tt .dim { font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sptr-tabs { flex: none; align-self: stretch; display: flex; }
+.sptr-tabs .segb { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; }
+.sptr-n { font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
+.sptr-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.sptr-view { display: flex; flex-direction: column; gap: var(--sp-3); }
+.sptr-h { padding: 0 2px; font-size: var(--fs-xs); font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+.sptr-added { display: flex; flex-direction: column; gap: var(--sp-2); }
+.sptr-file { display: flex; align-items: center; gap: var(--sp-2); padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--r); background: var(--fill); font-size: var(--fs-sm); color: var(--muted); }
+.sptr-fn { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.sptr-panel input.txt { height: 38px; padding: 0 12px; }
+.sptr-panel .sp-accform { grid-template-columns: 1fr; }
+.sptr-panel .ns-status { white-space: pre-line; }
+.sptr-chips { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 2px 6px; }
+.sptr-chips.hidden { display: none; }
+.sptr-stat { display: inline-flex; align-items: center; gap: 7px; padding: 0 var(--sp-2); font-size: var(--fs-sm); color: var(--muted); white-space: nowrap; }
+.sptr-stat .sp-dot { margin-top: 0; }
+.sptr-btn.on { background: var(--panel3); color: var(--text); }
+@media (max-width: 900px) {
+  .sptr-panel input.txt { height: 44px; font-size: 16px; }
+  .sptr-panel .sp-crow, .sptr-panel .sp-acc { flex-wrap: wrap; }
+  .sptr-panel .sp-cacts { justify-content: flex-start; }
+  .sptr-panel .btn.sm { min-height: 36px; }
 }

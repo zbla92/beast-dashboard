@@ -131,7 +131,7 @@ FEAT.specialists = (() => {
 
   const pageShown = () => !!PG.name && !!PG.box && $('#modal').contains(PG.box);
   const keyOf = () => [V.ok, PG.name, pageShown(), V.list.map(p => [p.name, p.title, p.icon, p.provider, p.model, p.active, p.error, p.thread?.state, p.description]), V.list.map(p => runSessions(p.name).map(s => [s.name, s.claude?.state, s.claude?.needsYou, s.claude?.title, s.claude?.firstPrompt, s.claude?.label]))];
-  const termBarKey = () => keyOf();
+  const termBarKey = name => [keyOf(), trainBarKey(name)];
 
   const runLabel = s => firstLine(s.claude?.title || s.claude?.firstPrompt || s.claude?.label) || s.name;
 
@@ -334,7 +334,7 @@ FEAT.specialists = (() => {
         const r = await api('specialist', body);
         await refresh(true);
         toast('Created ' + (r.specialist?.title || body.name), 'ok');
-        openPage(body.name, { tab: 'train', focus: true });
+        closeModal(); openTrain(body.name);
       } catch (e) { go.disabled = false; err.textContent = e.message; err.classList.remove('hidden'); }
     };
     go.onclick = create;
@@ -556,7 +556,35 @@ FEAT.specialists = (() => {
   const ACCESS_RE = /^[A-Z][A-Z0-9_]{1,63}$/;
   const SOURCE_LABEL = { start: 'start', trainer: 'trainer', upload: 'upload', profile: 'profile', outside: 'outside', undo: 'undo' };
   const CHANGE_LABEL = { added: 'added', modified: 'changed', deleted: 'deleted' };
-  const TRAINER_STATE = { idle: 'Ready', working: 'Working…', waiting: 'Needs an answer' };
+  const TRAIN_STATE = { working: 'Working…', permission: 'Needs an answer' };
+  const TRAINER_RE = /^claude-spec-([a-z0-9][a-z0-9-]{0,31}?)_train(-company)?$/;
+  const PANEL_KEY = 'bd.spec.trainpanel';
+  const POLL_MS = 4000;
+  const TAB_LABEL = [['files', 'Files'], ['changes', 'What changed'], ['accesses', 'Accesses']];
+
+  const TR = { name: null, tmux: null, ov: null, err: null, files: [], added: [], fresh: false, panel: store.get(PANEL_KEY) !== '0', sheet: false, tab: 'files', open: new Map(), undoAsk: null, rmAsk: null, more: null, moreFlag: false, busy: false, timer: null, keys: {}, view: null, el: null, tabs: null, body: null, scrim: null };
+  const PHANTOM = new Map();
+
+  const trainerOf = tmux => { const m = TRAINER_RE.exec(typeof tmux === 'string' ? tmux : ''); return m ? m[1] : null; };
+  const trainerTmux = (name, account) => 'claude-spec-' + name + '_train' + (account === 'company' ? '-company' : '');
+  const trainBase = () => 'specialist/' + enc(TR.name) + '/train';
+  const trainTitle = tmux => { const n = trainerOf(tmux); if (!n) return null; const p = V.list.find(x => x.name === n); return 'Train ' + (p?.title || n); };
+  const trainLive = () => S.runtime.sessions.find(s => s.name === TR.tmux)?.claude || null;
+  const pendingNotes = () => (TR.ov?.feedback || []).filter(f => f.state === 'pending').length;
+  const trainStatus = () => {
+    const cl = trainLive();
+    if (cl) return TRAIN_STATE[cl.state] || 'Ready';
+    if (!TR.ov) return TR.err ? 'Offline' : 'Loading…';
+    return TR.ov.trainer ? 'Stopped' : 'Not started';
+  };
+  const trainDot = () => { const cl = trainLive(); return !cl ? 'idle' : cl.state === 'working' ? 'working' : cl.state === 'permission' ? 'waiting' : 'done'; };
+
+  function phantom(tmux) {
+    const name = trainerOf(tmux);
+    if (!name || !V.list.some(p => p.name === name && valid(p))) return null;
+    if (!PHANTOM.has(tmux)) PHANTOM.set(tmux, { mode: 'chat', account: tmux.endsWith('-company') ? 'company' : 'personal' });
+    return PHANTOM.get(tmux);
+  }
 
   const trainError = (e, what) => {
     if (e.status === 413) return what === 'upload' ? 'Too big. A file can be 20 MiB at most, and the training folder holds 500 files and 200 MiB.' : e.message;
@@ -579,194 +607,261 @@ FEAT.specialists = (() => {
       truncated ? h('div', { class: 'dim sp-note' }, 'The diff is cut short because it is large.') : null);
   }
 
-  function trainTab(name) {
-    const T = { ov: null, tr: null, err: null, files: [], fresh: false, sending: false, open: new Map(), undoAsk: null, rmAsk: null, more: null, keys: {}, extra: [], busy: false, moreFlag: false };
-    const status = h('div', { class: 'sp-tstatus' });
-    const conv = h('div', { class: 'conv sp-tconv' });
-    const chips = h('div', { class: 'sp-chipsrow' });
-    const ta = h('textarea', { class: 'sp-ask', rows: 3, placeholder: 'Tell the trainer…', spellcheck: 'true' });
-    const sendBtn = h('button', { class: 'btn primary ns-send' }, 'Send');
-    const freshBtn = h('button', { class: 'btn sm ghost', title: 'The old conversation is kept as it is' });
-    const sendErr = h('div', { class: 'ns-status hidden' });
-    const upErr = h('div', { class: 'ns-status hidden' });
-    const fileIn = h('input', { type: 'file', multiple: true, class: 'hidden' });
-    const drop = h('div', { class: 'sp-drop' });
-    const hist = h('div', { class: 'sp-hist' });
-    const histErr = h('div', { class: 'ns-status hidden' });
-    const acc = h('div', { class: 'sp-accs' });
-    const accName = h('input', { class: 'txt', placeholder: 'NAME, e.g. DB_URL', maxlength: 64, autocapitalize: 'characters', autocomplete: 'off', spellcheck: 'false' });
-    const accValue = h('input', { class: 'txt', type: 'password', placeholder: 'Value', autocomplete: 'new-password', spellcheck: 'false' });
-    const accNote = h('input', { class: 'txt', placeholder: 'Note, e.g. read replica', maxlength: 200, autocomplete: 'off' });
-    const accSave = h('button', { class: 'btn primary' }, 'Save access');
-    const accErr = h('div', { class: 'ns-status hidden' });
-    const accHelp = h('div', { class: 'dim sp-note' });
+  const fail = (el, msg) => { el.replaceChildren(msg || ''); el.classList.toggle('hidden', !msg); };
 
-    const fail = (el, msg) => { el.replaceChildren(msg || ''); el.classList.toggle('hidden', !msg); };
-    const trainer = () => T.ov?.trainer || null;
-    const base = () => 'specialist/' + enc(name) + '/train';
-    const provider = () => PG.data?.specialist?.provider || V.list.find(p => p.name === name)?.provider;
-
-    const paintStatus = () => {
-      const t = trainer(); const pf = PG.data?.specialist?.trainer?.pendingFeedback || 0;
-      const text = !T.ov ? (T.err || 'Loading…') : !t ? 'Not started' : !t.live ? 'Stopped. The next message resumes it.' : TRAINER_STATE[t.state] || 'Ready';
-      status.replaceChildren(...[h('i', { class: 'sp-dot rs-' + (t?.live && t.state === 'working' ? 'working' : t?.live && t.state === 'waiting' ? 'waiting' : 'done') }), h('span', null, text),
-        pf ? h('span', { class: 'dim' }, ' · ' + plural(pf, 'feedback note') + ' waiting') : null, h('span', { class: 'sp' }), t ? h('span', { class: 'dim' }, plural(t.turns || 0, 'turn')) : null].filter(Boolean));
-    };
-
-    const paintConv = () => {
-      const t = trainer(); const turns = T.tr?.turns || [];
-      const key = [t?.sessionId, T.tr?.sig, T.tr?.total, turns.length, t?.state, t?.live].join(':');
-      if (T.keys.conv === key) return;
-      T.keys.conv = key;
-      const atEnd = conv.scrollHeight - conv.scrollTop - conv.clientHeight < 60;
-      const first = !turns.length ? h('div', { class: 'turn assistant sp-open' }, h('div', { class: 'who' }, 'Trainer'), h('div', { class: 'ttext' }, OPENING_PROMPT)) : null;
-      conv.replaceChildren(...(first ? [first] : turns.map(x => convTurn(x, t.tmux))));
-      if (atEnd) conv.scrollTop = conv.scrollHeight;
-    };
-
-    const paintChips = () => {
-      chips.replaceChildren(...T.files.map(f => h('span', { class: 'badge tag sp-file' }, f.split('/').pop(), h('button', { class: 'sp-x', title: 'Do not mention it', 'aria-label': 'Do not mention it', onclick: () => { T.files = T.files.filter(x => x !== f); paintChips(); } }, '×'))));
-      chips.classList.toggle('hidden', !T.files.length);
-      sendBtn.disabled = T.sending;
-    };
-    const paintFresh = () => { freshBtn.replaceChildren(T.fresh ? 'New conversation: on' : 'New conversation'); freshBtn.classList.toggle('on', T.fresh); };
-
-    const sendMsg = async () => {
-      const typed = ta.value.trim();
-      if ((!typed && !T.files.length) || T.sending) return;
-      const body = { text: typed || 'I added these files for you to use.' };
-      if (T.files.length) body.files = T.files;
-      if (T.fresh) body.fresh = true;
-      T.sending = true; paintChips(); fail(sendErr, '');
-      try {
-        const r = await api(base() + '/send', body);
-        ta.value = ''; T.files = []; T.fresh = false; paintFresh();
-        if (T.ov) T.ov.trainer = r.trainer;
-        T.keys.conv = ''; paintStatus();
-        for (const ms of [1200, 3500]) setTimeout(refresh, ms);
-        refresh();
-      } catch (e) { fail(sendErr, trainError(e, 'send')); }
-      T.sending = false; paintChips();
-    };
-    sendBtn.onclick = sendMsg;
-    freshBtn.onclick = () => { T.fresh = !T.fresh; paintFresh(); };
-    ta.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing && ((e.metaKey || e.ctrlKey) || (!IS_PHONE && !e.shiftKey))) { e.preventDefault(); sendMsg(); } };
-
-    const addFiles = async list => {
-      const files = [...list].filter(Boolean); if (!files.length) return;
-      fail(upErr, '');
-      const errors = [];
-      drop.classList.add('busy');
-      for (const f of files) {
-        if (f.size > UPLOAD_MAX) { errors.push(f.name + ': ' + trainError({ status: 413, message: '' }, 'upload')); continue; }
-        try { const r = await uploadTraining(name, f); T.files.push(r.file.path); } catch (e) { errors.push(f.name + ': ' + trainError(e, 'upload')); }
-      }
-      drop.classList.remove('busy');
-      paintChips(); fail(upErr, errors.join('\n'));
-      refresh();
-    };
-    fileIn.onchange = () => { const fs = [...fileIn.files]; fileIn.value = ''; return addFiles(fs); };
+  function trainViews() {
+    const V3 = { chips: h('div', { class: 'sptr-chips hidden' }), upErr: h('div', { class: 'ns-status hidden' }), histErr: h('div', { class: 'ns-status hidden' }), accErr: h('div', { class: 'ns-status hidden' }) };
+    V3.fileIn = h('input', { type: 'file', multiple: true, class: 'hidden' });
+    V3.drop = h('div', { class: 'sp-drop' });
+    V3.usage = h('div', { class: 'dim sp-note' });
+    V3.added = h('div', { class: 'sptr-added' });
+    V3.hist = h('div', { class: 'sp-hist' });
+    V3.acc = h('div', { class: 'sp-accs' });
+    V3.accName = h('input', { class: 'txt', placeholder: 'NAME, e.g. DB_URL', maxlength: 64, autocapitalize: 'characters', autocomplete: 'off', spellcheck: 'false' });
+    V3.accValue = h('input', { class: 'txt', type: 'password', placeholder: 'Value', autocomplete: 'new-password', spellcheck: 'false' });
+    V3.accNote = h('input', { class: 'txt', placeholder: 'Note, e.g. read replica', maxlength: 200, autocomplete: 'off' });
+    V3.accSave = h('button', { class: 'btn primary' }, 'Save access');
+    V3.accHelp = h('div', { class: 'dim sp-note' });
+    V3.accName.oninput = () => { V3.accName.value = V3.accName.value.toUpperCase(); fail(V3.accErr, ''); };
+    V3.accSave.onclick = saveAccess;
+    V3.fileIn.onchange = () => { const fs = [...V3.fileIn.files]; V3.fileIn.value = ''; return addFiles(fs); };
     const hasFiles = ev => [...(ev.dataTransfer?.types || [])].includes('Files');
-    drop.addEventListener('dragover', ev => { if (!hasFiles(ev)) return; ev.preventDefault(); drop.classList.add('over'); });
-    drop.addEventListener('dragleave', () => drop.classList.remove('over'));
-    drop.addEventListener('drop', ev => { if (!hasFiles(ev)) return; ev.preventDefault(); drop.classList.remove('over'); addFiles(ev.dataTransfer.files); });
-    drop.replaceChildren(h('span', { class: 'dim' }, 'Drop files here, or '), h('button', { class: 'btn sm', onclick: () => fileIn.click() }, ico('clip', 14), 'Add files'), fileIn,
+    V3.drop.addEventListener('dragover', ev => { if (!hasFiles(ev)) return; ev.preventDefault(); V3.drop.classList.add('over'); });
+    V3.drop.addEventListener('dragleave', () => V3.drop.classList.remove('over'));
+    V3.drop.addEventListener('drop', ev => { if (!hasFiles(ev)) return; ev.preventDefault(); V3.drop.classList.remove('over'); addFiles(ev.dataTransfer.files); });
+    V3.drop.replaceChildren(h('span', { class: 'dim' }, 'Drop files here, or '), h('button', { class: 'btn sm', onclick: () => V3.fileIn.click() }, ico('clip', 14), 'Add files'), V3.fileIn,
       h('div', { class: 'dim sp-note' }, 'They go into the knowledge folder. Text, PDF and images, up to 20 MiB each.'));
+    V3.files = h('div', { class: 'sptr-view' }, V3.drop, V3.upErr, V3.usage, V3.added);
+    V3.changes = h('div', { class: 'sptr-view' }, V3.hist, V3.histErr);
+    V3.accesses = h('div', { class: 'sptr-view' }, V3.accHelp, V3.acc, h('div', { class: 'sp-accform' }, V3.accName, V3.accValue, V3.accNote, V3.accSave), V3.accErr);
+    return V3;
+  }
 
-    const loadCommit = async c => {
-      try { const r = await api(base() + '/commit/' + enc(c.id)); T.open.set(c.id, { diff: r.diff, truncated: r.truncated, files: r.commit?.files || c.files }); } catch (e) { T.open.set(c.id, { error: e.message }); }
-      paintHist(true);
-    };
-    const toggleCommit = c => {
-      if (T.open.has(c.id)) { T.open.delete(c.id); paintHist(true); return; }
-      T.open.set(c.id, { loading: true }); paintHist(true); loadCommit(c);
-    };
-    const doUndo = async c => {
-      T.undoAsk = null; fail(histErr, '');
-      try { await api(base() + '/undo', { commit: c.id }); toast('Change undone', 'ok'); T.more = null; await refresh(); } catch (e) { fail(histErr, trainError(e, 'undo')); paintHist(true); }
-    };
-    const commitRow = c => {
-      const o = T.open.get(c.id);
-      const canUndo = c.source !== 'start' && !c.undone;
-      const acts = T.undoAsk === c.id
-        ? [h('span', { class: 'dim' }, 'Undo this change?'), h('button', { class: 'btn sm danger solid', onclick: () => doUndo(c) }, 'Undo'), h('button', { class: 'btn sm ghost', onclick: () => { T.undoAsk = null; paintHist(true); } }, 'Cancel')]
-        : [h('button', { class: 'btn sm ghost', onclick: () => toggleCommit(c) }, o ? 'Hide' : 'View'), canUndo ? h('button', { class: 'btn sm', onclick: () => { T.undoAsk = c.id; paintHist(true); } }, 'Undo') : null];
-      return h('div', { class: 'sp-commit' + (c.undone ? ' undone' : '') },
-        h('div', { class: 'sp-crow' },
-          h('div', { class: 'sp-cm' }, h('div', { class: 'sp-ct' }, c.message || c.short), h('div', { class: 'dim sp-cs' }, h('span', { class: 'badge tag' }, SOURCE_LABEL[c.source] || c.source), ' ', ago(c.at) + ' ago', c.undone ? ' · undone' : '')),
-          h('div', { class: 'sp-cacts' }, acts)),
-        o ? h('div', { class: 'sp-cdetail' },
-          o.loading ? h('div', { class: 'dim' }, 'Loading…') : o.error ? h('div', { class: 'ns-status' }, o.error) : [
-            h('div', { class: 'sp-cfiles' }, (o.files || []).map(f => h('span', { class: 'badge tag' }, f.path + ' · ' + (CHANGE_LABEL[f.change] || f.change)))),
-            o.diff ? diffView(o.diff, o.truncated) : h('div', { class: 'dim' }, 'No text changes.')]) : null);
-    };
-    const loadMore = async () => {
-      const list = T.more || T.ov?.history?.commits || []; const last = list[list.length - 1]; if (!last) return;
-      try { const r = await api(base() + '/history?limit=50&before=' + enc(last.id)); T.more = [...list, ...r.commits]; T.moreFlag = r.more; paintHist(true); } catch (e) { fail(histErr, e.message); }
-    };
-    const paintHist = force => {
-      const commits = T.more || T.ov?.history?.commits || [];
-      const more = T.more ? T.moreFlag : commits.length >= 20;
-      const key = JSON.stringify([commits.map(c => [c.id, c.undone]), more, T.ov?.history?.ready]);
-      if (!force && T.keys.hist === key) return;
-      T.keys.hist = key;
-      hist.replaceChildren(...[...(commits.length ? commits.map(commitRow) : [h('div', { class: 'dim sp-none' }, T.ov?.history?.ready ? 'No changes yet.' : 'Nothing yet. Changes show here after the first message or upload.')]),
-        more ? h('button', { class: 'btn sm ghost', onclick: loadMore }, 'Show older') : null].filter(Boolean));
-    };
+  const paintChips = () => {
+    const v = TR.view; if (!v) return;
+    v.chips.replaceChildren(...TR.files.map(f => h('span', { class: 'badge tag sp-file' }, f.split('/').pop(), h('button', { class: 'sp-x', title: 'Do not mention it', 'aria-label': 'Do not mention it', onclick: () => { TR.files = TR.files.filter(x => x !== f); paintChips(); } }, '×'))));
+    v.chips.classList.toggle('hidden', !TR.files.length);
+  };
+  const placeChips = () => {
+    const box = $('#term-chat'); const field = box && box.querySelector('.cbox2 .cfield');
+    if (field && TR.view && TR.view.chips.parentNode !== field) field.insertBefore(TR.view.chips, field.querySelector('.cline'));
+  };
 
-    const accForm = () => {
-      accHelp.replaceChildren('The trainer sees the names and notes, never the values.' + (isApi(provider()) ? ' OpenAI and xAI specialists do not get accesses.' : ' Claude runs get them as environment variables.'));
-    };
-    const removeAccess = async a => {
-      T.rmAsk = null; fail(accErr, '');
-      try { await api('specialist/' + enc(name) + '/accesses/' + enc(a.name) + '/delete', {}); toast('Removed ' + a.name, 'ok'); await refresh(); } catch (e) { fail(accErr, e.message); paintAcc(true); }
-    };
-    const paintAcc = force => {
-      const list = T.ov?.accesses || [];
-      const key = JSON.stringify([list.map(a => [a.name, a.note, a.updatedAt]), T.rmAsk]);
-      if (!force && T.keys.acc === key) return;
-      T.keys.acc = key;
-      acc.replaceChildren(...(list.length ? list.map(a => h('div', { class: 'sp-acc' },
-        h('div', { class: 'sp-cm' }, h('div', { class: 'sp-ct mono' }, a.name), h('div', { class: 'dim sp-cs' }, a.note || 'No note', ' · value saved')),
-        h('div', { class: 'sp-cacts' }, T.rmAsk === a.name
-          ? [h('span', { class: 'dim' }, 'Remove it?'), h('button', { class: 'btn sm danger solid', onclick: () => removeAccess(a) }, 'Remove'), h('button', { class: 'btn sm ghost', onclick: () => { T.rmAsk = null; paintAcc(true); } }, 'Cancel')]
-          : [h('button', { class: 'btn sm', onclick: () => { accName.value = a.name; accNote.value = a.note || ''; accValue.focus(); } }, 'Replace'), h('button', { class: 'btn sm danger', onclick: () => { T.rmAsk = a.name; paintAcc(true); } }, 'Remove')]))) : [h('div', { class: 'dim sp-none' }, 'No accesses yet.')]));
-    };
-    accName.oninput = () => { accName.value = accName.value.toUpperCase(); fail(accErr, ''); };
-    accSave.onclick = async () => {
-      const n = accName.value.trim(); const v = accValue.value;
-      if (!ACCESS_RE.test(n)) { fail(accErr, 'Use a name like DB_URL: capital letters, digits and underscores.'); return; }
-      if (!v) { fail(accErr, 'Type the value.'); return; }
-      accSave.disabled = true; fail(accErr, '');
-      const body = { name: n, value: v };
-      if (accNote.value.trim()) body.note = accNote.value.trim();
-      try { await api('specialist/' + enc(name) + '/accesses', body); accValue.value = ''; accName.value = ''; accNote.value = ''; toast('Saved ' + n, 'ok'); await refresh(); } catch (e) { fail(accErr, e.message); }
-      accSave.disabled = false;
-    };
+  async function uploadOne(file) {
+    if (file.size > UPLOAD_MAX) throw new Error(trainError({ status: 413, message: '' }, 'upload'));
+    const r = await uploadTraining(TR.name, file).catch(e => { throw new Error(trainError(e, 'upload')); });
+    if (!TR.files.includes(r.file.path)) TR.files.push(r.file.path);
+    if (!TR.added.includes(r.file.path)) TR.added.push(r.file.path);
+    paintChips(); placeChips(); paintTrain();
+    refreshTrain();
+  }
 
-    async function refresh() {
-      if (T.busy || PG.name !== name) return;
-      T.busy = true;
-      try {
-        const ov = await api(base());
-        T.ov = ov; T.err = null;
-        const tmux = ov.trainer?.tmux;
-        T.tr = tmux ? await api('transcript/' + enc(tmux) + '?n=60').catch(() => null) : null;
-      } catch (e) { T.err = e.message; }
-      T.busy = false;
-      if (PG.name !== name) return;
-      paintStatus(); paintConv(); paintHist(); paintAcc(); accForm();
-    }
+  async function addFiles(list) {
+    const files = [...list].filter(Boolean); if (!files.length) return;
+    const v = TR.view; fail(v.upErr, '');
+    const errors = [];
+    v.drop.classList.add('busy');
+    for (const f of files) { try { await uploadOne(f); } catch (e) { errors.push(f.name + ': ' + e.message); } }
+    v.drop.classList.remove('busy');
+    fail(v.upErr, errors.join('\n'));
+  }
 
-    const section = (title, ...kids) => h('section', { class: 'sp-sec' }, h('h4', null, title), kids);
-    const el = h('div', { class: 'sp-train' },
-      status, conv,
-      h('div', { class: 'sp-composer' }, chips, ta, h('div', { class: 'ns-bar' }, freshBtn, h('span', { class: 'sp' }), sendBtn), sendErr),
-      section('Files', drop, upErr),
-      section('What changed', hist, histErr),
-      section('Accesses', accHelp, acc, h('div', { class: 'sp-accform' }, accName, accValue, accNote, accSave), accErr));
-    paintStatus(); paintConv(); paintChips(); paintFresh(); paintHist(); paintAcc(); accForm();
-    return { el, refresh, focus: () => ta.focus() };
+  const attachFile = (tmux, file) => tmux && tmux === TR.tmux ? uploadOne(file) : null;
+
+  async function sendTrain(text) {
+    const body = { text };
+    if (TR.files.length) body.files = TR.files;
+    if (TR.fresh) body.fresh = true;
+    const r = await api(trainBase() + '/send', body).catch(e => { throw Object.assign(new Error(trainError(e, 'send')), { status: e.status }); });
+    TR.files = []; TR.fresh = false;
+    if (TR.ov) TR.ov.trainer = r.trainer;
+    paintChips(); renderTermPanel();
+    for (const ms of [1200, 3500]) setTimeout(refreshTrain, ms);
+    refreshTrain();
+    return r;
+  }
+
+  const sendMessage = (tmux, text) => tmux && tmux === TR.tmux ? sendTrain(text) : null;
+
+  function emptyChat(tmux) {
+    if (!trainerOf(tmux)) return null;
+    return h('div', { class: 'turn assistant sptr-open' }, h('div', { class: 'who' }, gl('✦ trainer')),
+      h('div', { class: 'ttext' }, TR.ov?.trainer ? 'This trainer is stopped. Your next message resumes it.' : OPENING_PROMPT));
+  }
+
+  const loadCommit = async c => {
+    try { const r = await api(trainBase() + '/commit/' + enc(c.id)); TR.open.set(c.id, { diff: r.diff, truncated: r.truncated, files: r.commit?.files || c.files }); } catch (e) { TR.open.set(c.id, { error: e.message }); }
+    paintHist(true);
+  };
+  const toggleCommit = c => {
+    if (TR.open.has(c.id)) { TR.open.delete(c.id); paintHist(true); return; }
+    TR.open.set(c.id, { loading: true }); paintHist(true); loadCommit(c);
+  };
+  const doUndo = async c => {
+    TR.undoAsk = null; fail(TR.view.histErr, '');
+    try { await api(trainBase() + '/undo', { commit: c.id }); toast('Change undone', 'ok'); TR.more = null; await refreshTrain(); } catch (e) { fail(TR.view.histErr, trainError(e, 'undo')); paintHist(true); }
+  };
+  const commitRow = c => {
+    const o = TR.open.get(c.id);
+    const canUndo = c.source !== 'start' && !c.undone;
+    const acts = TR.undoAsk === c.id
+      ? [h('span', { class: 'dim' }, 'Undo this change?'), h('button', { class: 'btn sm danger solid', onclick: () => doUndo(c) }, 'Undo'), h('button', { class: 'btn sm ghost', onclick: () => { TR.undoAsk = null; paintHist(true); } }, 'Cancel')]
+      : [h('button', { class: 'btn sm ghost', onclick: () => toggleCommit(c) }, o ? 'Hide' : 'View'), canUndo ? h('button', { class: 'btn sm', onclick: () => { TR.undoAsk = c.id; paintHist(true); } }, 'Undo') : null];
+    return h('div', { class: 'sp-commit' + (c.undone ? ' undone' : '') },
+      h('div', { class: 'sp-crow' },
+        h('div', { class: 'sp-cm' }, h('div', { class: 'sp-ct' }, c.message || c.short), h('div', { class: 'dim sp-cs' }, h('span', { class: 'badge tag' }, SOURCE_LABEL[c.source] || c.source), ' ', ago(c.at) + ' ago', c.undone ? ' · undone' : '')),
+        h('div', { class: 'sp-cacts' }, acts)),
+      o ? h('div', { class: 'sp-cdetail' },
+        o.loading ? h('div', { class: 'dim' }, 'Loading…') : o.error ? h('div', { class: 'ns-status' }, o.error) : [
+          h('div', { class: 'sp-cfiles' }, (o.files || []).map(f => h('span', { class: 'badge tag' }, f.path + ' · ' + (CHANGE_LABEL[f.change] || f.change)))),
+          o.diff ? diffView(o.diff, o.truncated) : h('div', { class: 'dim' }, 'No text changes.')]) : null);
+  };
+  const loadMore = async () => {
+    const list = TR.more || TR.ov?.history?.commits || []; const last = list[list.length - 1]; if (!last) return;
+    try { const r = await api(trainBase() + '/history?limit=50&before=' + enc(last.id)); TR.more = [...list, ...r.commits]; TR.moreFlag = r.more; paintHist(true); } catch (e) { fail(TR.view.histErr, e.message); }
+  };
+  function paintHist(force) {
+    const v = TR.view; if (!v) return;
+    const commits = TR.more || TR.ov?.history?.commits || [];
+    const more = TR.more ? TR.moreFlag : commits.length >= 20;
+    const key = JSON.stringify([commits.map(c => [c.id, c.undone]), more, TR.ov?.history?.ready]);
+    if (!force && TR.keys.hist === key) return;
+    TR.keys.hist = key;
+    v.hist.replaceChildren(...[...(commits.length ? commits.map(commitRow) : [h('div', { class: 'dim sp-none' }, TR.ov?.history?.ready ? 'No changes yet.' : 'Nothing yet. Changes show here after the first message or upload.')]),
+      more ? h('button', { class: 'btn sm ghost', onclick: loadMore }, 'Show older') : null].filter(Boolean));
+  }
+
+  const removeAccess = async a => {
+    TR.rmAsk = null; fail(TR.view.accErr, '');
+    try { await api('specialist/' + enc(TR.name) + '/accesses/' + enc(a.name) + '/delete', {}); toast('Removed ' + a.name, 'ok'); await refreshTrain(); } catch (e) { fail(TR.view.accErr, e.message); paintAcc(true); }
+  };
+  async function saveAccess() {
+    const v = TR.view;
+    const n = v.accName.value.trim(); const val = v.accValue.value;
+    if (!ACCESS_RE.test(n)) { fail(v.accErr, 'Use a name like DB_URL: capital letters, digits and underscores.'); return; }
+    if (!val) { fail(v.accErr, 'Type the value.'); return; }
+    v.accSave.disabled = true; fail(v.accErr, '');
+    const body = { name: n, value: val };
+    if (v.accNote.value.trim()) body.note = v.accNote.value.trim();
+    try { await api('specialist/' + enc(TR.name) + '/accesses', body); v.accValue.value = ''; v.accName.value = ''; v.accNote.value = ''; toast('Saved ' + n, 'ok'); await refreshTrain(); } catch (e) { fail(v.accErr, e.message); }
+    v.accSave.disabled = false;
+  }
+  function paintAcc(force) {
+    const v = TR.view; if (!v) return;
+    const list = TR.ov?.accesses || [];
+    const key = JSON.stringify([list.map(a => [a.name, a.note, a.updatedAt]), TR.rmAsk]);
+    const provider = V.list.find(p => p.name === TR.name)?.provider;
+    v.accHelp.replaceChildren('The trainer sees the names and notes, never the values.' + (isApi(provider) ? ' OpenAI and xAI specialists do not get accesses.' : ' Claude runs get them as environment variables.'));
+    if (!force && TR.keys.acc === key) return;
+    TR.keys.acc = key;
+    v.acc.replaceChildren(...(list.length ? list.map(a => h('div', { class: 'sp-acc' },
+      h('div', { class: 'sp-cm' }, h('div', { class: 'sp-ct mono' }, a.name), h('div', { class: 'dim sp-cs' }, a.note || 'No note', ' · value saved')),
+      h('div', { class: 'sp-cacts' }, TR.rmAsk === a.name
+        ? [h('span', { class: 'dim' }, 'Remove it?'), h('button', { class: 'btn sm danger solid', onclick: () => removeAccess(a) }, 'Remove'), h('button', { class: 'btn sm ghost', onclick: () => { TR.rmAsk = null; paintAcc(true); } }, 'Cancel')]
+        : [h('button', { class: 'btn sm', onclick: () => { v.accName.value = a.name; v.accNote.value = a.note || ''; v.accValue.focus(); } }, 'Replace'), h('button', { class: 'btn sm danger', onclick: () => { TR.rmAsk = a.name; paintAcc(true); } }, 'Remove')]))) : [h('div', { class: 'dim sp-none' }, 'No accesses yet.')]));
+  }
+
+  function paintFiles() {
+    const v = TR.view; if (!v) return;
+    const u = TR.ov?.uploads;
+    v.usage.textContent = u ? plural(u.files, 'file') + ' in the knowledge folder, ' + Math.ceil(u.bytes / 1024) + ' KiB of ' + Math.round(u.maxBytes / 1048576) + ' MiB' : '';
+    v.added.replaceChildren(...(TR.added.length ? [h('div', { class: 'sptr-h' }, 'Added in this chat'), ...TR.added.map(f => h('div', { class: 'sptr-file' }, ico('file', 14), h('span', { class: 'sptr-fn' }, f.split('/').pop())))] : []));
+  }
+
+  function paintTrain() {
+    const v = TR.view; if (!v || !TR.tabs) return;
+    const count = { files: TR.ov?.uploads?.files, changes: null, accesses: TR.ov ? (TR.ov.accesses || []).length : null };
+    TR.tabs.replaceChildren(...TAB_LABEL.map(([k, l]) => h('button', { class: 'segb' + (TR.tab === k ? ' on' : ''), onclick: () => { TR.tab = k; paintTrain(); } }, l, count[k] ? h('span', { class: 'sptr-n' }, count[k]) : null)));
+    TR.body.replaceChildren(v[TR.tab]);
+    paintFiles(); paintHist(); paintAcc();
+  }
+
+  async function refreshTrain() {
+    const tmux = TR.tmux; if (!tmux || TR.busy) return;
+    TR.busy = true;
+    try { const ov = await api(trainBase()); if (TR.tmux === tmux) { TR.ov = ov; TR.err = null; } } catch (e) { if (TR.tmux === tmux) TR.err = e.message; }
+    TR.busy = false;
+    if (TR.tmux !== tmux) return;
+    paintTrain(); renderTermPanel();
+  }
+
+  const closePanel = () => { if (IS_PHONE) TR.sheet = false; else { TR.panel = false; store.set(PANEL_KEY, '0'); } mountPanel(); renderTermPanel(); };
+  function buildPanel() {
+    const p = V.list.find(x => x.name === TR.name) || { name: TR.name };
+    TR.tabs = h('div', { class: 'seg sptr-tabs' });
+    TR.body = h('div', { class: 'sptr-body' });
+    TR.scrim = h('div', { class: 'sptr-scrim', onclick: closePanel });
+    TR.el = h('div', { class: 'sptr-panel' },
+      h('div', { class: 'sptr-grab' }),
+      h('div', { class: 'sptr-top' }, tile(p), h('div', { class: 'sptr-tt' }, h('b', null, 'Training'), h('span', { class: 'dim' }, p.title || p.name)), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost icon', title: 'close', 'aria-label': 'close', onclick: closePanel }, ico('x', 15))),
+      TR.tabs, TR.body);
+  }
+
+  function mountPanel() {
+    const main = $('.termmain'); const el = TR.el; if (!main || !el) return;
+    const open = IS_PHONE ? TR.sheet : TR.panel;
+    if (!open) { main.classList.remove('sptr-open'); TR.scrim.remove(); if (el.parentNode) { el.classList.add('leaving'); setTimeout(() => { if (el.classList.contains('leaving')) el.remove(); }, 240); } return; }
+    el.classList.remove('leaving'); el.classList.toggle('sheet', IS_PHONE);
+    if (IS_PHONE) { document.body.append(TR.scrim, el); main.classList.remove('sptr-open'); return; }
+    const bar = $('#term-bar');
+    if (bar) main.style.setProperty('--sptr-top', (bar.offsetTop + bar.offsetHeight) + 'px');
+    TR.scrim.remove();
+    main.classList.add('sptr-open');
+    if (el.parentNode !== main) main.append(el);
+  }
+
+  function togglePanel() {
+    if (IS_PHONE) TR.sheet = !TR.sheet;
+    else { TR.panel = !TR.panel; store.set(PANEL_KEY, TR.panel ? '1' : '0'); if (TR.panel) feat('rightOpen', 'trainpanel'); }
+    mountPanel(); renderTermPanel();
+  }
+  const toggleFresh = () => { TR.fresh = !TR.fresh; if (TR.fresh) toast('Your next message starts a new conversation. The old one is kept.'); renderTermPanel(); };
+
+  function teardownTrain() {
+    if (!TR.tmux) return;
+    clearInterval(TR.timer); TR.timer = null;
+    const main = $('.termmain'); if (main) main.classList.remove('sptr-open');
+    if (TR.el) TR.el.remove();
+    if (TR.scrim) TR.scrim.remove();
+    if (TR.view) TR.view.chips.remove();
+    Object.assign(TR, { name: null, tmux: null, ov: null, err: null, files: [], added: [], fresh: false, sheet: false, tab: 'files', open: new Map(), undoAsk: null, rmAsk: null, more: null, moreFlag: false, busy: false, keys: {}, view: null, el: null, tabs: null, body: null, scrim: null });
+  }
+
+  function startTrain(name, tmux) {
+    teardownTrain();
+    Object.assign(TR, { name, tmux, view: trainViews() });
+    buildPanel(); paintTrain();
+    TR.timer = setInterval(() => {
+      if (!(TERM.open && TERM.active === TR.tmux)) { teardownTrain(); return; }
+      if (!document.hidden) refreshTrain();
+    }, POLL_MS);
+    refreshTrain();
+  }
+
+  function termShown() {
+    const tmux = TERM.open ? TERM.active : null; const name = trainerOf(tmux);
+    if (!name || !V.list.some(p => p.name === name && valid(p))) { teardownTrain(); return; }
+    if (TR.tmux !== tmux) startTrain(name, tmux);
+    mountPanel();
+  }
+
+  const rightOpen = which => { if (which !== 'trainpanel' && TR.tmux && !IS_PHONE && TR.panel) { TR.panel = false; mountPanel(); renderTermPanel(); } };
+
+  function termBar(tmux) {
+    if (!trainerOf(tmux) || tmux !== TR.tmux) return null;
+    const notes = pendingNotes(); const open = IS_PHONE ? TR.sheet : TR.panel;
+    return [
+      h('span', { class: 'sptr-stat', title: 'The trainer: ' + trainStatus() + (notes ? ', ' + plural(notes, 'feedback note') + ' waiting' : '') },
+        h('i', { class: 'sp-dot rs-' + trainDot() }), h('span', { class: 'sptr-st desk' }, trainStatus()), notes ? h('span', { class: 'badge tag desk' }, plural(notes, 'note') + ' waiting') : null),
+      h('button', { class: 'btn sm ghost sptr-btn' + (TR.fresh ? ' on' : ''), title: 'The next message starts a new conversation. The old one is kept.', 'aria-pressed': TR.fresh ? 'true' : 'false', onclick: toggleFresh }, ico('plus', 14), h('span', { class: 'desk' }, TR.fresh ? 'New conversation: on' : 'New conversation')),
+      h('button', { class: 'btn sm ghost sptr-btn' + (open ? ' on' : ''), title: 'Files, what changed and accesses', 'aria-pressed': open ? 'true' : 'false', onclick: togglePanel }, ico('brain', 14), h('span', { class: 'desk' }, 'Training'))
+    ];
+  }
+  const trainBarKey = tmux => trainerOf(tmux) && tmux === TR.tmux ? [TR.fresh, TR.panel, TR.sheet, pendingNotes(), trainStatus()] : null;
+
+  function openTrain(name) {
+    const p = V.list.find(x => x.name === name);
+    openTerm(trainerTmux(name, p?.account));
   }
 
   function openPage(name, o = {}) {
@@ -786,33 +881,27 @@ FEAT.specialists = (() => {
     const askBtn = h('button', { class: 'btn primary ns-send' }, 'Ask');
     const askStatus = h('div', { class: 'ns-status hidden' });
     const runsBox = h('div', { class: 'sp-runs' });
-    const trainBox = { tab: null };
 
     const paintHead = () => {
       const p = PG.data?.specialist || known; const t = PG.data?.thread;
       head.replaceChildren(...[tile(p, 'md'), h('div', { class: 'sp-ht' }, h('h3', null, p.title || name), h('div', { class: 'sp-chips' }, isApi(p.provider) ? h('span', { class: 'badge tag' }, providerLabel(p.provider)) : null, h('span', { class: 'badge tag' }, modelLabel(p.model, p.provider)), h('span', { class: 'badge tag' }, p.mode === 'thread' ? 'Thread' : 'Fresh run per task'), !isApi(p.provider) && p.account && p.account !== 'personal' ? h('span', { class: 'badge tag acc ' + p.account }, acct(p.account)) : null)),
-        h('span', { class: 'sp' }), t?.live ? h('button', { class: 'btn sm', title: 'open the live thread', onclick: () => { closeModal(); openTerm(t.tmux); } }, 'Open thread') : null,
+        h('span', { class: 'sp' }), h('button', { class: 'btn sm', title: 'talk to the trainer', onclick: () => { closeModal(); openTrain(name); } }, 'Train'), t?.live ? h('button', { class: 'btn sm', title: 'open the live thread', onclick: () => { closeModal(); openTerm(t.tmux); } }, 'Open thread') : null,
         h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', 'aria-label': 'close', onclick: closeModal }, ico('x', 15))].filter(Boolean));
       desc.textContent = p.description || ''; desc.classList.toggle('hidden', !p.description);
       keyNote.textContent = isApi(p.provider) && p.keyError || ''; keyNote.classList.toggle('hidden', !keyNote.textContent);
       ask.placeholder = 'Ask ' + (p.title || name) + '…';
     };
-    const paintTabs = () => tabs.replaceChildren(...[['runs', 'Runs'], ['train', 'Train'], ['profile', 'Profile']].map(([k, l]) => h('button', { class: 'segb' + (PG.tab === k ? ' on' : ''), onclick: () => { PG.tab = k; paintTabs(); paintBody(); } }, l)));
+    const paintTabs = () => tabs.replaceChildren(...[['runs', 'Runs'], ['profile', 'Profile']].map(([k, l]) => h('button', { class: 'segb' + (PG.tab === k ? ' on' : ''), onclick: () => { PG.tab = k; paintTabs(); paintBody(); } }, l)));
     const paintBody = () => {
       if (PG.tab === 'runs') {
         body.replaceChildren(h('div', { class: 'sp-composer' }, ask, h('div', { class: 'ns-bar' }, h('span', { class: 'sp' }), askBtn), askStatus), runsBox);
         paintRuns(runsBox);
         if (o.focus) setTimeout(() => ask.focus(), 30);
         o.focus = false;
-      } else if (PG.tab === 'train') {
-        if (!trainBox.tab) trainBox.tab = trainTab(name);
-        body.replaceChildren(trainBox.tab.el); trainBox.tab.refresh();
-        if (o.focus) setTimeout(() => trainBox.tab.focus(), 30);
-        o.focus = false;
       } else if (!PG.data) body.replaceChildren(h('div', { class: 'dim sp-none' }, PG.err || 'Loading…'));
       else { PG.profile = profileTab(PG.data.specialist, async () => { await loadPage(); refresh(true); paintHead(); paintBody(); }, closeModal); body.replaceChildren(PG.profile); }
     };
-    PG.paint = () => { paintHead(); if (PG.tab === 'runs') paintRuns(runsBox); else if (PG.tab === 'train') trainBox.tab?.refresh(); else if (!PG.profile || !body.contains(PG.profile)) paintBody(); };
+    PG.paint = () => { paintHead(); if (PG.tab === 'runs') paintRuns(runsBox); else if (!PG.profile || !body.contains(PG.profile)) paintBody(); };
 
     const sendAsk = async () => {
       const text = ask.value.trim(); if (!text || askBtn.disabled) return;
@@ -836,5 +925,5 @@ FEAT.specialists = (() => {
 
   setInterval(() => { if (!document.hidden) refresh(true); }, 30000);
 
-  return { onState, termBarKey, railSection, paletteItems, homeTiles, unseenRuns, dismissRun, markSeen: seenByUser, trimSeen, feedbackBody, feedbackError, trackFeedback, pollFeedback, improve: openImprove, openRun, openAsk, open: openPage, create: openCreate, refresh };
+  return { phantom, trainSend: sendMessage, attachFile, termBar, termShown, rightOpen, composerShown: placeChips, emptyChat, trainTitle, openTrain, onState, termBarKey, railSection, paletteItems, homeTiles, unseenRuns, dismissRun, markSeen: seenByUser, trimSeen, feedbackBody, feedbackError, trackFeedback, pollFeedback, improve: openImprove, openRun, openAsk, open: openPage, create: openCreate, refresh };
 })();
