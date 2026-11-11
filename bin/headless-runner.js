@@ -12,8 +12,18 @@ const SOCK = arg('sock'), CWD = arg('cwd') || process.cwd(), SID = arg('session-
 let CLAUDE = arg('claude') || 'claude';
 const NAME = arg('name') || '';
 const FORK = arg('start') === 'fork' ? arg('fork-from') : null;
+const PERMISSION_MODES = ['bypassPermissions', 'acceptEdits', 'auto', 'manual', 'dontAsk', 'plan'];
+const PERMISSION = arg('permission-mode') || 'bypassPermissions';
+const ADD_DIRS = process.argv.flatMap((a, i) => a === '--add-dir' && process.argv[i + 1] ? [process.argv[i + 1]] : []);
+const EXIT_AFTER_RESULT = process.argv.includes('--exit-after-result');
+const START_MODEL = arg('model') || null, START_EFFORT = arg('effort') || null;
+const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}(\[1m\])?$/;
+if (!PERMISSION_MODES.includes(PERMISSION) || ADD_DIRS.some(d => !path.isAbsolute(d)) || (START_MODEL && !MODEL_ID.test(START_MODEL)) || (START_EFFORT && !['low', 'medium', 'high', 'xhigh', 'max'].includes(START_EFFORT))) {
+  process.stderr.write('headless-runner.js: bad --permission-mode, --add-dir, --model or --effort\n');
+  process.exit(2);
+}
 if (!SOCK || !/^[0-9a-f-]{36}$/.test(SID || '') || !['new', 'resume', 'fork'].includes(arg('start')) || (arg('start') === 'fork' && !/^[0-9a-f-]{36}$/.test(FORK || ''))) {
-  process.stderr.write('usage: headless-runner.js --sock <path> --cwd <dir> --session-id <uuid> --start new|resume|fork [--fork-from <uuid>] [--account personal|company] [--claude <bin>] [--name <tmux name>]\n');
+  process.stderr.write('usage: headless-runner.js --sock <path> --cwd <dir> --session-id <uuid> --start new|resume|fork [--fork-from <uuid>] [--account personal|company] [--claude <bin>] [--name <tmux name>] [--permission-mode <mode>] [--add-dir <dir>]... [--model <model>] [--effort <level>] [--exit-after-result]\n');
   process.exit(2);
 }
 
@@ -32,7 +42,7 @@ const SWEEP_MS = +process.env.BD_HL_SWEEP_MS || 4000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 let current = SID, childAt = 0;
 const MODELS = ['default', 'opus', 'sonnet', 'haiku', 'fable'], EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
-let chosenModel = null, chosenEffort = null;
+let chosenModel = START_MODEL, chosenEffort = START_EFFORT;
 const ctlWait = new Map();
 
 const dim = s => `\x1b[2m${s}\x1b[0m`;
@@ -45,7 +55,7 @@ const clock = () => new Date().toTimeString().slice(0, 8);
 
 function snapshot() {
   return { ev: 'snapshot', v: 2, sessionId: current, state: S.state, since: S.since, turn: S.turn, pending: [...pending.values()].map(p => p.req), inbox: inboxList(),
-    rate: S.rate, ctx: S.ctx, model: S.model, effort: S.effort, version: S.version, claude: CLAUDE, childAt, caps: S.caps, error: S.error, shells: shellList() };
+    rate: S.rate, ctx: S.ctx, model: S.model, effort: S.effort, version: S.version, claude: CLAUDE, childAt, caps: S.caps, error: S.error, shells: shellList(), addDirs: [...ADD_DIRS] };
 }
 function inboxList() { return inbox.map(m => ({ id: m.id, text: m.text, at: m.at })); }
 function emitInbox() { emit({ ev: 'inbox', inbox: inboxList() }); }
@@ -81,7 +91,7 @@ function startChild() {
   const fork = FORK && current === SID && !forked();
   if (FORK && !fork) hasConversation = true;
   const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--replay-user-messages',
-    '--permission-prompt-tool', 'stdio', '--dangerously-skip-permissions', ...(fork ? ['--resume', FORK, '--fork-session', '--session-id', SID] : [hasConversation ? '--resume' : '--session-id', current]),
+    '--permission-prompt-tool', 'stdio', ...(PERMISSION === 'bypassPermissions' ? ['--dangerously-skip-permissions'] : ['--permission-mode', PERMISSION]), ...ADD_DIRS.flatMap(d => ['--add-dir', d]), ...(fork ? ['--resume', FORK, '--fork-session', '--session-id', SID] : [hasConversation ? '--resume' : '--session-id', current]),
     ...(chosenModel ? ['--model', chosenModel] : []), ...(chosenEffort ? ['--effort', chosenEffort] : [])];
   line(dim(`[${clock()}] claude ${fork ? 'fork of ' + FORK + ' as' : hasConversation ? 'resume' : 'new session'} ${fork ? SID : current}  (${ACCOUNT}, ${CWD})`));
   stderrTail = ''; heard = false; unheard = []; S.version = binVersion(CLAUDE); S.error = null; childAt = Date.now(); upgradeAfterTurn = false; sentWhileWorking = false; clearTimeout(upgradeTimer);
@@ -141,6 +151,7 @@ function ended(p, reason) {
   endTurn('exited', reason);
   setState('exited');
   if (stopping) finish();
+  else if (EXIT_AFTER_RESULT) exitWhenQuiet();
 }
 
 function endTurn(subtype, reason) {
@@ -221,11 +232,13 @@ function onChildLine(l, old) {
     for (const rid of pending.keys()) emit({ ev: 'resolved', rid });
     pending.clear();
     line(dim(`[${clock()}] done (${o.subtype}${o.terminal_reason && o.terminal_reason !== 'completed' ? ', ' + o.terminal_reason : ''}, ${Math.round(ms / 100) / 10}s)`));
-    emit({ ev: 'result', subtype: o.subtype, reason: o.terminal_reason || null, ms });
+    const text = typeof o.result === 'string' ? o.result : null;
+    emit({ ev: 'result', subtype: o.subtype, reason: o.terminal_reason || null, ms, text: text === null ? null : text.slice(0, MAX_TEXT), truncated: !!text && text.length > MAX_TEXT, isError: !!o.is_error });
     setState('idle');
     endAt = Date.now(); clearTimeout(sweepTimer); sweepTimer = setTimeout(sweep, SWEEP_MS);
     const late = sentWhileWorking; sentWhileWorking = false;
-    if (upgradeAfterTurn && !late) { clearTimeout(upgradeTimer); upgradeTimer = setTimeout(upgradeIfIdle, 1500); }
+    if (upgradeAfterTurn && !late && !EXIT_AFTER_RESULT) { clearTimeout(upgradeTimer); upgradeTimer = setTimeout(upgradeIfIdle, 1500); }
+    if (EXIT_AFTER_RESULT) exitWhenQuiet();
     return;
   }
   if (o.type === 'rate_limit_event' && o.rate_limit_info) {
@@ -414,6 +427,19 @@ function restart() {
   setTimeout(() => { try { old.kill('SIGKILL'); } catch {} }, 3000).unref();
 }
 
+const EXIT_MS = +process.env.BD_HL_EXIT_MS || 2000;
+let exitTimer = null;
+function exitWhenQuiet() {
+  clearTimeout(exitTimer);
+  exitTimer = setTimeout(() => {
+    exitTimer = null;
+    if (stopping) return;
+    const busy = restarting || S.turn || pending.size || inbox.length || queued.length || sentWhileWorking || shells.some(e => e.state === 'running') || (child && S.state !== 'idle') || Date.now() - lastOut < EXIT_MS;
+    if (busy) return exitWhenQuiet();
+    line(dim(`[${clock()}] the run is done, ending this session`));
+    shutdown();
+  }, EXIT_MS);
+}
 function quiet() { return child && !restarting && S.state === 'idle' && !S.turn && !pending.size; }
 function upgradeIfIdle() {
   upgradeTimer = null;
@@ -426,11 +452,12 @@ function upgrade(bin) {
   CLAUDE = bin;
   emit(snapshot());
   if (restarting) { upgradeAfterTurn = false; return 'now'; }
-  if (!child) { upgradeAfterTurn = false; return 'next-start'; }
+  if (!child || EXIT_AFTER_RESULT) { upgradeAfterTurn = false; return 'next-start'; }
   if (!quiet()) { upgradeAfterTurn = true; return 'after-turn'; }
   upgradeAfterTurn = true; upgradeIfIdle();
   return 'now';
 }
+const isDir = p => { try { return fs.statSync(p).isDirectory(); } catch { return false; } };
 const executable = p => { try { fs.accessSync(p, fs.constants.X_OK); return fs.statSync(p).isFile(); } catch { return false; } };
 
 const SHELL_MS = +process.env.BD_HL_SHELL_MS || 600000, SHELL_OUT = 64 * 1024, SHELL_PRIV = 30000, SHELL_KEEP = 5, MAX_CMD = 10000;
@@ -545,7 +572,11 @@ function onClientOp(c, m) {
         if (typeof m.claude !== 'string' || !path.isAbsolute(m.claude) || !executable(m.claude)) return fail('claude must be an absolute path to an executable file');
         CLAUDE = m.claude; upgradeAfterTurn = false; clearTimeout(upgradeTimer);
       }
-      restart(); return ack();
+      if (m.addDirs !== undefined) {
+        if (!Array.isArray(m.addDirs) || m.addDirs.length > 40 || m.addDirs.some(d => typeof d !== 'string' || !path.isAbsolute(d) || !isDir(d))) return fail('addDirs must be a list of at most 40 existing absolute folders');
+        ADD_DIRS.splice(0, ADD_DIRS.length, ...new Set(m.addDirs));
+      }
+      restart(); if (EXIT_AFTER_RESULT) exitWhenQuiet(); return ack();
     }
     case 'model': {
       if (!MODELS.includes(m.model)) return fail('model must be one of ' + MODELS.join(', '));

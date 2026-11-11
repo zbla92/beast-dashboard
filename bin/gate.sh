@@ -26,7 +26,7 @@ TMP="$(mktemp -d /tmp/bd-gate-XXXX)"
 mkdir -p "$TMP/state" && printf '{"port": %s, "autoExpose": false}\n' "$PORT" > "$TMP/state/settings.json"
 cp "$REPO/state/claude-sessions.json" "$TMP/state/" 2>/dev/null   # read-only copy: lets /api/subagents resolve the live sessions' transcripts
 PLANS="$TMP/plans-store"; cp -r "$TMP/test/fixtures/plans/store" "$PLANS"
-(cd "$TMP" && BD_TEST=1 BEAST_PLANS_DIR="$PLANS" exec node server.js > "$TMP/server.log" 2>&1) & PID=$!
+(cd "$TMP" && BD_TEST=1 BEAST_PLANS_DIR="$PLANS" BD_SPECIALISTS_DIR="$TMP/specialists" exec node server.js > "$TMP/server.log" 2>&1) & PID=$!
 cleanup() { kill "$PID" 2>/dev/null; sleep 0.3; kill -9 "$PID" 2>/dev/null; rm -rf "$TMP"; rm -f /tmp/gate-$$.*; }
 trap cleanup EXIT
 B="http://127.0.0.1:$PORT"
@@ -143,6 +143,30 @@ r=""; for d in '{"text":"x","cwd":"/etc"}' '{"text":"x","cwd":"relative/dir"}' '
 [ "$r" = " 400 400 400 400" ] && ok "POST chat-new with a cwd outside the dev folder -> 400" || fail "POST chat-new bad cwd ->$r"
 out="$(cd / && BEAST_DASH_PORT="$PORT" "$TMP/bin/bd-chat" new --cwd /etc 'gate' 2>&1)"; rc=$?
 [ $rc = 1 ] && [[ "$out" == *"inside the dev folder"* ]] && ok "bd-chat new outside the dev folder -> refused by the dashboard" || fail "bd-chat new /etc -> rc=$rc $out"
+sp() { local p="$1" d="$2"; shift 2; curl -s -m 10 -o /tmp/gate-$$.body -w '%{http_code}' -X POST -H 'content-type: application/json' "$@" -d "$d" "$B/api/$p"; }
+r="$(get /api/specialists)"
+[[ "$r" == "200 application/json"* ]] && node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1]));process.exit(j.ok&&Array.isArray(j.specialists)&&j.specialists.length===0&&j.templates.some(t=>t.id==="writer")?0:1)' /tmp/gate-$$.body && ok "GET specialists -> empty list with templates" || fail "GET specialists -> $r $(head -c 200 /tmp/gate-$$.body)"
+r="$(sp specialist '{"name":"gate-writer","template":"writer","model":"haiku"}')"
+[ "$r" = 201 ] && grep -q '"name":"gate-writer"' /tmp/gate-$$.body && ok "POST specialist create -> 201" || fail "POST specialist create -> $r $(head -c 200 /tmp/gate-$$.body)"
+UPD="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1])).specialist.updatedAt)' /tmp/gate-$$.body 2>/dev/null)"
+r="$(sp specialist '{"name":"gate-writer"}') $(sp specialist '{"name":"Bad Name"}') $(sp specialist '{"name":"run"}') $(sp specialist '{"name":"gate-x","template":"nope"}')"
+[ "$r" = "409 400 400 400" ] && ok "POST specialist duplicate -> 409, bad name / reserved / unknown template -> 400" || fail "POST specialist bad create -> $r"
+r="$(get /api/specialist/gate-writer)"
+[[ "$r" == "200 application/json"* ]] && grep -q '"instructions":' /tmp/gate-$$.body && ok "GET specialist/<name> -> profile with instructions" || fail "GET specialist/<name> -> $r"
+r="$(sp specialist/gate-writer "{\"title\":\"Gate\",\"ifUpdatedAt\":\"$UPD\"}") $(sp specialist/gate-writer "{\"title\":\"Again\",\"ifUpdatedAt\":\"$UPD\"}") $(sp specialist/gate-writer '{"model":"bad model;x"}')"
+[ "$r" = "200 409 400" ] && ok "POST specialist update -> 200, stale ifUpdatedAt -> 409, bad model -> 400" || fail "POST specialist update -> $r"
+r="$(get /api/specialist/gate-nope | cut -d' ' -f1) $(get '/api/specialist/..%2F..%2Fetc' | cut -d' ' -f1) $(get /api/specialist/run/claude-spec-gate-nope-261111-0930 | cut -d' ' -f1) $(get '/api/specialist/gate-writer?runs=0' | cut -d' ' -f1) $(get /api/specialist/run/gate-bad-id | cut -d' ' -f1)"
+[ "$r" = "404 400 404 400 400" ] && ok "GET specialist unknown -> 404, traversal -> 400, unknown run -> 404, bad runs / bad runId -> 400" || fail "GET specialist bad input -> $r"
+r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' --path-as-is "$B/api/specialist/../../../etc/passwd")"; [[ "$r" == 4* ]] && ok "specialist raw traversal -> $r" || fail "specialist raw traversal -> $r"
+head -c 100010 /dev/zero | tr '\0' 'a' | sed 's/^/{"text":"/;s/$/"}/' > /tmp/gate-$$.big
+r="$(sp specialist/gate-writer/ask '{"text":"  "}') $(sp specialist/gate-writer/ask '{"text":"x","files":["relative.txt"]}') $(sp specialist/gate-writer/ask '{"text":"x","files":["/etc"]}') $(sp specialist/gate-writer/ask '{"text":"x","wait":"yes"}') $(sp specialist/gate-writer/ask '{"text":"x","extra":1}') $(curl -s -m 10 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -H 'Expect:' --data-binary @/tmp/gate-$$.big "$B/api/specialist/gate-writer/ask") $(sp specialist/gate-nope/ask '{"text":"x"}')"
+[ "$r" = "400 400 400 400 400 413 404" ] && ok "POST specialist ask bad input -> 400, long text -> 413, unknown -> 404" || fail "POST specialist ask bad input -> $r"
+r="$(sp specialist/run/claude-spec-gate-nope-261111-0930/send '{"text":"x"}') $(sp specialist/gate-writer/nope '{}')"
+[ "$r" = "404 404" ] && ok "POST specialist run send unknown -> 404, unknown route -> 404" || fail "POST specialist run send / unknown route -> $r"
+r="$(sp specialist/gate-writer '{"title":"x"}' -H 'Origin: https://evil.example')"
+[ "$r" = 403 ] && ok "POST specialist from a foreign Origin -> 403" || fail "POST specialist foreign Origin -> $r"
+r="$(sp specialist/gate-writer/archive '')"
+[ "$r" = 200 ] && grep -q '"archivedAs":"_archive/gate-writer-' /tmp/gate-$$.body && [ -d "$TMP/specialists/_archive" ] && [ "$(get /api/specialist/gate-writer | cut -d' ' -f1)" = 404 ] && ok "POST specialist archive -> moved to _archive" || fail "POST specialist archive -> $r $(head -c 200 /tmp/gate-$$.body)"
 r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"id":"gate-tab-1","session":"claude-gate-nope"}' "$B/api/watching")"
 r2="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"id":"gate-tab-1","session":"../x"}' "$B/api/watching")"
 [ "$r $r2" = "200 400" ] && ok "POST watching -> 200, bad session -> 400" || fail "POST watching -> $r, bad session -> $r2"
