@@ -158,3 +158,76 @@ test('a done card has an Improve action that hands the full answer to the specia
   assert.strictEqual(got.length, 1);
   assert.strictEqual(JSON.stringify(got[0]), JSON.stringify({ name: 'w', title: 'w', runId: 'r1', text: 'answer' }));
 });
+
+const chatTurns = () => [
+  { role: 'user', text: 'first question' },
+  { role: 'assistant', steps: [{ k: 'text', text: 'first answer' }, { k: 'tool', file: '/repo/a.js' }, { k: 'tool', file: 'rel.js' }] },
+  { role: 'user', text: 'second question' },
+  { role: 'assistant', steps: [{ k: 'tool', file: '/repo/b.js' }, { k: 'tool', file: '/repo/a.js' }, { k: 'text', text: 'the message' }] },
+];
+
+test('buildContext keeps the turns up to the message verbatim, marks it and lists absolute files newest first', () => {
+  const { FEAT } = build(async () => ({}));
+  const c = FEAT.specAsk.buildContext(chatTurns(), 3, 60000);
+  assert.strictEqual(c.count, 4);
+  assert.strictEqual(c.text, '[User]\nfirst question\n\n[Assistant]\nfirst answer\n\n[User]\nsecond question\n\n[Assistant, the message this task is about]\nthe message');
+  assert.deepStrictEqual([...c.files], ['/repo/a.js', '/repo/b.js']);
+});
+
+test('buildContext keeps the newest turns when the budget is small and the end of an over-long message', () => {
+  const { FEAT } = build(async () => ({}));
+  const turns = chatTurns();
+  const small = FEAT.specAsk.buildContext(turns, 3, 90);
+  assert.ok(small.count < 4 && small.text.endsWith('the message') && small.text.length <= 90);
+  const long = [{ role: 'assistant', steps: [{ k: 'text', text: 'x'.repeat(500) + 'END' }] }];
+  const cut = FEAT.specAsk.buildContext(long, 0, 100);
+  assert.ok(cut.text.length <= 100 && cut.text.endsWith('END') && cut.text.includes('[cut'));
+  assert.strictEqual(FEAT.specAsk.buildContext(turns, 3, 0), null);
+  assert.strictEqual(FEAT.specAsk.buildContext(turns, 9, 1000), null);
+});
+
+test('buildContext looks back at most six turns and caps files at twenty', () => {
+  const { FEAT } = build(async () => ({}));
+  const many = Array.from({ length: 10 }, (_, i) => ({ role: 'user', text: 'u' + i }));
+  assert.strictEqual(FEAT.specAsk.buildContext(many, 9, 60000).count, 6);
+  const files = [{ role: 'assistant', steps: [...Array.from({ length: 30 }, (_, i) => ({ k: 'tool', file: '/f' + i })), { k: 'text', text: 'm' }] }];
+  assert.strictEqual(FEAT.specAsk.buildContext(files, 0, 60000).files.length, 20);
+});
+
+test('ask sends the task, the original material and the files; without them the text is unchanged', async () => {
+  const calls = [];
+  const sb = build(async (p, body) => {
+    calls.push([p, body]);
+    if (p.endsWith('/ask')) return { ok: true, runId: 'r1', mode: 'run', state: 'done', text: 'a' };
+    return { ok: true, specialists: [] };
+  });
+  await sb.FEAT.specAsk.ask({ session: 's', specialist: 'w', task: 'Do it', material: '[User]\nhi', files: ['/a'] });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(calls[0])), ['specialist/w/ask', { text: 'Task:\nDo it\n\nOriginal material (verbatim, from the chat):\n[User]\nhi', wait: false, files: ['/a'] }]);
+  await sb.FEAT.specAsk.ask({ session: 's', specialist: 'w', task: 'Plain', material: '', files: [] });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(calls[1])), ['specialist/w/ask', { text: 'Plain', wait: false }]);
+});
+
+test('materialBudget uses the real length of the file list and the whole text stays within 100000', () => {
+  const { FEAT } = build(async () => ({}));
+  const a = FEAT.specAsk;
+  const task = 'x'.repeat(10000);
+  const none = a.materialBudget(task, []);
+  const longFiles = Array.from({ length: 20 }, (_, i) => '/' + String(i).padStart(2, '0') + 'a'.repeat(4000));
+  const many = a.materialBudget(task, longFiles);
+  assert.ok(many > 0 && many < none);
+  assert.strictEqual(a.fileSuffix([]), '');
+  assert.strictEqual(a.fileSuffix(['/a', '/b']), '\n\nFiles for this task:\n- /a\n- /b');
+  const material = 'm'.repeat(Math.max(0, many));
+  assert.ok((a.composeTask(task, material) + a.fileSuffix(longFiles)).length <= 100000);
+  assert.ok(a.materialBudget('t', ['/a']) <= 60000);
+  assert.ok(a.materialBudget('x'.repeat(99990), ['/a']) <= 0);
+});
+
+test('openai and xai specialists take no files', () => {
+  const { FEAT } = build(async () => ({}));
+  const a = FEAT.specAsk;
+  assert.strictEqual(a.takesFiles({ provider: 'openai' }), false);
+  assert.strictEqual(a.takesFiles({ provider: 'xai' }), false);
+  assert.strictEqual(a.takesFiles({ provider: 'claude' }), true);
+  assert.strictEqual(a.takesFiles(undefined), true);
+});
