@@ -1,0 +1,174 @@
+#!/usr/bin/env node
+'use strict';
+const fs = require('fs');
+const path = require('path');
+const http = require('http');
+
+const USAGE = `usage: bd-ask --list
+       bd-ask <specialist> (<task> | -) [--file <path>]... [--timeout <sec>] [--no-wait]
+       bd-ask --wait <runId> [--timeout <sec>]
+       bd-ask --continue <runId> (<text> | -) [--timeout <sec>]
+
+Hands a task to a specialist through the running dashboard and prints only its final answer on stdout,
+so the answer is all that enters your context. "-" reads the task from stdin.
+
+  --list        one line per specialist: name, title, description
+  --file        a file the specialist should read (repeatable; relative paths are made absolute)
+  --no-wait     start the run and print its run id only
+  --wait        wait for an existing run and print its answer
+  --continue    send a follow-up to a finished run and wait for the new answer
+  --timeout     give up waiting after this many seconds (default 900); the run keeps going
+
+Exit codes: 0 answer printed, 1 specialist or run error, 2 usage, 3 dashboard unreachable,
+4 timed out (the run id is printed on stderr; resume with --wait <runId>).
+
+The dashboard port comes from BEAST_DASH_PORT, then state/settings.json, then 8787.`;
+
+const FINAL = new Set(['done', 'error', 'stopped']);
+const SERVER_WAIT_MAX = 300;
+const DEFAULT_TIMEOUT = 900;
+
+function parse(argv) {
+  const o = { args: [], files: [] };
+  const rest = [...argv];
+  const valued = new Set(['--file', '--timeout', '--wait', '--continue']);
+  while (rest.length) {
+    const a = rest.shift();
+    const at = a.indexOf('=');
+    const flag = a.startsWith('--') && at > 0 ? a.slice(0, at) : a;
+    if (valued.has(flag)) {
+      const value = flag !== a ? a.slice(at + 1) : rest.shift();
+      if (value === undefined || value === '') throw new Error(`${flag} needs a value`);
+      if (flag === '--file') o.files.push(value);
+      else o[flag.slice(2)] = value;
+    } else if (a === '--list' || a === '--no-wait') o[a.slice(2)] = true;
+    else if (a === '-h' || a === '--help') o.help = true;
+    else if (a !== '-' && a.startsWith('--')) throw new Error(`unknown flag ${a}`);
+    else o.args.push(a);
+  }
+  return o;
+}
+
+function dashPort(env) {
+  if (/^\d+$/.test(env.BEAST_DASH_PORT || '')) return +env.BEAST_DASH_PORT;
+  try {
+    const p = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'state', 'settings.json'), 'utf8')).port;
+    if (Number.isInteger(p)) return p;
+  } catch {}
+  return 8787;
+}
+
+function call(port, method, route, body, limitMs) {
+  return new Promise((resolve, reject) => {
+    const data = body === undefined ? null : Buffer.from(JSON.stringify(body));
+    const headers = data ? { 'content-type': 'application/json', 'content-length': data.length } : {};
+    const req = http.request({ host: '127.0.0.1', port, path: route, method, timeout: limitMs, headers }, res => {
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8');
+        try { resolve({ status: res.statusCode, body: JSON.parse(text) }); } catch { resolve({ status: res.statusCode, body: { ok: false, error: text.trim() || `HTTP ${res.statusCode}` } }); }
+      });
+    });
+    req.on('timeout', () => req.destroy(Object.assign(new Error(`the dashboard did not answer in ${Math.round(limitMs / 1000)} s`), { late: true })));
+    req.on('error', reject);
+    req.end(data);
+  });
+}
+
+const oneLine = s => String(s || '').replace(/\s+/g, ' ').trim();
+
+async function main(argv, env, io) {
+  const parsed = (() => { try { return parse(argv); } catch (e) { return e; } })();
+  if (parsed instanceof Error) { io.err(`bd-ask: ${parsed.message}\n${USAGE}`); return 2; }
+  const o = parsed;
+  if (o.help) { io.out(USAGE); return 0; }
+  const modes = [o.list, o.wait !== undefined, o.continue !== undefined].filter(Boolean).length;
+  const asking = !modes;
+  const wantArgs = o.list || o.wait !== undefined ? 0 : o.continue !== undefined ? 1 : 2;
+  if (modes > 1 || o.args.length !== wantArgs) { io.err(`bd-ask: ${asking && o.args.length < 2 ? 'give a specialist and a task' : 'wrong arguments'}\n${USAGE}`); return 2; }
+  if (!asking && (o.files.length || o['no-wait'])) { io.err(`bd-ask: --file and --no-wait go with a new task\n${USAGE}`); return 2; }
+  const timeout = o.timeout === undefined ? DEFAULT_TIMEOUT : Number(o.timeout);
+  if (!Number.isFinite(timeout) || timeout < 1) { io.err('bd-ask: --timeout is a number of seconds, at least 1'); return 2; }
+  const textArg = asking ? o.args[1] : o.continue !== undefined ? o.args[0] : null;
+  const text = textArg === '-' ? io.stdin() : textArg;
+  if (textArg !== null && !text.trim()) { io.err('bd-ask: the task is empty'); return 2; }
+  const port = dashPort(env);
+  const state = io.state || {};
+
+  const request = async (method, route, body, limitMs) => {
+    const r = await call(port, method, route, body, limitMs).catch(e => e);
+    if (r instanceof Error) return { fatal: 3, message: r.late ? r.message : `cannot reach the dashboard on 127.0.0.1:${port}: ${r.message}` };
+    const b = r.body || {};
+    if ((r.status !== 200 && r.status !== 201) || !b.ok) return { fatal: 1, message: b.error || `HTTP ${r.status}` };
+    return { run: b };
+  };
+
+  if (o.list) {
+    const r = await request('GET', '/api/specialists', undefined, 30000);
+    if (r.fatal) { io.err(`bd-ask: ${r.message}`); return r.fatal; }
+    const items = r.run.specialists || [];
+    if (!items.length) { io.err('bd-ask: no specialists yet; create one in the dashboard'); return 0; }
+    for (const s of items) io.out(s.error ? `${s.name}\t(invalid: ${oneLine(s.error)})` : `${s.name}\t${oneLine(s.title)}\t${oneLine(s.description)}`);
+    return 0;
+  }
+
+  const deadline = Date.now() + timeout * 1000;
+  const slice = () => Math.max(1, Math.min(SERVER_WAIT_MAX, Math.ceil((deadline - Date.now()) / 1000)));
+  const limit = sec => sec * 1000 + 30000;
+
+  const settle = run => {
+    if (run.state === 'done') { io.out(run.text || ''); return 0; }
+    io.err(`bd-ask: run ${run.runId} ${run.state === 'error' ? 'failed' : 'was stopped'}${run.error ? `: ${oneLine(run.error)}` : ''}`);
+    if (run.text) io.out(run.text);
+    return 1;
+  };
+
+  const follow = async first => {
+    let run = first;
+    let noted = false;
+    for (;;) {
+      state.runId = run.runId || state.runId;
+      if (FINAL.has(run.state)) return settle(run);
+      if (run.state === 'waiting' && !noted) { io.err(`bd-ask: run ${run.runId} needs an answer in the dashboard`); noted = true; }
+      if (Date.now() >= deadline) { io.err(`bd-ask: timed out after ${timeout} s; the run keeps going. Resume with: bd-ask --wait ${run.runId}`); return 4; }
+      const sec = slice();
+      const r = await request('GET', `/api/specialist/run/${encodeURIComponent(run.runId)}?wait=1&timeoutSec=${sec}`, undefined, limit(sec));
+      if (r.fatal) { io.err(`bd-ask: ${r.message} (run ${run.runId})`); return r.fatal; }
+      run = r.run;
+    }
+  };
+
+  const sec = slice();
+  if (o.wait !== undefined) {
+    const r = await request('GET', `/api/specialist/run/${encodeURIComponent(o.wait)}?wait=1&timeoutSec=${sec}`, undefined, limit(sec));
+    if (r.fatal) { io.err(`bd-ask: ${r.message}`); return r.fatal; }
+    return follow(r.run);
+  }
+
+  if (o.continue !== undefined) {
+    state.runId = o.continue;
+    const r = await request('POST', `/api/specialist/run/${encodeURIComponent(o.continue)}/send`, { text, wait: true, timeoutSec: sec }, limit(sec));
+    if (r.fatal) { io.err(`bd-ask: ${r.message}`); return r.fatal; }
+    return follow(r.run);
+  }
+
+  const body = { text, wait: !o['no-wait'], timeoutSec: sec };
+  if (o.files.length) body.files = o.files.map(f => path.resolve(io.cwd, f));
+  const r = await request('POST', `/api/specialist/${encodeURIComponent(o.args[0])}/ask`, body, o['no-wait'] ? 60000 : limit(sec));
+  if (r.fatal) { io.err(`bd-ask: ${r.message}`); return r.fatal; }
+  if (o['no-wait']) { io.out(r.run.runId); return 0; }
+  return follow(r.run);
+}
+
+module.exports = { main, parse, dashPort };
+
+if (require.main === module) {
+  const state = {};
+  const io = { out: s => console.log(s), err: s => console.error(s), stdin: () => fs.readFileSync(0, 'utf8'), cwd: process.cwd(), state };
+  process.on('SIGINT', () => {
+    console.error(`bd-ask: interrupted${state.runId ? `; the run keeps going. Resume with: bd-ask --wait ${state.runId}` : ''}`);
+    process.exit(130);
+  });
+  main(process.argv.slice(2), process.env, io).then(code => { process.exitCode = code; }, e => { console.error(`bd-ask: ${e.message}`); process.exitCode = 1; });
+}

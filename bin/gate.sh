@@ -167,6 +167,8 @@ r="$(sp specialist/gate-writer '{"title":"x"}' -H 'Origin: https://evil.example'
 [ "$r" = 403 ] && ok "POST specialist from a foreign Origin -> 403" || fail "POST specialist foreign Origin -> $r"
 r="$(sp specialist/gate-writer/archive '')"
 [ "$r" = 200 ] && grep -q '"archivedAs":"_archive/gate-writer-' /tmp/gate-$$.body && [ -d "$TMP/specialists/_archive" ] && [ "$(get /api/specialist/gate-writer | cut -d' ' -f1)" = 404 ] && ok "POST specialist archive -> moved to _archive" || fail "POST specialist archive -> $r $(head -c 200 /tmp/gate-$$.body)"
+out="$(BEAST_DASH_PORT=1 "$TMP/bin/bd-ask" --list 2>&1)"; rc=$?
+[ $rc = 3 ] && [[ "$out" == *"cannot reach the dashboard"* ]] && ok "bd-ask with no dashboard -> exit 3" || fail "bd-ask unreachable -> rc=$rc $out"
 r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"id":"gate-tab-1","session":"claude-gate-nope"}' "$B/api/watching")"
 r2="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"id":"gate-tab-1","session":"../x"}' "$B/api/watching")"
 [ "$r $r2" = "200 400" ] && ok "POST watching -> 200, bad session -> 400" || fail "POST watching -> $r, bad session -> $r2"

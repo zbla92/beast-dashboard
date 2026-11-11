@@ -34,7 +34,7 @@ then offers to replace your version on each run; answer no to keep it.
   folder or of another project's folder. It stops most accidents, not all. See [Uploaded files](claude-code.md#uploaded-files).
 - **Plans:** turn on ⚙ Settings → Plans. That links the `plan` command and adds the hook that tells a session about its
   plan. See [Plans](plans.md).
-- **New sessions:** `./install.sh` links the `bd-chat` command. See [From an agent or a script](claude-code.md#from-an-agent-or-a-script).
+- **New sessions:** `./install.sh` links the `bd-chat` and `bd-ask` commands. See [From an agent or a script](claude-code.md#from-an-agent-or-a-script).
 - **Models:** nothing enforces the table. It is guidance the agent follows.
 
 ## The block
@@ -79,6 +79,9 @@ Use a plan for work with more than about 3 tasks or with parallel agents. If the
 - To hand work to a new session (another repo, a fresh context), run `bd-chat new --cwd <folder> "<first message>"`. It starts a chat in the dashboard and prints its name. `bd-chat new --help` shows the rest.
 - Never start one yourself: no `tmux new-session` for Claude, no `claude` in a background shell, no loading the dashboard's `lib/` code. The dashboard does not see such a session as a chat.
 - If `bd-chat` is missing, ask the user to open the chat from the dashboard.
+
+### Specialists
+- When the user asks for a specialist by name, or a task clearly matches one in `bd-ask --list` (for example drafting a message in the user's voice), run `bd-ask <name> "<task>"` instead of doing it in this session. It prints only the specialist's answer; pass it on and paste back only what is needed. `bd-ask --help` shows the rest.
 
 ### Before calling work done
 - The project's checks pass.
