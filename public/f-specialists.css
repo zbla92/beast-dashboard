@@ -175,3 +175,8 @@ body:not(.term-open) .sptr-scrim, body:not(.term-open) .sptr-panel.sheet { displ
 @media (max-width: 900px) {
   .sppage-card { padding: 12px; }
 }
+.sp-usebox { display: flex; flex-direction: column; gap: 4px; }
+.sp-usenote { color: var(--dim); line-height: 1.45; }
+.sp-skillnote { margin-top: var(--sp-2); }
+.sp-skillwarn { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2); padding: 7px 10px; border-radius: var(--r); font-size: var(--fs-sm); line-height: 1.45; color: var(--amber); background: color-mix(in srgb, var(--amber) 10%, transparent); }
+.badge.sp-skillbad { color: var(--amber); background: color-mix(in srgb, var(--amber) 12%, transparent); }
