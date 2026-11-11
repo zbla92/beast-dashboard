@@ -9,8 +9,7 @@ FEAT.specialists = (() => {
   const MODEL_HINT = { openai: 'model id, e.g. gpt-5', xai: 'model id, e.g. grok-4' };
   const RUN_STATE = { starting: 'starting', working: 'working', waiting: 'needs an answer', done: 'done', error: 'error', stopped: 'stopped' };
   const V = { list: [], templates: [], at: 0, busy: false, ok: false, sig: '' };
-  const PG = { name: null, tab: 'runs', data: null, timer: null, full: new Map(), shown: new Set(), onEsc: null, box: null };
-  const ASK = { name: null, box: null };
+  const CR = { onEsc: null };
   const SEEN_KEY = 'bd.spec.seen';
   const SINCE_KEY = 'bd.spec.since';
   const SEEN_CAP = 200;
@@ -75,8 +74,7 @@ FEAT.specialists = (() => {
   const FINAL_RUN = ['done', 'error', 'stopped'];
   const isFinal = r => FINAL_RUN.includes(r.state);
   const finKey = () => [...FIN.keys()].filter(id => !SEEN.ids.has(id)).join(',');
-  const askShown = () => !!ASK.box && $('#modal').contains(ASK.box);
-  const watching = r => (PG.name === r.specialist && pageShown()) || (ASK.name === r.specialist && askShown()) || (!!TERM.open && TERM.active === r.tmux);
+  const watching = r => (PG.name === r.specialist && pageShown()) || (!!TERM.open && TERM.active === r.tmux);
   const collect = runs => {
     for (const r of runs) {
       if (!isFinal(r) || FIN.has(r.runId) || SEEN.ids.has(r.runId) || !((r.endedAt || 0) > SEEN.since)) continue;
@@ -108,6 +106,7 @@ FEAT.specialists = (() => {
   function repaint() {
     renderRail();
     if (IS_PHONE && TERM.open && TERM.showList) renderTermPanel(true);
+    paintPage();
   }
 
   async function refresh(force) {
@@ -127,11 +126,12 @@ FEAT.specialists = (() => {
   function onState() {
     const sig = sessionSig();
     if (!V.at || sig !== V.sig) { V.sig = sig; refresh(false); }
+    paintPage();
   }
 
-  const pageShown = () => !!PG.name && !!PG.box && $('#modal').contains(PG.box);
+  const pageShown = () => !!PG.tmux && !!TERM.open && TERM.active === PG.tmux;
   const keyOf = () => [V.ok, PG.name, pageShown(), V.list.map(p => [p.name, p.title, p.icon, p.provider, p.model, p.active, p.error, p.thread?.state, p.description]), V.list.map(p => runSessions(p.name).map(s => [s.name, s.claude?.state, s.claude?.needsYou, s.claude?.title, s.claude?.firstPrompt, s.claude?.label]))];
-  const termBarKey = name => [keyOf(), trainBarKey(name)];
+  const termBarKey = name => [keyOf(), trainBarKey(name), pageBarKey(name)];
 
   const runLabel = s => firstLine(s.claude?.title || s.claude?.firstPrompt || s.claude?.label) || s.name;
 
@@ -194,7 +194,7 @@ FEAT.specialists = (() => {
     for (const p of V.list.filter(valid)) {
       const t = p.title || p.name;
       out.push({ kind: 'action', label: 'Specialist: ' + t, sub: p.description || modelLabel(p.model, p.provider), icon: p.icon || '◆', hay: ['specialist', p.name, t, p.description].join(' '), run: () => openPage(p.name), rank: 26 },
-        { kind: 'action', label: 'Ask ' + t + '…', sub: 'send it a task', icon: p.icon || '◆', hay: ['ask specialist', p.name, t].join(' '), run: () => openAsk(p.name), rank: 26 });
+        { kind: 'action', label: 'Ask ' + t + '…', sub: 'send it a task', icon: p.icon || '◆', hay: ['ask specialist', p.name, t].join(' '), run: () => openPage(p.name, { focus: true }), rank: 26 });
     }
     return out;
   }
@@ -221,52 +221,6 @@ FEAT.specialists = (() => {
     return HOME.node;
   }
 
-  function openAsk(name) {
-    const p = V.list.find(x => x.name === name) || { name };
-    const t = p.title || name;
-    const m = $('#modal'); m.classList.remove('hidden');
-    if (PG.onEsc) document.removeEventListener('keydown', PG.onEsc, true);
-    clearInterval(PG.timer); PG.timer = null; PG.name = null; PG.box = null;
-    const mode = { wait: true };
-    const text = h('textarea', { class: 'sp-ask', rows: 4, placeholder: 'Ask ' + t + '…' });
-    const status = h('div', { class: 'ns-status hidden' });
-    const go = h('button', { class: 'btn primary ns-send' }, 'Ask');
-    const hint = h('span', { class: 'dim sp-note' });
-    const seg = h('span', { class: 'seg ns-tabs' });
-    const paintSeg = () => {
-      seg.replaceChildren(...[[true, 'Wait here'], [false, 'Notify me']].map(([v, l]) => h('button', { class: 'segb' + (mode.wait === v ? ' on' : ''), onclick: () => { mode.wait = v; paintSeg(); } }, l)));
-      hint.textContent = mode.wait ? 'Shows the run when it is done' : 'Lands in the Inbox when it is done';
-    };
-    const send = async () => {
-      const body = text.value.trim(); if (!body || go.disabled) return;
-      const wait = mode.wait;
-      go.disabled = true; text.disabled = true; status.classList.add('hidden');
-      ASK.name = name; ASK.box = box;
-      if (wait) { status.textContent = 'Waiting for ' + t + '…'; status.classList.remove('hidden'); }
-      try {
-        const r = await api('specialist/' + enc(name) + '/ask', wait ? { text: body, wait: true, timeoutSec: 300 } : { text: body, wait: false });
-        const here = askShown();
-        if (wait && here && isFinal(r)) { markSeen(r.runId, r.endedAt); FIN.delete(r.runId); }
-        ASK.name = null; ASK.box = null;
-        if (wait && here) openPage(name, { run: r.runId });
-        else if (!wait && here) { closeModal(); toast('Asked ' + t + '. It lands in the Inbox when done.', 'ok'); }
-        refresh(true);
-      } catch (e) {
-        ASK.name = null; ASK.box = null;
-        go.disabled = false; text.disabled = false; status.textContent = e.message; status.classList.remove('hidden');
-      }
-    };
-    go.onclick = send;
-    text.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing && ((e.metaKey || e.ctrlKey) || (!IS_PHONE && !e.shiftKey))) { e.preventDefault(); send(); } };
-    const box = h('div', { class: 'box spbox spcreate spask' },
-      h('div', { class: 'sh' }, tile(p), h('h3', null, 'Ask ' + t), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', onclick: closeModal }, ico('x', 15))),
-      h('div', { class: 'sp-body' }, text, status),
-      h('div', { class: 'sp-foot' }, seg, hint, h('span', { class: 'sp' }), go));
-    paintSeg();
-    m.replaceChildren(box); PG.box = box; setup(m, closeModal);
-    if (!IS_PHONE) text.focus();
-  }
-
   const opts = (list, cur) => {
     const items = list.some(([v]) => v === (cur ?? '')) || cur == null ? list : [...list, [cur, cur]];
     return items.map(([v, l]) => h('option', { value: v }, l));
@@ -289,21 +243,19 @@ FEAT.specialists = (() => {
       if (e.key !== 'Escape' || m.classList.contains('hidden')) return;
       e.preventDefault(); e.stopPropagation(); close();
     };
-    PG.onEsc = onEsc; document.addEventListener('keydown', onEsc, true);
+    CR.onEsc = onEsc; document.addEventListener('keydown', onEsc, true);
     m.onclick = e => { if (e.target === m) close(); };
   }
 
   function closeModal() {
     const m = $('#modal'); m.classList.add('hidden');
-    if (PG.onEsc) document.removeEventListener('keydown', PG.onEsc, true);
-    PG.onEsc = null; clearInterval(PG.timer); PG.timer = null; PG.name = null; PG.box = null; ASK.box = null;
-    renderRail();
+    if (CR.onEsc) document.removeEventListener('keydown', CR.onEsc, true);
+    CR.onEsc = null;
   }
 
   function openCreate() {
     const m = $('#modal'); m.classList.remove('hidden');
-    if (PG.onEsc) document.removeEventListener('keydown', PG.onEsc, true);
-    clearInterval(PG.timer); PG.timer = null; PG.name = null;
+    if (CR.onEsc) document.removeEventListener('keydown', CR.onEsc, true);
     const templates = [{ id: 'blank', title: 'Blank' }, ...V.templates.filter(t => t.id !== 'blank')];
     const err = h('div', { class: 'ns-status hidden' });
     const name = h('input', { class: 'txt', placeholder: 'name, e.g. writer', autocapitalize: 'off', autocomplete: 'off', spellcheck: 'false', maxlength: 32 });
@@ -346,27 +298,11 @@ FEAT.specialists = (() => {
         h('div', { class: 'sp-row' }, field('Template', tpl, 'grow'), field('Mode', mode, 'grow')),
         h('div', { class: 'sp-row' }, field('Provider', provider, 'grow'), field('Model', model.box, 'grow')), err),
       h('div', { class: 'sp-foot' }, h('span', { class: 'dim sp-note' }, 'Gets its own folder with instructions'), h('span', { class: 'sp' }), go));
-    m.replaceChildren(box); PG.box = box; setup(m, closeModal);
+    m.replaceChildren(box); setup(m, closeModal);
     sync(); if (!IS_PHONE) name.focus();
   }
 
   function stateDot(st) { return h('i', { class: 'sp-dot rs-' + st }); }
-
-  async function loadPage() {
-    if (!PG.name) return;
-    const name = PG.name;
-    try {
-      const r = await api('specialist/' + enc(name) + '?runs=50');
-      if (PG.name !== name) return;
-      PG.data = r; PG.err = null;
-      if (pageShown()) {
-        const fresh = (r.runs || []).filter(x => isFinal(x) && (FIN.has(x.runId) || (x.endedAt || 0) > SEEN.since) && !SEEN.ids.has(x.runId));
-        for (const x of fresh) { FIN.delete(x.runId); markSeen(x.runId, x.endedAt); }
-        if (fresh.length) announce();
-      }
-    } catch (e) { if (PG.name === name) PG.err = e.message; }
-    if (PG.name === name) PG.paint && PG.paint();
-  }
 
   const FB = { tracked: new Map(), timer: null, ov: null };
   const FB_POLL_MS = 4000;
@@ -462,52 +398,6 @@ FEAT.specialists = (() => {
   }
   const improveButton = (name, title, runId, text) => h('button', { class: 'btn sm', type: 'button', title: 'edit this answer into a better one and send it to training', onclick: () => openImprove({ name, title, runId, text }) }, ico('pencil', 13), 'Improve');
 
-  async function showRunText(r, slot) {
-    if (!PG.full.has(r.runId) || !isFinal(PG.full.get(r.runId))) {
-      try { PG.full.set(r.runId, await api('specialist/run/' + enc(r.runId))); } catch (e) { slot.replaceChildren(h('div', { class: 'ns-status' }, e.message)); return; }
-    }
-    const full = PG.full.get(r.runId);
-    const sendIn = h('input', { class: 'txt', placeholder: 'Continue this run…', autocomplete: 'off' });
-    const sendBtn = h('button', { class: 'btn sm primary' }, 'Send');
-    const status = h('div', { class: 'ns-status hidden' });
-    const cont = async () => {
-      const text = sendIn.value.trim(); if (!text) return;
-      sendBtn.disabled = true; status.classList.add('hidden');
-      try { await api('specialist/run/' + enc(r.runId) + '/send', { text }); closeModal(); openTerm(full.tmux || r.tmux || r.runId); } catch (e) { sendBtn.disabled = false; status.textContent = e.message; status.classList.remove('hidden'); }
-    };
-    sendBtn.onclick = cont; sendIn.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); cont(); } };
-    const canSend = full.mode === 'run' && isFinal(full);
-    slot.replaceChildren(
-      full.text ? h('div', { class: 'sp-out' }, full.text) : h('div', { class: 'dim sp-none' }, full.error ? full.error : 'No result yet.'),
-      h('div', { class: 'sp-acts' },
-        full.text ? h('button', { class: 'btn sm', onclick: () => navigator.clipboard.writeText(full.text).then(() => toast('Copied', 'ok'), () => toast('Could not copy', 'err')) }, ico('copy', 13), 'Copy') : null,
-        full.text && PG.name ? improveButton(PG.name, PG.data?.specialist?.title || PG.name, r.runId, full.text) : null,
-        canSend ? [sendIn, sendBtn] : null),
-      status);
-  }
-
-  function runRow(r) {
-    const st = r.state || 'done'; const live = !!claudeOf(r.tmux);
-    const opened = PG.shown.has(r.runId);
-    const slot = h('div', { class: 'sp-detail' });
-    const row = h('div', { class: 'ntrow sp-run' + (opened ? ' open' : ''), onclick: () => {
-      if (live) { closeModal(); openTerm(r.tmux); return; }
-      if (PG.shown.has(r.runId)) { PG.shown.delete(r.runId); slot.replaceChildren(); row.classList.remove('open'); return; }
-      PG.shown.add(r.runId); row.classList.add('open'); showRunText(r, slot);
-    } },
-      stateDot(st),
-      h('div', { class: 'ntn' }, h('div', { class: 'ntt sp-task' }, firstLine(r.task) || r.runId), r.preview && !opened ? h('div', { class: 'nts sp-prev' }, firstLine(r.preview)) : null),
-      h('div', { class: 'sp-meta dim' }, h('span', null, RUN_STATE[st] || st), h('span', null, ago(r.startedAt))));
-    if (opened) showRunText(r, slot);
-    return h('div', { class: 'sp-runwrap' }, row, slot);
-  }
-
-  function paintRuns(box) {
-    const d = PG.data; if (!d) { box.replaceChildren(h('div', { class: 'dim sp-none' }, PG.err || 'Loading…')); return; }
-    const runs = d.runs || [];
-    box.replaceChildren(...(runs.length ? runs.map(runRow) : [h('div', { class: 'dim sp-none' }, 'No runs yet.')]));
-  }
-
   function profileTab(p, onSaved, close) {
     const title = h('input', { class: 'txt', value: p.title || '', maxlength: 60 });
     const icon = h('input', { class: 'txt sp-icon', value: p.icon || '', maxlength: 16 });
@@ -558,17 +448,32 @@ FEAT.specialists = (() => {
   const CHANGE_LABEL = { added: 'added', modified: 'changed', deleted: 'deleted' };
   const TRAIN_STATE = { working: 'Working…', permission: 'Needs an answer' };
   const TRAINER_RE = /^claude-spec-([a-z0-9][a-z0-9-]{0,31}?)_train(-company)?$/;
+  const PAGE_RE = /^claude-spec-([a-z0-9][a-z0-9-]{0,31}?)_page$/;
+  const ASK_FILES_MAX = 20;
   const PANEL_KEY = 'bd.spec.trainpanel';
   const POLL_MS = 4000;
+  const PAGE_POLL_MS = 5000;
   const TAB_LABEL = [['files', 'Files'], ['changes', 'What changed'], ['accesses', 'Accesses']];
 
+  const PG_EMPTY = { name: null, tmux: null, run: null, data: null, err: null, files: [], chips: null, node: null, key: '', focus: false, panel: false, sheet: false, profile: null, full: new Map(), el: null, tabs: null, body: null, scrim: null };
+  const PG = { ...PG_EMPTY, timer: null };
   const TR = { name: null, tmux: null, ov: null, err: null, files: [], added: [], fresh: false, panel: store.get(PANEL_KEY) !== '0', sheet: false, tab: 'files', open: new Map(), undoAsk: null, rmAsk: null, more: null, moreFlag: false, busy: false, timer: null, keys: {}, view: null, el: null, tabs: null, body: null, scrim: null };
   const PHANTOM = new Map();
 
   const trainerOf = tmux => { const m = TRAINER_RE.exec(typeof tmux === 'string' ? tmux : ''); return m ? m[1] : null; };
+  const pageOf = tmux => { const m = PAGE_RE.exec(typeof tmux === 'string' ? tmux : ''); return m ? m[1] : null; };
+  const pageTmux = name => 'claude-spec-' + name + '_page';
+  const specOf = name => V.list.find(x => x.name === name) || { name };
+  const pageSpec = () => PG.data?.specialist || specOf(PG.name);
   const trainerTmux = (name, account) => 'claude-spec-' + name + '_train' + (account === 'company' ? '-company' : '');
   const trainBase = () => 'specialist/' + enc(TR.name) + '/train';
-  const trainTitle = tmux => { const n = trainerOf(tmux); if (!n) return null; const p = V.list.find(x => x.name === n); return 'Train ' + (p?.title || n); };
+  const trainTitle = tmux => {
+    const t = trainerOf(tmux); const g = pageOf(tmux);
+    if (!t && !g) return null;
+    const p = specOf(t || g);
+    return t ? 'Train ' + (p.title || t) : p.title || g;
+  };
+  const termTile = tmux => { const n = trainerOf(tmux) || pageOf(tmux); return n && V.list.some(p => p.name === n) ? tile(specOf(n), 'sm') : null; };
   const trainLive = () => S.runtime.sessions.find(s => s.name === TR.tmux)?.claude || null;
   const pendingNotes = () => (TR.ov?.feedback || []).filter(f => f.state === 'pending').length;
   const trainStatus = () => {
@@ -580,7 +485,7 @@ FEAT.specialists = (() => {
   const trainDot = () => { const cl = trainLive(); return !cl ? 'idle' : cl.state === 'working' ? 'working' : cl.state === 'permission' ? 'waiting' : 'done'; };
 
   function phantom(tmux) {
-    const name = trainerOf(tmux);
+    const name = trainerOf(tmux) || pageOf(tmux);
     if (!name || !V.list.some(p => p.name === name && valid(p))) return null;
     if (!PHANTOM.has(tmux)) PHANTOM.set(tmux, { mode: 'chat', account: tmux.endsWith('-company') ? 'company' : 'personal' });
     return PHANTOM.get(tmux);
@@ -637,14 +542,26 @@ FEAT.specialists = (() => {
     return V3;
   }
 
+  const chipRow = (el, files, drop, label) => {
+    el.replaceChildren(...files.map(f => h('span', { class: 'badge tag sp-file' }, f.split('/').pop(), h('button', { class: 'sp-x', title: label, 'aria-label': label, onclick: () => drop(f) }, '×'))));
+    el.classList.toggle('hidden', !files.length);
+  };
   const paintChips = () => {
     const v = TR.view; if (!v) return;
-    v.chips.replaceChildren(...TR.files.map(f => h('span', { class: 'badge tag sp-file' }, f.split('/').pop(), h('button', { class: 'sp-x', title: 'Do not mention it', 'aria-label': 'Do not mention it', onclick: () => { TR.files = TR.files.filter(x => x !== f); paintChips(); } }, '×'))));
-    v.chips.classList.toggle('hidden', !TR.files.length);
+    chipRow(v.chips, TR.files, f => { TR.files = TR.files.filter(x => x !== f); paintChips(); }, 'Do not mention it');
+  };
+  const paintPageChips = () => {
+    if (PG.chips) chipRow(PG.chips, PG.files, f => { PG.files = PG.files.filter(x => x !== f); paintPageChips(); }, 'Remove');
   };
   const placeChips = () => {
-    const box = $('#term-chat'); const field = box && box.querySelector('.cbox2 .cfield');
-    if (field && TR.view && TR.view.chips.parentNode !== field) field.insertBefore(TR.view.chips, field.querySelector('.cline'));
+    const box = $('#term-chat'); if (!box) return;
+    const onPage = !!PG.tmux && TERM.active === PG.tmux;
+    const chips = onPage ? PG.chips : TR.view?.chips;
+    const reply = box.querySelector('.creply');
+    if (onPage && reply) reply.placeholder = pagePlaceholder();
+    const field = box.querySelector('.cbox2 .cfield');
+    if (field && chips && chips.parentNode !== field) field.insertBefore(chips, field.querySelector('.cline'));
+    if (onPage && PG.focus && reply && !IS_PHONE) { PG.focus = false; reply.focus({ preventScroll: true }); }
   };
 
   async function uploadOne(file) {
@@ -666,7 +583,39 @@ FEAT.specialists = (() => {
     fail(v.upErr, errors.join('\n'));
   }
 
-  const attachFile = (tmux, file) => tmux && tmux === TR.tmux ? uploadOne(file) : null;
+  async function attachToAsk(file) {
+    if (isApi(pageSpec().provider)) throw new Error('OpenAI and xAI specialists only get the text of a task.');
+    if (PG.files.length >= ASK_FILES_MAX) throw new Error('At most ' + ASK_FILES_MAX + ' files per task.');
+    const path = await uploadFile(file);
+    if (!PG.files.includes(path)) PG.files.push(path);
+    paintPageChips(); placeChips();
+  }
+
+  const attachFile = (tmux, file) => tmux && tmux === TR.tmux ? uploadOne(file) : tmux && tmux === PG.tmux ? attachToAsk(file) : null;
+
+  const continuing = () => {
+    const f = PG.run && PG.full.get(PG.run);
+    return f && !f.failed && f.mode === 'run' && isFinal(f) ? f : null;
+  };
+  const pagePlaceholder = () => continuing() ? 'Continue this run…' : 'Ask ' + (pageSpec().title || PG.name) + '…';
+
+  async function sendAsk(text) {
+    const run = continuing();
+    if (run) {
+      await api('specialist/run/' + enc(run.runId) + '/send', { text });
+      PENDING[PG.tmux] = [];
+      openTerm(run.tmux || run.runId);
+      return null;
+    }
+    const body = { text, wait: false };
+    if (PG.files.length) body.files = PG.files;
+    const r = await api('specialist/' + enc(PG.name) + '/ask', body);
+    PENDING[PG.tmux] = [];
+    PG.files = []; paintPageChips();
+    refresh(true); loadPage();
+    openTerm(r.tmux || r.runId);
+    return r;
+  }
 
   async function sendTrain(text) {
     const body = { text };
@@ -681,9 +630,10 @@ FEAT.specialists = (() => {
     return r;
   }
 
-  const sendMessage = (tmux, text) => tmux && tmux === TR.tmux ? sendTrain(text) : null;
+  const sendMessage = (tmux, text) => tmux && tmux === TR.tmux ? sendTrain(text) : tmux && tmux === PG.tmux ? sendAsk(text) : null;
 
   function emptyChat(tmux) {
+    if (tmux && tmux === PG.tmux) return PG.node;
     if (!trainerOf(tmux)) return null;
     return h('div', { class: 'turn assistant sptr-open' }, h('div', { class: 'who' }, gl('✦ trainer')),
       h('div', { class: 'ttext' }, TR.ov?.trainer ? 'This trainer is stopped. Your next message resumes it.' : OPENING_PROMPT));
@@ -785,35 +735,35 @@ FEAT.specialists = (() => {
     paintTrain(); renderTermPanel();
   }
 
-  const closePanel = () => { if (IS_PHONE) TR.sheet = false; else { TR.panel = false; store.set(PANEL_KEY, '0'); } mountPanel(); renderTermPanel(); };
-  function buildPanel() {
-    const p = V.list.find(x => x.name === TR.name) || { name: TR.name };
-    TR.tabs = h('div', { class: 'seg sptr-tabs' });
-    TR.body = h('div', { class: 'sptr-body' });
-    TR.scrim = h('div', { class: 'sptr-scrim', onclick: closePanel });
-    TR.el = h('div', { class: 'sptr-panel' },
+  const closePanel = o => { if (IS_PHONE) o.sheet = false; else { o.panel = false; if (o === TR) store.set(PANEL_KEY, '0'); } mountPanel(o); renderTermPanel(); };
+  function buildPanel(o, title, tabs) {
+    const p = specOf(o.name);
+    o.tabs = tabs ? h('div', { class: 'seg sptr-tabs' }) : null;
+    o.body = h('div', { class: 'sptr-body' });
+    o.scrim = h('div', { class: 'sptr-scrim', onclick: () => closePanel(o) });
+    o.el = h('div', { class: 'sptr-panel' },
       h('div', { class: 'sptr-grab' }),
-      h('div', { class: 'sptr-top' }, tile(p), h('div', { class: 'sptr-tt' }, h('b', null, 'Training'), h('span', { class: 'dim' }, p.title || p.name)), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost icon', title: 'close', 'aria-label': 'close', onclick: closePanel }, ico('x', 15))),
-      TR.tabs, TR.body);
+      h('div', { class: 'sptr-top' }, tile(p), h('div', { class: 'sptr-tt' }, h('b', null, title), h('span', { class: 'dim' }, p.title || p.name)), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost icon', title: 'close', 'aria-label': 'close', onclick: () => closePanel(o) }, ico('x', 15))),
+      ...(o.tabs ? [o.tabs] : []), o.body);
   }
 
-  function mountPanel() {
-    const main = $('.termmain'); const el = TR.el; if (!main || !el) return;
-    const open = IS_PHONE ? TR.sheet : TR.panel;
-    if (!open) { main.classList.remove('sptr-open'); TR.scrim.remove(); if (el.parentNode) { el.classList.add('leaving'); setTimeout(() => { if (el.classList.contains('leaving')) el.remove(); }, 240); } return; }
+  function mountPanel(o) {
+    const main = $('.termmain'); const el = o.el; if (!main || !el) return;
+    const open = IS_PHONE ? o.sheet : o.panel;
+    if (!open) { main.classList.remove('sptr-open'); o.scrim.remove(); if (el.parentNode) { el.classList.add('leaving'); setTimeout(() => { if (el.classList.contains('leaving')) el.remove(); }, 240); } return; }
     el.classList.remove('leaving'); el.classList.toggle('sheet', IS_PHONE);
-    if (IS_PHONE) { document.body.append(TR.scrim, el); main.classList.remove('sptr-open'); return; }
+    if (IS_PHONE) { document.body.append(o.scrim, el); main.classList.remove('sptr-open'); return; }
     const bar = $('#term-bar');
     if (bar) main.style.setProperty('--sptr-top', (bar.offsetTop + bar.offsetHeight) + 'px');
-    TR.scrim.remove();
+    o.scrim.remove();
     main.classList.add('sptr-open');
     if (el.parentNode !== main) main.append(el);
   }
 
-  function togglePanel() {
-    if (IS_PHONE) TR.sheet = !TR.sheet;
-    else { TR.panel = !TR.panel; store.set(PANEL_KEY, TR.panel ? '1' : '0'); if (TR.panel) feat('rightOpen', 'trainpanel'); }
-    mountPanel(); renderTermPanel();
+  function togglePanel(o) {
+    if (IS_PHONE) o.sheet = !o.sheet;
+    else { o.panel = !o.panel; if (o === TR) store.set(PANEL_KEY, o.panel ? '1' : '0'); if (o.panel) feat('rightOpen', 'trainpanel'); }
+    mountPanel(o); renderTermPanel();
   }
   const toggleFresh = () => { TR.fresh = !TR.fresh; if (TR.fresh) toast('Your next message starts a new conversation. The old one is kept.'); renderTermPanel(); };
 
@@ -830,7 +780,7 @@ FEAT.specialists = (() => {
   function startTrain(name, tmux) {
     teardownTrain();
     Object.assign(TR, { name, tmux, view: trainViews() });
-    buildPanel(); paintTrain();
+    buildPanel(TR, 'Training', true); paintTrain();
     TR.timer = setInterval(() => {
       if (!(TERM.open && TERM.active === TR.tmux)) { teardownTrain(); return; }
       if (!document.hidden) refreshTrain();
@@ -839,22 +789,53 @@ FEAT.specialists = (() => {
   }
 
   function termShown() {
-    const tmux = TERM.open ? TERM.active : null; const name = trainerOf(tmux);
-    if (!name || !V.list.some(p => p.name === name && valid(p))) { teardownTrain(); return; }
-    if (TR.tmux !== tmux) startTrain(name, tmux);
-    mountPanel();
+    const tmux = TERM.open ? TERM.active : null;
+    const known = name => !!name && V.list.some(p => p.name === name && valid(p));
+    const trainer = trainerOf(tmux); const page = pageOf(tmux);
+    if (known(trainer)) {
+      teardownPage();
+      if (TR.tmux !== tmux) startTrain(trainer, tmux);
+      mountPanel(TR);
+    } else if (known(page)) {
+      teardownTrain();
+      if (PG.tmux !== tmux) startPage(page, tmux);
+      mountPanel(PG);
+    } else { teardownTrain(); teardownPage(); }
   }
 
-  const rightOpen = which => { if (which !== 'trainpanel' && TR.tmux && !IS_PHONE && TR.panel) { TR.panel = false; mountPanel(); renderTermPanel(); } };
+  const rightOpen = which => {
+    if (which === 'trainpanel' || IS_PHONE) return;
+    for (const o of [TR, PG]) if (o.tmux && o.panel) { o.panel = false; mountPanel(o); renderTermPanel(); }
+  };
+
+  function pageBar() {
+    const p = pageSpec(); const t = PG.data?.thread; const open = IS_PHONE ? PG.sheet : PG.panel;
+    return [
+      h('span', { class: 'sppage-chips desk' },
+        isApi(p.provider) ? h('span', { class: 'badge tag' }, providerLabel(p.provider)) : null,
+        h('span', { class: 'badge tag' }, modelLabel(p.model, p.provider)),
+        h('span', { class: 'badge tag' }, p.mode === 'thread' ? 'Thread' : 'Fresh run per task'),
+        !isApi(p.provider) && p.account && p.account !== 'personal' ? h('span', { class: 'badge tag acc ' + p.account }, acct(p.account)) : null),
+      t?.live ? h('button', { class: 'btn sm ghost sptr-btn', title: 'open the live thread', onclick: () => openTerm(t.tmux) }, ico('chat', 14), h('span', { class: 'desk' }, 'Thread')) : null,
+      h('button', { class: 'btn sm ghost sptr-btn', title: 'talk to the trainer', onclick: () => openTrain(PG.name) }, ico('brain', 14), h('span', { class: 'desk' }, 'Train')),
+      h('button', { class: 'btn sm ghost sptr-btn' + (open ? ' on' : ''), title: 'Instructions, settings and archive', 'aria-pressed': open ? 'true' : 'false', onclick: () => togglePanel(PG) }, ico('gear', 14), h('span', { class: 'desk' }, 'Profile'))
+    ];
+  }
+  const pageBarKey = tmux => {
+    if (!tmux || tmux !== PG.tmux) return null;
+    const p = pageSpec();
+    return [PG.panel, PG.sheet, p.model, p.mode, p.provider, p.account, PG.data?.thread?.live, PG.data?.thread?.tmux];
+  };
 
   function termBar(tmux) {
+    if (tmux && tmux === PG.tmux) return pageBar();
     if (!trainerOf(tmux) || tmux !== TR.tmux) return null;
     const notes = pendingNotes(); const open = IS_PHONE ? TR.sheet : TR.panel;
     return [
       h('span', { class: 'sptr-stat', title: 'The trainer: ' + trainStatus() + (notes ? ', ' + plural(notes, 'feedback note') + ' waiting' : '') },
         h('i', { class: 'sp-dot rs-' + trainDot() }), h('span', { class: 'sptr-st desk' }, trainStatus()), notes ? h('span', { class: 'badge tag desk' }, plural(notes, 'note') + ' waiting') : null),
       h('button', { class: 'btn sm ghost sptr-btn' + (TR.fresh ? ' on' : ''), title: 'The next message starts a new conversation. The old one is kept.', 'aria-pressed': TR.fresh ? 'true' : 'false', onclick: toggleFresh }, ico('plus', 14), h('span', { class: 'desk' }, TR.fresh ? 'New conversation: on' : 'New conversation')),
-      h('button', { class: 'btn sm ghost sptr-btn' + (open ? ' on' : ''), title: 'Files, what changed and accesses', 'aria-pressed': open ? 'true' : 'false', onclick: togglePanel }, ico('brain', 14), h('span', { class: 'desk' }, 'Training'))
+      h('button', { class: 'btn sm ghost sptr-btn' + (open ? ' on' : ''), title: 'Files, what changed and accesses', 'aria-pressed': open ? 'true' : 'false', onclick: () => togglePanel(TR) }, ico('brain', 14), h('span', { class: 'desk' }, 'Training'))
     ];
   }
   const trainBarKey = tmux => trainerOf(tmux) && tmux === TR.tmux ? [TR.fresh, TR.panel, TR.sheet, pendingNotes(), trainStatus()] : null;
@@ -864,66 +845,128 @@ FEAT.specialists = (() => {
     openTerm(trainerTmux(name, p?.account));
   }
 
-  function openPage(name, o = {}) {
-    const m = $('#modal'); m.classList.remove('hidden');
-    if (PG.onEsc) document.removeEventListener('keydown', PG.onEsc, true);
-    clearInterval(PG.timer);
-    const known = V.list.find(p => p.name === name) || { name };
-    Object.assign(PG, { name, tab: o.tab || 'runs', data: null, err: null }); PG.shown.clear(); PG.full.clear();
-    if (o.run) { PG.shown.add(o.run); if (FIN.has(o.run)) { markSeen(o.run, FIN.get(o.run).endedAt); FIN.delete(o.run); } }
-    const head = h('div', { class: 'sh sp-hd' });
-    const desc = h('div', { class: 'sp-desc dim' });
-    const keyNote = h('div', { class: 'ns-status sp-key hidden' });
-    const tabs = h('span', { class: 'seg ns-tabs' });
-    const body = h('div', { class: 'sp-body sp-pane' });
-    const box = h('div', { class: 'box spbox' }, head, desc, keyNote, tabs, body);
-    const ask = h('textarea', { class: 'sp-ask', rows: 3 });
-    const askBtn = h('button', { class: 'btn primary ns-send' }, 'Ask');
-    const askStatus = h('div', { class: 'ns-status hidden' });
-    const runsBox = h('div', { class: 'sp-runs' });
+  const askNote = () => PG.data?.specialist?.mode === 'thread' ? 'It keeps one thread. Each ask goes into it.' : 'Each task gets its own run.';
 
-    const paintHead = () => {
-      const p = PG.data?.specialist || known; const t = PG.data?.thread;
-      head.replaceChildren(...[tile(p, 'md'), h('div', { class: 'sp-ht' }, h('h3', null, p.title || name), h('div', { class: 'sp-chips' }, isApi(p.provider) ? h('span', { class: 'badge tag' }, providerLabel(p.provider)) : null, h('span', { class: 'badge tag' }, modelLabel(p.model, p.provider)), h('span', { class: 'badge tag' }, p.mode === 'thread' ? 'Thread' : 'Fresh run per task'), !isApi(p.provider) && p.account && p.account !== 'personal' ? h('span', { class: 'badge tag acc ' + p.account }, acct(p.account)) : null)),
-        h('span', { class: 'sp' }), h('button', { class: 'btn sm', title: 'talk to the trainer', onclick: () => { closeModal(); openTrain(name); } }, 'Train'), t?.live ? h('button', { class: 'btn sm', title: 'open the live thread', onclick: () => { closeModal(); openTerm(t.tmux); } }, 'Open thread') : null,
-        h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', 'aria-label': 'close', onclick: closeModal }, ico('x', 15))].filter(Boolean));
-      desc.textContent = p.description || ''; desc.classList.toggle('hidden', !p.description);
-      keyNote.textContent = isApi(p.provider) && p.keyError || ''; keyNote.classList.toggle('hidden', !keyNote.textContent);
-      ask.placeholder = 'Ask ' + (p.title || name) + '…';
-    };
-    const paintTabs = () => tabs.replaceChildren(...[['runs', 'Runs'], ['profile', 'Profile']].map(([k, l]) => h('button', { class: 'segb' + (PG.tab === k ? ' on' : ''), onclick: () => { PG.tab = k; paintTabs(); paintBody(); } }, l)));
-    const paintBody = () => {
-      if (PG.tab === 'runs') {
-        body.replaceChildren(h('div', { class: 'sp-composer' }, ask, h('div', { class: 'ns-bar' }, h('span', { class: 'sp' }), askBtn), askStatus), runsBox);
-        paintRuns(runsBox);
-        if (o.focus) setTimeout(() => ask.focus(), 30);
-        o.focus = false;
-      } else if (!PG.data) body.replaceChildren(h('div', { class: 'dim sp-none' }, PG.err || 'Loading…'));
-      else { PG.profile = profileTab(PG.data.specialist, async () => { await loadPage(); refresh(true); paintHead(); paintBody(); }, closeModal); body.replaceChildren(PG.profile); }
-    };
-    PG.paint = () => { paintHead(); if (PG.tab === 'runs') paintRuns(runsBox); else if (!PG.profile || !body.contains(PG.profile)) paintBody(); };
+  function openRunView(id) {
+    if (FIN.has(id)) { markSeen(id, FIN.get(id).endedAt); FIN.delete(id); announce(); }
+    PG.run = id; PG.key = '';
+    loadFull(id); paintPage();
+  }
+  const closeRunView = () => { PG.run = null; PG.key = ''; paintPage(); loadPage(); };
 
-    const sendAsk = async () => {
-      const text = ask.value.trim(); if (!text || askBtn.disabled) return;
-      askBtn.disabled = true; askStatus.classList.add('hidden');
-      try {
-        const r = await api('specialist/' + enc(name) + '/ask', { text, wait: false });
-        closeModal(); openTerm(r.tmux || r.runId); refresh(true);
-      } catch (e) { askBtn.disabled = false; askStatus.textContent = e.message; askStatus.classList.remove('hidden'); }
-    };
-    askBtn.onclick = sendAsk;
-    ask.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing && ((e.metaKey || e.ctrlKey) || (!IS_PHONE && !e.shiftKey))) { e.preventDefault(); sendAsk(); } };
+  async function loadFull(id) {
+    const tmux = PG.tmux; const cur = PG.full.get(id);
+    if (cur && isFinal(cur)) return;
+    try { const r = await api('specialist/run/' + enc(id)); if (PG.tmux === tmux) PG.full.set(id, r); } catch (e) { if (PG.tmux === tmux) PG.full.set(id, { error: e.message, failed: true }); }
+    if (PG.tmux === tmux) paintPage();
+  }
 
-    m.replaceChildren(box); PG.box = box; setup(m, closeModal);
-    paintHead(); paintTabs(); paintBody(); loadPage();
+  function runCard(r) {
+    const st = r.state || 'done'; const running = st === 'starting' || st === 'working';
+    const prev = firstLine(r.preview);
+    return h('button', { class: 'sppage-card rs-' + st, type: 'button', onclick: () => claudeOf(r.tmux) ? openTerm(r.tmux) : openRunView(r.runId) },
+      h('div', { class: 'sppage-task' }, firstLine(r.task) || r.runId),
+      prev ? h('div', { class: 'sppage-prev' }, prev) : h('div', { class: 'sppage-prev dim' }, running ? 'Working on it…' : r.error || 'No answer yet.'),
+      h('div', { class: 'sppage-foot' }, stateDot(st), h('span', { class: 'sppage-st' }, RUN_STATE[st] || st), h('span', { class: 'sp' }), h('span', { class: 'dim' }, ago(r.startedAt) + ' ago')));
+  }
+
+  function listView() {
+    const p = pageSpec(); const runs = PG.data?.runs || [];
+    const out = [];
+    if (p.description) out.push(h('div', { class: 'sppage-desc' }, p.description));
+    if (isApi(p.provider) && p.keyError) out.push(h('div', { class: 'ns-status' }, p.keyError));
+    if (!PG.data) { out.push(h('div', { class: 'dim sp-none' }, PG.err || 'Loading…')); return out; }
+    if (!runs.length) {
+      out.push(h('div', { class: 'sppage-empty' }, tile(p, 'md'), h('b', null, 'Ask ' + (p.title || PG.name) + ' something'), h('span', { class: 'dim' }, askNote())));
+      return out;
+    }
+    out.push(h('div', { class: 'sptr-h' }, 'Runs'), ...runs.map(runCard));
+    return out;
+  }
+
+  function runView() {
+    const full = PG.full.get(PG.run);
+    const back = h('button', { class: 'btn sm ghost', type: 'button', onclick: closeRunView }, ico('back', 14), 'All runs');
+    if (!full || full.failed) return [h('div', { class: 'sppage-rh' }, back), h('div', { class: 'dim sp-none' }, full ? full.error : 'Loading…')];
+    const st = full.state || 'done';
+    return [
+      h('div', { class: 'sppage-rh' }, back, h('span', { class: 'sp' }), stateDot(st), h('span', { class: 'sppage-st' }, RUN_STATE[st] || st), h('span', { class: 'dim' }, ago(full.startedAt) + ' ago')),
+      full.task ? h('div', { class: 'turn user' }, h('div', { class: 'who' }, gl('❯ you')), h('div', { class: 'ttext sppage-text' }, full.task)) : null,
+      h('div', { class: 'turn assistant' }, full.text ? h('div', { class: 'ttext sppage-text' }, full.text) : h('div', { class: 'dim sp-none' }, full.error || 'No result yet.')),
+      h('div', { class: 'sppage-acts' },
+        full.text ? h('button', { class: 'btn sm', type: 'button', onclick: () => navigator.clipboard.writeText(full.text).then(() => toast('Copied', 'ok'), () => toast('Could not copy', 'err')) }, ico('copy', 13), 'Copy') : null,
+        full.text ? improveButton(PG.name, pageSpec().title || PG.name, full.runId, full.text) : null)];
+  }
+
+  function paintPanel() {
+    if (!PG.body) return;
+    const d = PG.data?.specialist;
+    if (!d) { if (!PG.body.firstChild) PG.body.replaceChildren(h('div', { class: 'dim sp-none' }, PG.err || 'Loading…')); return; }
+    if (PG.profile && PG.body.contains(PG.profile)) return;
+    PG.profile = profileTab(d, async () => { PG.profile = null; await loadPage(); refresh(true); }, () => closeTermPanel());
+    PG.body.replaceChildren(PG.profile);
+  }
+
+  function paintPage() {
+    if (!PG.node || !pageShown()) return;
+    paintPanel();
+    const p = pageSpec();
+    const key = JSON.stringify(PG.run
+      ? [PG.run, PG.full.get(PG.run)?.state, PG.full.get(PG.run)?.text, PG.full.get(PG.run)?.error, Math.floor(Date.now() / 60000)]
+      : [PG.err, !!PG.data, p.description, p.title, p.mode, p.keyError, p.icon, (PG.data?.runs || []).map(r => [r.runId, r.state, r.task, r.preview, r.error, r.startedAt, !!claudeOf(r.tmux)]), Math.floor(Date.now() / 60000)]);
+    if (key === PG.key) return;
+    PG.key = key;
+    PG.node.replaceChildren(...(PG.run ? runView() : listView()).filter(Boolean));
+    placeChips();
+  }
+
+  async function loadPage() {
+    const tmux = PG.tmux; if (!tmux) return;
+    try {
+      const r = await api('specialist/' + enc(PG.name) + '?runs=50');
+      if (PG.tmux !== tmux) return;
+      PG.data = r; PG.err = null;
+      if (pageShown()) {
+        const fresh = (r.runs || []).filter(x => isFinal(x) && (FIN.has(x.runId) || (x.endedAt || 0) > SEEN.since) && !SEEN.ids.has(x.runId));
+        for (const x of fresh) { FIN.delete(x.runId); markSeen(x.runId, x.endedAt); }
+        if (fresh.length) announce();
+      }
+      if (PG.run) loadFull(PG.run);
+    } catch (e) { if (PG.tmux === tmux) PG.err = e.message; }
+    if (PG.tmux === tmux) paintPage();
+  }
+
+  function startPage(name, tmux) {
+    teardownPage();
+    Object.assign(PG, { ...PG_EMPTY, full: new Map(), files: [], name, tmux, node: h('div', { class: 'sppage' }), chips: h('div', { class: 'sptr-chips hidden' }) });
+    buildPanel(PG, 'Profile', false);
+    paintPage(); loadPage();
     PG.timer = setInterval(() => {
-      if (!pageShown()) { clearInterval(PG.timer); PG.timer = null; PG.name = null; PG.box = null; renderRail(); return; }
+      if (!pageShown()) { teardownPage(); return; }
       if (!document.hidden) loadPage();
-    }, 5000);
-    renderRail();
+    }, PAGE_POLL_MS);
+  }
+
+  function teardownPage() {
+    if (!PG.tmux) return;
+    clearInterval(PG.timer); PG.timer = null;
+    const main = $('.termmain'); if (main) main.classList.remove('sptr-open');
+    if (PG.el) PG.el.remove();
+    if (PG.scrim) PG.scrim.remove();
+    if (PG.chips) PG.chips.remove();
+    Object.assign(PG, { ...PG_EMPTY, full: new Map(), files: [] });
+  }
+
+  function openPage(name, o = {}) {
+    const tmux = pageTmux(name);
+    openTerm(tmux);
+    if (PG.tmux !== tmux) return;
+    PG.focus = !!o.focus;
+    if (o.run) openRunView(o.run); else if (PG.run) closeRunView(); else { PG.key = ''; paintPage(); }
+    placeChips();
   }
 
   setInterval(() => { if (!document.hidden) refresh(true); }, 30000);
 
-  return { phantom, trainSend: sendMessage, attachFile, termBar, termShown, rightOpen, composerShown: placeChips, emptyChat, trainTitle, openTrain, onState, termBarKey, railSection, paletteItems, homeTiles, unseenRuns, dismissRun, markSeen: seenByUser, trimSeen, feedbackBody, feedbackError, trackFeedback, pollFeedback, improve: openImprove, openRun, openAsk, open: openPage, create: openCreate, refresh };
+  return { phantom, noTranscript: tmux => !!pageOf(tmux), trainSend: sendMessage, attachFile, termBar, termShown, rightOpen, composerShown: placeChips, emptyChat, trainTitle, termTile, openTrain, onState, termBarKey, railSection, paletteItems, homeTiles, unseenRuns, dismissRun, markSeen: seenByUser, trimSeen, feedbackBody, feedbackError, trackFeedback, pollFeedback, improve: openImprove, openRun, open: openPage, create: openCreate, refresh };
 })();

@@ -275,7 +275,7 @@ async function renderChatPane(force) {
 const HL = { name: null, es: null, snap: null, timer: 0, seen: new Set() };
 function liveWanted() {
   if (document.hidden) return null;
-  const n = TERM.active; if (TERM.open && n && chatMode(n) && isChatSess(n)) return n;
+  const n = TERM.active; if (TERM.open && n && chatMode(n) && isChatSess(n)) return FEAT.specialists?.noTranscript(n) ? null : n;
   const d = UI.drawer === 'session:' + SESS.name && SESS.tab === 'transcript' ? SESS.name : null;
   return d && isChatSess(d) ? d : null;
 }
@@ -657,7 +657,7 @@ function renderTermPanel(force) {
       h('section', { class: 'termmain' }, h('div', { class: 'termbar', id: 'term-bar' }), h('div', { class: 'termframes', id: 'term-frames' }, h('div', { class: 'chatpane hidden', id: 'term-chat' }))));
   }
   const S3 = termSessions(); const known = new Set(S.runtime.sessions.map(s => s.name));
-  const extra = [...TERM.frames.keys()].filter(k => !known.has(k));
+  const extra = [...TERM.frames.keys()].filter(k => !known.has(k) && !FEAT.specialists?.phantom(k));
   // The list and the bar are rebuilt only when something they show actually changed. Rebuilding them on every
   // 3-second state tick blurred the terminal iframe (the focus bug) and made the sidebar flicker.
   const key = JSON.stringify([TERM.active, TERM.showList, TERM.view[TERM.active] || '', TERM.focus, S3.all.map(x => [x.name, x.claude?.mode, x.claude?.state, x.claude?.title, x.claude?.label, x.claude?.firstPrompt, (x.claude?.projects || []).join(), x.claude?.draft, x.claude?.model, x.claude?.effort, x.claude?.branch, x.claude?.worktree?.name, x.claude?.version, x.claude?.wantVersion, (S.settings.muted || []).includes(x.name), Math.floor((x.cpu || 0) / 10), x.ports.map(p => p.port)]), S.claude?.installed, S.claude?.update?.version, CLAUDE_UPGRADING, extra, [...TERM.frames.keys()], S.runtime.sessions.filter(s => s.name === TERM.active).map(s => s.project + (gitOf(byId()[s.project] || {})?.dirty || 0) + '|' + (s.claude?.ctx ? Math.round(s.claude.ctx.used / 1000) + '/' + s.claude.ctx.window + '/' + s.claude.ctx.compactAt : '')), feat('termBarKey', TERM.active)]);
@@ -722,13 +722,13 @@ function renderTermPanel(force) {
   const mobName = act ? sessTitle(act) : (FEAT.specialists?.trainTitle(TERM.active) || TERM.active || 'Sessions');
   const toList = () => { TERM.showList = true; renderTermPanel(true); retop(); };
   barAdd(h('button', { class: 'btn sm ghost mob icon', title: 'back to the sessions (they keep running)', onclick: toList }, ico('back', 17)),
-    h('button', { class: 'mob msess', title: 'switch session', onclick: toList }, act ? avatar(act.project, 'sm') : null, h('span', { class: 'nm' }, mobName), accTag(), instOf(act || { name: TERM.active || '' }).n ? h('span', { class: 'grp' }, '#' + instOf(act).n) : null, cl && IS_PHONE ? stateBadge(cl, true) : null));
+    h('button', { class: 'mob msess', title: 'switch session', onclick: toList }, act ? avatar(act.project, 'sm') : FEAT.specialists?.termTile(TERM.active), h('span', { class: 'nm' }, mobName), accTag(), instOf(act || { name: TERM.active || '' }).n ? h('span', { class: 'grp' }, '#' + instOf(act).n) : null, cl && IS_PHONE ? stateBadge(cl, true) : null));
   const actName = act ? sessTitle(act) : (FEAT.specialists?.trainTitle(TERM.active) || TERM.active);
   const isChatS = cl && cl.mode === 'chat'; const logOn = isChatS && TERM.view[TERM.active] === 'term';
   const updatePending = !!cl && (!!S.claude?.update || needsRestart(cl));
   if (TERM.active) barAdd(h('button', { class: 'btn sm ghost icon desk', title: 'back to the dashboard — every session keeps running  (Esc)', onclick: closeTermPanel }, ico('back', 15)),
     h('button', { class: 'btn sm ghost icon desk' + (TERM.focus ? ' on' : ''), title: TERM.focus ? 'show the rail again' : 'focus mode — hide the rail with every session (screen sharing)', onclick: () => setFocus(!TERM.focus) }, ico('sidebar', 15)),
-    h('span', { class: 'tid desk' }, act ? avatar(act.project, 'sm') : null,
+    h('span', { class: 'tid desk' }, act ? avatar(act.project, 'sm') : FEAT.specialists?.termTile(TERM.active),
       h('span', { class: 'tname' + (cl ? ' can-rename' : ''), title: cl ? 'click to rename · ' + TERM.active : TERM.active, onclick: cl ? () => renameDialog(TERM.active) : null }, actName, instOf(act || { name: TERM.active }).n ? h('span', { class: 'grp' }, ' #' + instOf(act).n) : null),
       cl && (cl.worktree?.name || cl.branch) ? h('span', { class: 'tcrumb' + (cl.worktree?.name ? ' wt' : ''), title: cl.worktree?.name ? 'git worktree' + (cl.branch ? ' · branch ' + cl.branch : '') : 'branch' }, ico('chevronRight', 12), h('span', { class: 'tcrumb-b' }, cl.worktree?.name || cl.branch)) : null,
       IS_PHONE ? null : accTag()),
@@ -1590,6 +1590,7 @@ function cachedFirst(box, name, n, still, paint) {
 const cachedDone = () => { if (window.CHATS) CHATS.barOff(); };
 const updateFailed = box => { if (window.CHATS) CHATS.barOn(box, "couldn't update", 6000); };
 async function transcriptOf(name, n) {
+  if (FEAT.specialists?.noTranscript(name)) return NO_TRANSCRIPT;
   try { return await fetchTranscript(name, n); } catch (e) { return e.status && e.status < 500 ? NO_TRANSCRIPT : null; }
 }
 function chatOffline(box, on) {
@@ -1629,7 +1630,7 @@ function renderConversation(box, name, t, o) {
   const conv = same ? scroller.querySelector('.conv') : h('div', { class: 'conv' });
   const bar = h('div', { class: 'logbar cbar' }, h('span', { class: 'dim' }, `${t.turns.length} of ${t.total}${t.more ? '+' : ''} turns`), h('span', { style: 'flex:1' }),
     t.total > t.turns.length || (t.more && o.n < 200) ? h('button', { class: 'btn sm', onclick: o.more }, gl('↑ older')) : null,
-    ...feat('chatBar', name), h('button', { class: 'btn sm', onclick: o.refresh }, gl('↻')));
+    ...(FEAT.specialists?.noTranscript(name) ? [] : feat('chatBar', name)), h('button', { class: 'btn sm', onclick: o.refresh }, gl('↻')));
   const old = new Map(); for (const el of conv.children) if (el.dataset.h) old.set(el.dataset.h, el);
   const items = [];
   const lv = lv0;
