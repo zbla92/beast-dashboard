@@ -641,6 +641,7 @@ function instOf(it) {
   const n = it.name.match(/^claude-.*-(\d+)(-company)?$/);
   return { wt, n: n ? +n[1] : null, branch: cl.branch || null, label: wt ? '⎇ ' + wt.name : n ? '#' + n[1] : '#1' };
 }
+const instNum = (it, name) => instOf(it || { name: name || '' }).n;
 // Claude sessions grouped per project, in tmux order (the first session of a project fixes the group's position)
 function claudeGroups(list) {
   const groups = []; const by = new Map();
@@ -732,14 +733,16 @@ function renderTermPanel(force) {
   const toList = () => { TERM.showList = true; renderTermPanel(true); retop(); };
   const backTo = FEAT.specialists?.backTo(TERM.active);
   barAdd(h('button', { class: 'btn sm ghost mob icon', title: backTo ? backTo.title : 'back to the sessions (they keep running)', onclick: backTo ? backTo.go : toList }, ico('back', 17)),
-    h('button', { class: 'mob msess', title: 'switch session', onclick: toList }, act ? avatar(act.project, 'sm') : FEAT.specialists?.termTile(TERM.active), h('span', { class: 'nm' }, mobName), accTag(), instOf(act || { name: TERM.active || '' }).n ? h('span', { class: 'grp' }, '#' + instOf(act).n) : null, cl && IS_PHONE ? stateBadge(cl, true) : null));
+    h('button', { class: 'mob msess', title: 'switch session', onclick: toList }, act ? avatar(act.project, 'sm') : FEAT.specialists?.termTile(TERM.active), h('span', { class: 'nm' }, mobName), accTag(), instNum(act, TERM.active) ? h('span', { class: 'grp' }, '#' + instNum(act, TERM.active)) : null, cl && IS_PHONE ? stateBadge(cl, true) : null));
+  const gone = !act && !!TERM.active && !FEAT.specialists?.phantom(TERM.active) && !FEAT.specialists?.trainTitle(TERM.active) && TERM.active !== 'shell';
   const actName = act ? sessTitle(act) : (FEAT.specialists?.trainTitle(TERM.active) || TERM.active);
   const isChatS = cl && cl.mode === 'chat'; const logOn = isChatS && TERM.view[TERM.active] === 'term';
   const updatePending = !!cl && (!!S.claude?.update || needsRestart(cl));
   if (TERM.active) barAdd(h('button', { class: 'btn sm ghost icon desk', title: backTo ? backTo.title : 'back to the dashboard — every session keeps running  (Esc)', onclick: backTo ? backTo.go : closeTermPanel }, ico('back', 15)),
     h('button', { class: 'btn sm ghost icon desk' + (TERM.focus ? ' on' : ''), title: TERM.focus ? 'show the rail again' : 'focus mode — hide the rail with every session (screen sharing)', onclick: () => setFocus(!TERM.focus) }, ico('sidebar', 15)),
     h('span', { class: 'tid desk' }, act ? avatar(act.project, 'sm') : FEAT.specialists?.termTile(TERM.active),
-      h('span', { class: 'tname' + (cl ? ' can-rename' : ''), title: cl ? 'click to rename · ' + TERM.active : TERM.active, onclick: cl ? () => renameDialog(TERM.active) : null }, actName, instOf(act || { name: TERM.active }).n ? h('span', { class: 'grp' }, ' #' + instOf(act).n) : null),
+      h('span', { class: 'tname' + (cl ? ' can-rename' : ''), title: cl ? 'click to rename · ' + TERM.active : TERM.active, onclick: cl ? () => renameDialog(TERM.active) : null }, actName, instNum(act, TERM.active) ? h('span', { class: 'grp' }, ' #' + instNum(act, TERM.active)) : null),
+      gone ? h('span', { class: 'dim tgone' }, 'This session has ended.') : null,
       cl && (cl.worktree?.name || cl.branch) ? h('span', { class: 'tcrumb' + (cl.worktree?.name ? ' wt' : ''), title: cl.worktree?.name ? 'git worktree' + (cl.branch ? ' · branch ' + cl.branch : '') : 'branch' }, ico('chevronRight', 12), h('span', { class: 'tcrumb-b' }, cl.worktree?.name || cl.branch)) : null,
       IS_PHONE ? null : accTag()),
     cl && !IS_PHONE ? stateBadge(cl) : null,
