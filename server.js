@@ -63,8 +63,9 @@ const claudeupdate = require('./lib/claudeupdate');
 claudever.init({ stateDir: STATE, versionsDir: process.env.BD_CLAUDE_VERSIONS, link: process.env.BD_CLAUDE_LINK, fake: TEST && !(process.env.BD_CLAUDE_VERSIONS && process.env.BD_CLAUDE_LINK) ? (process.env.BD_FAKE_CLAUDE || 'claude') : null, onChange: (st, prev) => { setTimeout(() => pushState(false), 0); if (st.using && st.using !== prev) setTimeout(rollChats, 0); } });
 headless.init({ port: settings.get().port, test: TEST, claudeBin: () => claudever.chatBin() });
 const specialists = require('./lib/specialists');
-const specialistRuns = require('./lib/specialist-runs').createRuns({ store: specialists, headless, tmuxHas: actions.sessionExists, claudeGet: claude.get, liveSessions: async () => { const r = await run('tmux', ['list-sessions', '-F', '#{session_name}']); if (!r.ok && !/no server running|error connecting to/.test(r.stderr || '')) throw new Error('tmux list-sessions failed'); return r.ok ? r.stdout.split('\n').filter(Boolean) : []; } });
-const specialistApi = require('./lib/specialist-api').createSpecialistApi({ store: specialists, runs: specialistRuns, readBody, onChange: () => setTimeout(tick, 200) });
+const training = require('./lib/training').createTraining({ store: specialists, headless, tmuxHas: actions.sessionExists, claudeGet: claude.get });
+const specialistRuns = require('./lib/specialist-runs').createRuns({ store: specialists, headless, tmuxHas: actions.sessionExists, claudeGet: claude.get, training, liveSessions: async () => { const r = await run('tmux', ['list-sessions', '-F', '#{session_name}']); if (!r.ok && !/no server running|error connecting to/.test(r.stderr || '')) throw new Error('tmux list-sessions failed'); return r.ok ? r.stdout.split('\n').filter(Boolean) : []; } });
+const specialistApi = require('./lib/specialist-api').createSpecialistApi({ store: specialists, runs: specialistRuns, training, readBody, onChange: () => setTimeout(tick, 200) });
 claude.setProjects(p => history.projectFor(p, projects));
 roots.init({ projects: () => projects });
 const liveOf = id => { const r = Object.values(claude.all()).find(x => !x.gone && x.sessionId === id); return r ? r.tmux : null; };
@@ -169,7 +170,11 @@ async function rollNext(gen) {
 const SWITCHING = new Set(); const SWITCHED = new Map();
 const pathVersion = () => claudever.status().current || CLAUDE_VERSION;
 const chatBinFor = () => { const st = claudever.status(); return st.using && path.isAbsolute(st.bin || '') ? st.bin : null; };
+const chatSend = (name, text) => specialists.trainerOfTmux(name) ? training.chatSend(name, text) : headless.send(name, text);
+const isTrainer = name => !!specialists.trainerOfTmux(name);
 async function restartChat(name) {
+  const rec = claude.get(name);
+  if (isTrainer(name) && !(rec && rec.runner && rec.runner.trainer === true)) return { ok: false, error: 'this trainer session has no trainer settings; start it again from the Train tab' };
   SWITCHING.add(name); SWITCHED.set(name, Date.now());
   try {
     const r = await actions.restartClaude(name, claude.get(name), chatBinFor()).catch(e => ({ ok: false, error: e.message }));
@@ -374,7 +379,7 @@ async function runSchedule() {
   const busy = name => { const st = claude.info(name).state; return st === 'working' || st === 'background' || st === 'permission'; };
   const exists = name => actions.sessionExists(name);
   const allow = j => !j.resume || autoresume.shouldFire({ enabled: !!settings.get().autoResume, job: j, rec: resumeRec(j.session), jobs: schedule.all() });
-  const done = await schedule.run(busy, (name, text) => isChat(name) ? headless.send(name, text) : claude.send(name, text, true), exists, allow);
+  const done = await schedule.run(busy, (name, text) => isChat(name) ? chatSend(name, text) : claude.send(name, text, true), exists, allow);
   for (const j of done) {
     if ((j.whenFree || j.resume) && j.state === 'done') continue;   // the session's own "done" push already covers it
     // a task rode on this job: attach Claude's closing message and tell the phone about the TASK, not the job
@@ -1161,13 +1166,14 @@ async function api(req, res, url) {
     case 'schedule-now': { // "send now" on a queued message: drop it from the queue and type it in
       const t = schedule.take(String(b.id || '')); if (!t.ok) return json(res, t.status, { error: t.error });
       const j = t.job; const rest = j.prompts.slice(j.idx), text = rest.join('\n\n');
-      const r = isChat(j.session) ? await headless.send(j.session, text) : await claude.send(j.session, text, true);
+      const r = isChat(j.session) ? await chatSend(j.session, text) : await claude.send(j.session, text, true);
       if (!r.ok) schedule.add(j.session, j.at, rest, { whenFree: j.whenFree });
       pushState(true); return json(res, r.ok ? 200 : 500, r);
     }
     case 'schedule-remove': { const r = schedule.remove(String(b.id || '')); pushState(true); return json(res, r.ok ? 200 : 409, r); }
     case 'handoff': { // usage limit on one account: start the other account in the same folder with a summary of where this one stopped
       const from = claude.get(String(b.session || '')); if (!from || !from.cwd) return json(res, 404, { error: 'unknown session' });
+      if (isTrainer(String(b.session))) return json(res, 409, { error: 'a trainer is started from its Train tab' });
       const to = from.account === 'company' ? 'personal' : 'company';
       const t = from.transcriptPath ? transcript.tail(from.transcriptPath, 12) : { turns: [] };
       const users = t.turns.filter(x => x.role === 'user').slice(-4).map(x => '- ' + x.text.replace(/\s+/g, ' ').slice(0, 300));
@@ -1206,6 +1212,7 @@ async function api(req, res, url) {
     case 'chat-fork': {
       const name = String(b.session || ''); const src = claude.get(name);
       if (!src) return json(res, 404, { ok: false, error: 'unknown session' });
+      if (isTrainer(name)) return json(res, 409, { ok: false, error: 'a trainer has one conversation: start a new one from its Train tab' });
       if (checkpoints.IN_TURN.has(src.state)) return json(res, 409, { ok: false, error: 'Claude is working in this session — fork it when it is done' });
       const r = await headless.forkChat(src);
       if (r.ok) {
@@ -1241,7 +1248,7 @@ async function api(req, res, url) {
     case 'send': { // type into a tmux session (quick reply from the card / phone)
       if (typeof b.session !== 'string' || typeof b.text !== 'string') return json(res, 400, { error: 'session + text' });
       if (SWITCHING.has(b.session)) return json(res, 409, { error: 'busy' });
-      if (isChat(b.session)) { if (b.enter === false) return json(res, 400, { error: 'chat sessions take whole messages' }); const r = await headless.send(b.session, b.text); setTimeout(tick, 300); return json(res, r.ok ? 200 : 400, r); }
+      if (isChat(b.session)) { if (b.enter === false) return json(res, 400, { error: 'chat sessions take whole messages' }); const r = await chatSend(b.session, b.text); setTimeout(tick, 300); return json(res, r.ok ? 200 : 400, r); }
       const r = await claude.send(b.session, b.text, b.enter !== false); setTimeout(tick, 400); return json(res, r.ok ? 200 : 400, r);
     }
     case 'plan-answer': { const r = await planOps.answer(b); return json(res, r.status, r.body); }
@@ -1393,7 +1400,7 @@ async function bindTailnet(port) {
   await sys.sample();
   await tick();
   history.refresh(true).catch(e => console.error('history', e));
-  specialistRuns.boot().catch(e => console.error('specialists', e));
+  specialistRuns.boot().then(() => training.boot()).catch(e => console.error('specialists', e));
   setPace();   // starts at the calm pace; the first client speeds it up
   planStore.watch(ev => broadcast('plan', ev));
   if (!TEST) {

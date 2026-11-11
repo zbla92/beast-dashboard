@@ -165,16 +165,16 @@ test('system prompt: CLAUDE.md with @imports resolved inside the profile folder 
   const dir = fs.mkdtempSync(path.join(tmp, 'prompt-'));
   const outside = fs.mkdtempSync(path.join(tmp, 'outside-'));
   fs.writeFileSync(path.join(outside, 'secret.md'), 'OUTSIDE');
-  fs.mkdirSync(path.join(dir, 'sub'));
+  fs.mkdirSync(path.join(dir, 'knowledge'));
   fs.writeFileSync(path.join(dir, 'style.md'), 'STYLE');
-  fs.writeFileSync(path.join(dir, 'sub', 'a.md'), 'A then @../style.md and @b.md');
-  fs.writeFileSync(path.join(dir, 'sub', 'b.md'), 'B loops @a.md');
-  fs.writeFileSync(path.join(dir, 'big.md'), 'x'.repeat(256 * 1024 + 1));
-  fs.symlinkSync(path.join(outside, 'secret.md'), path.join(dir, 'link.md'));
-  fs.symlinkSync(outside, path.join(dir, 'linkdir'));
+  fs.writeFileSync(path.join(dir, 'knowledge', 'a.md'), 'A then @../style.md and @b.md');
+  fs.writeFileSync(path.join(dir, 'knowledge', 'b.md'), 'B loops @a.md');
+  fs.writeFileSync(path.join(dir, 'knowledge', 'big.md'), 'x'.repeat(256 * 1024 + 1));
+  fs.symlinkSync(path.join(outside, 'secret.md'), path.join(dir, 'knowledge', 'link.md'));
+  fs.symlinkSync(outside, path.join(dir, 'knowledge', 'linkdir'));
   fs.writeFileSync(path.join(dir, 'CLAUDE.md'), [
-    '# Role', '', '@style.md', 'see @sub/a.md', `@../${path.basename(outside)}/secret.md`, `@${path.join(outside, 'secret.md')}`,
-    '@link.md', '@linkdir/secret.md', '@missing.md', '@big.md', '@~/x.md', 'mail me@style.md', 'inline `@style.md` code',
+    '# Role', '', '@style.md', 'see @knowledge/a.md', `@../${path.basename(outside)}/secret.md`, `@${path.join(outside, 'secret.md')}`,
+    '@knowledge/link.md', '@knowledge/linkdir/secret.md', '@knowledge/missing.md', '@knowledge/big.md', '@~/x.md', 'mail me@style.md', 'inline `@style.md` code',
     '```', '@style.md', '```', `@${path.join(dir, 'style.md')}`,
   ].join('\n'));
   const text = providers.systemPrompt(dir);
@@ -182,13 +182,34 @@ test('system prompt: CLAUDE.md with @imports resolved inside the profile folder 
   assert.strictEqual(lines[2], 'STYLE');
   assert.strictEqual(lines[3], 'see A then STYLE and B loops @a.md');
   assert.ok(!text.includes('OUTSIDE'));
-  for (const literal of [`@../${path.basename(outside)}/secret.md`, `@${path.join(outside, 'secret.md')}`, '@link.md', '@linkdir/secret.md', '@missing.md', '@big.md', '@~/x.md', 'mail me@style.md', 'inline `@style.md` code']) assert.ok(lines.includes(literal), literal);
+  for (const literal of [`@../${path.basename(outside)}/secret.md`, `@${path.join(outside, 'secret.md')}`, '@knowledge/link.md', '@knowledge/linkdir/secret.md', '@knowledge/missing.md', '@knowledge/big.md', '@~/x.md', 'mail me@style.md', 'inline `@style.md` code']) assert.ok(lines.includes(literal), literal);
   assert.deepStrictEqual(lines.slice(13, 16), ['```', '@style.md', '```']);
   assert.strictEqual(lines[16], 'STYLE');
   fs.rmSync(path.join(dir, 'CLAUDE.md'));
   fs.symlinkSync(path.join(outside, 'secret.md'), path.join(dir, 'CLAUDE.md'));
   assert.strictEqual(providers.systemPrompt(dir), '');
   assert.strictEqual(providers.systemPrompt(path.join(tmp, 'nope')), '');
+});
+
+test('system prompt: imports reach only CLAUDE.md, style.md, knowledge/ and examples/, never .secrets, .bd, .git or dot names', () => {
+  const dir = fs.mkdtempSync(path.join(tmp, 'prompt-'));
+  for (const d of ['.secrets', '.bd', '.git', '.claude', 'knowledge', 'examples', 'other']) fs.mkdirSync(path.join(dir, d));
+  fs.writeFileSync(path.join(dir, '.secrets', 'accesses.json'), '{"DB_URL":{"value":"SECRET-VALUE"}}');
+  fs.writeFileSync(path.join(dir, '.bd', 'trainer.json'), 'BD-FILE');
+  fs.writeFileSync(path.join(dir, '.git', 'config'), 'GIT-FILE');
+  fs.writeFileSync(path.join(dir, '.claude', 'settings.json'), 'CLAUDE-FILE');
+  fs.writeFileSync(path.join(dir, 'specialist.json'), 'META-FILE');
+  fs.writeFileSync(path.join(dir, 'other', 'x.md'), 'OTHER-FILE');
+  fs.writeFileSync(path.join(dir, 'knowledge', '.hidden.md'), 'HIDDEN-FILE');
+  fs.writeFileSync(path.join(dir, 'knowledge', 'up.md'), 'UP @../.secrets/accesses.json');
+  fs.writeFileSync(path.join(dir, 'examples', 'one.md'), 'EXAMPLE');
+  fs.symlinkSync(path.join(dir, '.secrets'), path.join(dir, 'knowledge', 'keys'));
+  const refs = ['@.secrets/accesses.json', '@./.secrets/accesses.json', '@knowledge/../.secrets/accesses.json', '@.bd/trainer.json', '@.git/config', '@.claude/settings.json', '@specialist.json', '@other/x.md', '@knowledge/.hidden.md', '@knowledge/keys/accesses.json', `@${path.join(dir, '.secrets', 'accesses.json')}`];
+  fs.writeFileSync(path.join(dir, 'CLAUDE.md'), [...refs, '@knowledge/up.md', '@examples/one.md'].join('\n'));
+  const lines = providers.systemPrompt(dir).split('\n');
+  assert.deepStrictEqual(lines, [...refs, 'UP @../.secrets/accesses.json', 'EXAMPLE']);
+  assert.strictEqual(providers.shutImport('fine @knowledge/a.md and me@x'), null);
+  for (const ref of ['@.secrets/accesses.json', '@knowledge/../.bd/runs', '@../other/.git/config', '@~/.secrets', 'x\n@./.git']) assert.ok(providers.shutImport(ref), ref);
 });
 
 test('chat: one /chat/completions request; 401, 403, 404, 429, 5xx, 400, network errors, timeouts and stops never show the key', async () => {
@@ -292,8 +313,9 @@ test('no key: asking answers 409 with what to fix, list and detail still work an
 test('run: one request with the resolved instructions, a claude-shaped run record and chat transcript, a follow-up keeps the history', async () => {
   goodKeys();
   const p = fresh({ provider: 'openai', model: 'gpt-5', account: 'company', effort: 'high', permissionMode: 'plan' });
-  fs.writeFileSync(path.join(p.dir, 'CLAUDE.md'), '# Helper\n\n@notes.md\n');
-  fs.writeFileSync(path.join(p.dir, 'notes.md'), 'Answer briefly.');
+  fs.writeFileSync(path.join(p.dir, 'CLAUDE.md'), '# Helper\n\n@knowledge/notes.md\n');
+  fs.mkdirSync(path.join(p.dir, 'knowledge'));
+  fs.writeFileSync(path.join(p.dir, 'knowledge', 'notes.md'), 'Answer briefly.');
   const run = await runs.ask(p.name, { text: 'what is 2+2?', wait: true, timeoutSec: 20 });
   assert.strictEqual(run.state, 'done', run.error);
   assert.match(run.runId, new RegExp(`^claude-spec-${p.name}-\\d{6}-\\d{4}$`));
