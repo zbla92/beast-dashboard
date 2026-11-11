@@ -44,6 +44,9 @@
 .sp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
 .sp-f { margin: 0; display: flex; flex-direction: column; gap: 5px; font-size: var(--fs-sm); color: var(--muted); }
 .modal .sp-f { margin: 0; }
+.sp-model { display: flex; }
+.sp-model > * { flex: 1; min-width: 0; }
+.sp-key { margin: 6px 0 2px; }
 .sp-icon { width: 72px; text-align: center; }
 .sp-ins { min-height: 220px; flex: 1; }
 .sp-foot { flex: none; display: flex; align-items: center; gap: 10px; }
