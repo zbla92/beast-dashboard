@@ -522,7 +522,7 @@ FEAT.specialists = (() => {
     const ins = h('textarea', { class: 'sp-ins', spellcheck: 'false' }); ins.value = p.instructions || '';
     const err = h('div', { class: 'ns-status hidden' });
     const save = h('button', { class: 'btn primary ns-send' }, 'Save');
-    const fail = (msg, reload) => { err.replaceChildren(msg, reload ? h('button', { class: 'btn sm ghost sp-reload', onclick: reload }, 'Reload') : null); err.classList.remove('hidden'); };
+    const fail = (msg, reload) => { err.replaceChildren(...[msg, reload ? h('button', { class: 'btn sm ghost sp-reload', onclick: reload }, 'Reload') : null].filter(Boolean)); err.classList.remove('hidden'); };
     save.onclick = async () => {
       const cur = { title: title.value.trim(), icon: icon.value.trim(), description: desc.value.trim(), provider: provider.value, model: model.value(provider.value), effort: effort.value || null, mode: mode.value, permissionMode: perm.value, account: account.value };
       const base = { title: p.title || '', icon: p.icon || '', description: p.description || '', provider: p.provider || 'claude', model: p.model || null, effort: p.effort || null, mode: p.mode, permissionMode: p.permissionMode, account: p.account };
@@ -609,8 +609,8 @@ FEAT.specialists = (() => {
     const paintStatus = () => {
       const t = trainer(); const pf = PG.data?.specialist?.trainer?.pendingFeedback || 0;
       const text = !T.ov ? (T.err || 'Loading…') : !t ? 'Not started' : !t.live ? 'Stopped. The next message resumes it.' : TRAINER_STATE[t.state] || 'Ready';
-      status.replaceChildren(h('i', { class: 'sp-dot rs-' + (t?.live && t.state === 'working' ? 'working' : t?.live && t.state === 'waiting' ? 'waiting' : 'done') }), h('span', null, text),
-        pf ? h('span', { class: 'dim' }, ' · ' + plural(pf, 'feedback note') + ' waiting') : null, h('span', { class: 'sp' }), t ? h('span', { class: 'dim' }, plural(t.turns || 0, 'turn')) : null);
+      status.replaceChildren(...[h('i', { class: 'sp-dot rs-' + (t?.live && t.state === 'working' ? 'working' : t?.live && t.state === 'waiting' ? 'waiting' : 'done') }), h('span', null, text),
+        pf ? h('span', { class: 'dim' }, ' · ' + plural(pf, 'feedback note') + ' waiting') : null, h('span', { class: 'sp' }), t ? h('span', { class: 'dim' }, plural(t.turns || 0, 'turn')) : null].filter(Boolean));
     };
 
     const paintConv = () => {
@@ -710,8 +710,8 @@ FEAT.specialists = (() => {
       const key = JSON.stringify([commits.map(c => [c.id, c.undone]), more, T.ov?.history?.ready]);
       if (!force && T.keys.hist === key) return;
       T.keys.hist = key;
-      hist.replaceChildren(...(commits.length ? commits.map(commitRow) : [h('div', { class: 'dim sp-none' }, T.ov?.history?.ready ? 'No changes yet.' : 'Nothing yet. Changes show here after the first message or upload.')]),
-        more ? h('button', { class: 'btn sm ghost', onclick: loadMore }, 'Show older') : null);
+      hist.replaceChildren(...[...(commits.length ? commits.map(commitRow) : [h('div', { class: 'dim sp-none' }, T.ov?.history?.ready ? 'No changes yet.' : 'Nothing yet. Changes show here after the first message or upload.')]),
+        more ? h('button', { class: 'btn sm ghost', onclick: loadMore }, 'Show older') : null].filter(Boolean));
     };
 
     const accForm = () => {
@@ -790,9 +790,9 @@ FEAT.specialists = (() => {
 
     const paintHead = () => {
       const p = PG.data?.specialist || known; const t = PG.data?.thread;
-      head.replaceChildren(tile(p, 'md'), h('div', { class: 'sp-ht' }, h('h3', null, p.title || name), h('div', { class: 'sp-chips' }, isApi(p.provider) ? h('span', { class: 'badge tag' }, providerLabel(p.provider)) : null, h('span', { class: 'badge tag' }, modelLabel(p.model, p.provider)), h('span', { class: 'badge tag' }, p.mode === 'thread' ? 'Thread' : 'Fresh run per task'), !isApi(p.provider) && p.account && p.account !== 'personal' ? h('span', { class: 'badge tag acc ' + p.account }, acct(p.account)) : null)),
+      head.replaceChildren(...[tile(p, 'md'), h('div', { class: 'sp-ht' }, h('h3', null, p.title || name), h('div', { class: 'sp-chips' }, isApi(p.provider) ? h('span', { class: 'badge tag' }, providerLabel(p.provider)) : null, h('span', { class: 'badge tag' }, modelLabel(p.model, p.provider)), h('span', { class: 'badge tag' }, p.mode === 'thread' ? 'Thread' : 'Fresh run per task'), !isApi(p.provider) && p.account && p.account !== 'personal' ? h('span', { class: 'badge tag acc ' + p.account }, acct(p.account)) : null)),
         h('span', { class: 'sp' }), t?.live ? h('button', { class: 'btn sm', title: 'open the live thread', onclick: () => { closeModal(); openTerm(t.tmux); } }, 'Open thread') : null,
-        h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', 'aria-label': 'close', onclick: closeModal }, ico('x', 15)));
+        h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', 'aria-label': 'close', onclick: closeModal }, ico('x', 15))].filter(Boolean));
       desc.textContent = p.description || ''; desc.classList.toggle('hidden', !p.description);
       keyNote.textContent = isApi(p.provider) && p.keyError || ''; keyNote.classList.toggle('hidden', !keyNote.textContent);
       ask.placeholder = 'Ask ' + (p.title || name) + '…';

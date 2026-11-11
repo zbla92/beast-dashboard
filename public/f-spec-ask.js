@@ -210,7 +210,7 @@ FEAT.specAsk = (() => {
       c.text && c.runId && c.state === 'done' && FEAT.specialists ? h('button', { class: 'btn sm', type: 'button', title: 'edit this answer into a better one and send it to training', onclick: async () => { markCardSeen(c); FEAT.specialists.improve({ name: c.specialist, title: c.title, runId: c.runId, text: await fullText(c) }); } }, ico('pencil', 13), 'Improve') : null,
       c.runId && FEAT.specialists ? h('button', { class: 'btn sm', type: 'button', onclick: () => { markCardSeen(c); FEAT.specialists.open(c.specialist, { run: c.runId }); } }, ico('ext', 13), 'Open run') : null,
       canFollow ? h('button', { class: 'btn sm', type: 'button', onclick: () => { markCardSeen(c); more.classList.toggle('hidden'); if (!more.classList.contains('hidden')) input.focus(); } }, ico('redo', 13), 'Continue') : null);
-    el.replaceChildren(head, asked, body, cut, err, acts, canFollow ? more : null, h('div', { class: 'sax-note dim' }, 'Only shown here. It reaches this chat only if you press Insert.'));
+    el.replaceChildren(...[head, asked, body, cut, err, acts, canFollow ? more : null, h('div', { class: 'sax-note dim' }, 'Only shown here. It reaches this chat only if you press Insert.')].filter(Boolean));
     if (keep != null && canFollow) { input.value = keep; more.classList.remove('hidden'); input.focus(); }
   }
   function elFor(c) {
