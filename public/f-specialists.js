@@ -8,6 +8,14 @@ FEAT.specialists = (() => {
   const RUN_STATE = { starting: 'starting', working: 'working', waiting: 'needs an answer', done: 'done', error: 'error', stopped: 'stopped' };
   const V = { list: [], templates: [], at: 0, busy: false, ok: false, sig: '' };
   const PG = { name: null, tab: 'runs', data: null, timer: null, full: new Map(), shown: new Set(), onEsc: null, box: null };
+  const ASK = { name: null, box: null };
+  const SEEN_KEY = 'bd.spec.seen';
+  const SINCE_KEY = 'bd.spec.since';
+  const SEEN_CAP = 200;
+  const SEEN = { ids: new Set(), at: new Map(), since: 0 };
+  const FIN = new Map();
+  const FETCHED = new Map();
+  const HOME = { node: null, key: '' };
 
   const enc = encodeURIComponent;
   const hue = n => n.split('').reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7) % 360;
@@ -28,6 +36,69 @@ FEAT.specialists = (() => {
     return 'idle';
   }
 
+  const store = {
+    get: k => { try { return typeof localStorage === 'undefined' ? null : localStorage.getItem(k); } catch { return null; } },
+    set: (k, v) => { try { if (typeof localStorage !== 'undefined') localStorage.setItem(k, v); } catch {} }
+  };
+  const trimSeen = (entries, since, cap) => {
+    if (entries.length <= cap) return { kept: entries, since };
+    const dropped = entries.slice(0, entries.length - cap);
+    return { kept: entries.slice(-cap), since: Math.max(since, ...dropped.map(e => e.endedAt || 0)) };
+  };
+  const seenEntries = () => [...SEEN.ids].map(id => ({ id, endedAt: SEEN.at.get(id) || 0 }));
+  const loadSeen = () => {
+    try {
+      const entries = JSON.parse(store.get(SEEN_KEY) || '[]').map(e => typeof e === 'string' ? { id: e, endedAt: 0 } : e).filter(e => e && typeof e.id === 'string');
+      SEEN.ids = new Set(entries.map(e => e.id));
+      SEEN.at = new Map(entries.map(e => [e.id, Number(e.endedAt) || 0]));
+    } catch {}
+    const since = Number(store.get(SINCE_KEY));
+    SEEN.since = since > 0 ? since : Date.now();
+    if (!(since > 0)) store.set(SINCE_KEY, String(SEEN.since));
+  };
+  loadSeen();
+  const markSeen = (id, endedAt) => {
+    if (SEEN.ids.has(id)) return false;
+    SEEN.ids.add(id);
+    SEEN.at.set(id, Number(endedAt) || Date.now());
+    const t = trimSeen(seenEntries(), SEEN.since, SEEN_CAP);
+    SEEN.ids = new Set(t.kept.map(e => e.id));
+    SEEN.at = new Map(t.kept.map(e => [e.id, e.endedAt]));
+    if (t.since !== SEEN.since) { SEEN.since = t.since; store.set(SINCE_KEY, String(t.since)); }
+    store.set(SEEN_KEY, JSON.stringify(t.kept));
+    return true;
+  };
+  const FINAL_RUN = ['done', 'error', 'stopped'];
+  const isFinal = r => FINAL_RUN.includes(r.state);
+  const finKey = () => [...FIN.keys()].filter(id => !SEEN.ids.has(id)).join(',');
+  const askShown = () => !!ASK.box && $('#modal').contains(ASK.box);
+  const watching = r => (PG.name === r.specialist && pageShown()) || (ASK.name === r.specialist && askShown()) || (!!TERM.open && TERM.active === r.tmux);
+  const collect = runs => {
+    for (const r of runs) {
+      if (!isFinal(r) || FIN.has(r.runId) || SEEN.ids.has(r.runId) || !((r.endedAt || 0) > SEEN.since)) continue;
+      if (watching(r)) markSeen(r.runId, r.endedAt); else FIN.set(r.runId, r);
+    }
+  };
+  const announce = () => {
+    if (FEAT.inbox && FEAT.inbox.refresh) FEAT.inbox.refresh();
+    if (typeof renderHeader === 'function') renderHeader();
+  };
+  const unseenRuns = () => [...FIN.values()].filter(r => !SEEN.ids.has(r.runId)).sort((a, b) => (b.endedAt || 0) - (a.endedAt || 0)).map(r => ({ ...r, title: V.list.find(p => p.name === r.specialist)?.title || r.specialist }));
+  const dismissRun = id => { markSeen(id, FIN.get(id)?.endedAt); FIN.delete(id); announce(); };
+  const seenByUser = (id, endedAt) => { const added = markSeen(id, endedAt); const had = FIN.delete(id); if (added || had) announce(); };
+  const openRun = r => { dismissRun(r.runId); openPage(r.specialist, { run: r.runId }); };
+
+  async function gather() {
+    for (const p of V.list.filter(valid)) {
+      const lr = p.lastRun; if (!lr || !isFinal(lr)) continue;
+      const sig = lr.runId + ':' + lr.state + ':' + p.active;
+      if (FETCHED.get(p.name) === sig) continue;
+      collect([lr]);
+      if (!((lr.endedAt || 0) > SEEN.since)) { FETCHED.set(p.name, sig); continue; }
+      try { const r = await api('specialist/' + enc(p.name) + '?runs=10'); collect(r.runs || []); FETCHED.set(p.name, sig); } catch {}
+    }
+  }
+
   const tile = (p, cls = 'sm') => h('span', { class: 'av ns-org ' + cls, style: `--org:hsl(${hue(p.name)} 22% 62%)` }, h('span', { class: 'g' }, p.icon ? gl(p.icon, 14) : p.name.slice(0, 2).toUpperCase()));
 
   function repaint() {
@@ -42,8 +113,11 @@ FEAT.specialists = (() => {
       const r = await api('specialists');
       V.list = r.specialists || []; V.templates = r.templates || []; V.ok = true;
     } catch { V.ok = false; }
+    const before = finKey();
+    try { await gather(); } catch {}
     V.busy = false; V.at = Date.now();
     repaint();
+    if (before !== finKey()) announce();
   }
 
   function onState() {
@@ -116,9 +190,77 @@ FEAT.specialists = (() => {
     for (const p of V.list.filter(valid)) {
       const t = p.title || p.name;
       out.push({ kind: 'action', label: 'Specialist: ' + t, sub: p.description || modelLabel(p.model), icon: p.icon || '◆', hay: ['specialist', p.name, t, p.description].join(' '), run: () => openPage(p.name), rank: 26 },
-        { kind: 'action', label: 'Ask ' + t + '…', sub: 'send it a task', icon: p.icon || '◆', hay: ['ask specialist', p.name, t].join(' '), run: () => openPage(p.name, { focus: true }), rank: 26 });
+        { kind: 'action', label: 'Ask ' + t + '…', sub: 'send it a task', icon: p.icon || '◆', hay: ['ask specialist', p.name, t].join(' '), run: () => openAsk(p.name), rank: 26 });
     }
     return out;
+  }
+
+  const activeRows = () => S.runtime.sessions.filter(s => runOf(s) && ['working', 'permission'].includes(s.claude?.state)).sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+
+  function homeTiles() {
+    const rows = activeRows();
+    if (!rows.length) return null;
+    if (!HOME.node) HOME.node = h('section', { class: 'sp-home' });
+    const key = Math.floor(Date.now() / 60000) + JSON.stringify(rows.map(s => [s.name, s.claude.state, s.claude.since, runLabel(s)])) + V.list.map(p => p.title || p.name).join(',');
+    if (HOME.key !== key) {
+      HOME.key = key;
+      HOME.node.replaceChildren(
+        h('h2', { class: 'sp-home-t' }, 'Specialists at work ', h('span', { class: 'n' }, rows.length)),
+        ...rows.map(s => {
+          const p = V.list.find(x => x.name === ownerOf(s)) || { name: ownerOf(s) };
+          const st = runState(s.claude);
+          return h('button', { class: 'sp-home-row st-' + st, title: 'open ' + s.name, onclick: () => openTerm(s.name) },
+            tile(p), h('span', { class: 'sp-home-n' }, p.title || p.name), h('span', { class: 'sp-home-m' }, runLabel(s)),
+            h('span', { class: 'sp-home-s' }, st === 'permission' ? 'needs an answer' : 'working', s.claude.since ? ' · ' + ago(s.claude.since) : ''));
+        }));
+    }
+    return HOME.node;
+  }
+
+  function openAsk(name) {
+    const p = V.list.find(x => x.name === name) || { name };
+    const t = p.title || name;
+    const m = $('#modal'); m.classList.remove('hidden');
+    if (PG.onEsc) document.removeEventListener('keydown', PG.onEsc, true);
+    clearInterval(PG.timer); PG.timer = null; PG.name = null; PG.box = null;
+    const mode = { wait: true };
+    const text = h('textarea', { class: 'sp-ask', rows: 4, placeholder: 'Ask ' + t + '…' });
+    const status = h('div', { class: 'ns-status hidden' });
+    const go = h('button', { class: 'btn primary ns-send' }, 'Ask');
+    const hint = h('span', { class: 'dim sp-note' });
+    const seg = h('span', { class: 'seg ns-tabs' });
+    const paintSeg = () => {
+      seg.replaceChildren(...[[true, 'Wait here'], [false, 'Notify me']].map(([v, l]) => h('button', { class: 'segb' + (mode.wait === v ? ' on' : ''), onclick: () => { mode.wait = v; paintSeg(); } }, l)));
+      hint.textContent = mode.wait ? 'Shows the run when it is done' : 'Lands in the Inbox when it is done';
+    };
+    const send = async () => {
+      const body = text.value.trim(); if (!body || go.disabled) return;
+      const wait = mode.wait;
+      go.disabled = true; text.disabled = true; status.classList.add('hidden');
+      ASK.name = name; ASK.box = box;
+      if (wait) { status.textContent = 'Waiting for ' + t + '…'; status.classList.remove('hidden'); }
+      try {
+        const r = await api('specialist/' + enc(name) + '/ask', wait ? { text: body, wait: true, timeoutSec: 300 } : { text: body, wait: false });
+        const here = askShown();
+        if (wait && here && isFinal(r)) { markSeen(r.runId, r.endedAt); FIN.delete(r.runId); }
+        ASK.name = null; ASK.box = null;
+        if (wait && here) openPage(name, { run: r.runId });
+        else if (!wait && here) { closeModal(); toast('Asked ' + t + '. It lands in the Inbox when done.', 'ok'); }
+        refresh(true);
+      } catch (e) {
+        ASK.name = null; ASK.box = null;
+        go.disabled = false; text.disabled = false; status.textContent = e.message; status.classList.remove('hidden');
+      }
+    };
+    go.onclick = send;
+    text.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing && ((e.metaKey || e.ctrlKey) || (!IS_PHONE && !e.shiftKey))) { e.preventDefault(); send(); } };
+    const box = h('div', { class: 'box spbox spcreate spask' },
+      h('div', { class: 'sh' }, tile(p), h('h3', null, 'Ask ' + t), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', onclick: closeModal }, ico('x', 15))),
+      h('div', { class: 'sp-body' }, text, status),
+      h('div', { class: 'sp-foot' }, seg, hint, h('span', { class: 'sp' }), go));
+    paintSeg();
+    m.replaceChildren(box); PG.box = box; setup(m, closeModal);
+    if (!IS_PHONE) text.focus();
   }
 
   const opts = (list, cur) => {
@@ -141,7 +283,7 @@ FEAT.specialists = (() => {
   function closeModal() {
     const m = $('#modal'); m.classList.add('hidden');
     if (PG.onEsc) document.removeEventListener('keydown', PG.onEsc, true);
-    PG.onEsc = null; clearInterval(PG.timer); PG.timer = null; PG.name = null; PG.box = null;
+    PG.onEsc = null; clearInterval(PG.timer); PG.timer = null; PG.name = null; PG.box = null; ASK.box = null;
     renderRail();
   }
 
@@ -200,12 +342,17 @@ FEAT.specialists = (() => {
       const r = await api('specialist/' + enc(name) + '?runs=50');
       if (PG.name !== name) return;
       PG.data = r; PG.err = null;
+      if (pageShown()) {
+        const fresh = (r.runs || []).filter(x => isFinal(x) && (FIN.has(x.runId) || (x.endedAt || 0) > SEEN.since) && !SEEN.ids.has(x.runId));
+        for (const x of fresh) { FIN.delete(x.runId); markSeen(x.runId, x.endedAt); }
+        if (fresh.length) announce();
+      }
     } catch (e) { if (PG.name === name) PG.err = e.message; }
     if (PG.name === name) PG.paint && PG.paint();
   }
 
   async function showRunText(r, slot) {
-    if (!PG.full.has(r.runId) || !['done', 'error', 'stopped'].includes(PG.full.get(r.runId).state)) {
+    if (!PG.full.has(r.runId) || !isFinal(PG.full.get(r.runId))) {
       try { PG.full.set(r.runId, await api('specialist/run/' + enc(r.runId))); } catch (e) { slot.replaceChildren(h('div', { class: 'ns-status' }, e.message)); return; }
     }
     const full = PG.full.get(r.runId);
@@ -218,7 +365,7 @@ FEAT.specialists = (() => {
       try { await api('specialist/run/' + enc(r.runId) + '/send', { text }); closeModal(); openTerm(full.tmux || r.tmux || r.runId); } catch (e) { sendBtn.disabled = false; status.textContent = e.message; status.classList.remove('hidden'); }
     };
     sendBtn.onclick = cont; sendIn.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); cont(); } };
-    const canSend = full.mode === 'run' && ['done', 'error', 'stopped'].includes(full.state);
+    const canSend = full.mode === 'run' && isFinal(full);
     slot.replaceChildren(
       full.text ? h('div', { class: 'sp-out' }, full.text) : h('div', { class: 'dim sp-none' }, full.error ? full.error : 'No result yet.'),
       h('div', { class: 'sp-acts' },
@@ -293,6 +440,7 @@ FEAT.specialists = (() => {
     clearInterval(PG.timer);
     const known = V.list.find(p => p.name === name) || { name };
     Object.assign(PG, { name, tab: o.tab || 'runs', data: null, err: null }); PG.shown.clear(); PG.full.clear();
+    if (o.run) { PG.shown.add(o.run); if (FIN.has(o.run)) { markSeen(o.run, FIN.get(o.run).endedAt); FIN.delete(o.run); } }
     const head = h('div', { class: 'sh sp-hd' });
     const desc = h('div', { class: 'sp-desc dim' });
     const tabs = h('span', { class: 'seg ns-tabs' });
@@ -345,5 +493,5 @@ FEAT.specialists = (() => {
 
   setInterval(() => { if (!document.hidden) refresh(true); }, 30000);
 
-  return { onState, termBarKey, railSection, paletteItems, open: openPage, create: openCreate, refresh };
+  return { onState, termBarKey, railSection, paletteItems, homeTiles, unseenRuns, dismissRun, markSeen: seenByUser, trimSeen, openRun, openAsk, open: openPage, create: openCreate, refresh };
 })();

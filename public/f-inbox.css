@@ -74,3 +74,11 @@
   .ibx-btn { flex: 1; justify-content: center; }
   .ibx-ta { font-size: var(--fs-lg); min-height: 44px; }   /* no iOS zoom on focus */
 }
+
+.ibx-runs:not(:empty) { margin-top: 10px; }
+.ibx-row.ibx-spec { border-color: color-mix(in srgb, var(--green) 35%, transparent); }
+.ibx-row.ibx-spec.st-error { border-color: color-mix(in srgb, var(--red) 45%, transparent); }
+.ibx-sptask { font-weight: 600; font-size: var(--fs-md); overflow-wrap: anywhere; }
+.ibx-spst { flex: none; font-size: var(--fs-sm); font-weight: 600; color: var(--green); white-space: nowrap; }
+.ibx-spst.error { color: var(--red); }
+.ibx-spst.stopped { color: var(--muted); }

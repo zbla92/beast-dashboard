@@ -58,3 +58,19 @@
   .sp-row { flex-wrap: wrap; }
   .spbox .ntrow { min-height: 44px; }
 }
+
+.sp-home { display: flex; flex-direction: column; padding: var(--sp-3) var(--sp-5); border-radius: var(--r-lg); background: var(--panel); border: 1px solid var(--line2); }
+.sp-home-t { margin: 0 0 4px; font-size: var(--fs-lg); font-weight: 600; }
+.sp-home-t .n { color: var(--muted); font-weight: 500; }
+.sp-home-row { display: grid; grid-template-columns: 24px minmax(90px, 180px) minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%; padding: 10px 4px; border: 0; border-top: 1px solid var(--line); background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; border-radius: 0; }
+.sp-home-row:first-of-type { border-top: 0; }
+.sp-home-row:hover { background: var(--fill2); }
+.sp-home-n { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sp-home-m { color: var(--muted); font-size: var(--fs-md); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sp-home-s { font-size: var(--fs-sm); font-weight: 600; color: var(--st-work); white-space: nowrap; }
+.sp-home-row.st-permission .sp-home-s { color: var(--st-perm); }
+@media (max-width: 900px) {
+  .sp-home { padding: var(--sp-3); }
+  .sp-home-row { grid-template-columns: 24px minmax(0, 1fr) auto; row-gap: 2px; }
+  .sp-home-m { grid-column: 2 / -1; grid-row: 2; }
+}
