@@ -118,7 +118,7 @@ const history = dir => gitIn(dir, 'log', '--all', '-p', '--format=%H %s%n%b');
 const rules = (dir, tools, rels) => tools.flatMap(t => rels.map(r => `${t}(/${dir}/${r})`));
 const chatDeny = dir => [
   ...rules(dir, ['Read', 'Edit', 'Write', 'Glob', 'Grep', 'NotebookEdit'], ['.secrets', '.secrets/**']),
-  ...rules(dir, ['Edit', 'Write', 'NotebookEdit'], ['specialist.json', '.claude/**', '.mcp.json', '.gitignore', '.git/**', '.bd/**']),
+  ...rules(dir, ['Edit', 'Write', 'NotebookEdit'], ['specialist.json', 'CLAUDE.local.md', '.claude/**', '.mcp.json', '.gitignore', '.git/**', '.bd/**']),
 ];
 const callDeny = dir => [...chatDeny(dir), ...rules(dir, ['Edit', 'Write', 'NotebookEdit'], ['CLAUDE.md', 'style.md', 'knowledge/**', 'examples/**'])];
 
@@ -329,6 +329,21 @@ test('a hand-staged file holding a value never enters history and unrelated stag
   assert.ok(!tracked(p.dir).includes('knowledge/stray.md'));
   assert.strictEqual(gitIn(p.dir, 'diff', '--cached', '--name-only'), '');
   assert.ok(!history(p.dir).includes(SECRET));
+});
+
+test('a plain chat cannot be launched in a bot folder or the specialists root; the bot launch path still can', async () => {
+  const p = fresh();
+  fs.mkdirSync(path.join(p.dir, 'knowledge'), { recursive: true });
+  for (const cwd of [p.dir, path.join(p.dir, 'knowledge'), store.root()]) {
+    assert.deepStrictEqual(await headless.launch('claude-plain-in-bot', cwd, 'personal', { start: 'new' }), { ok: false, status: 409, error: store.BOT_STAYS });
+    assert.deepStrictEqual(await headless.launch('claude-plain-in-bot', cwd, 'personal', { start: 'resume', sessionId: '0b8f7a2c-1111-4222-8333-444455556666' }), { ok: false, status: 409, error: store.BOT_STAYS });
+  }
+  assert.deepStrictEqual(await headless.startChat(p.dir, 'personal', 'hi'), { ok: false, status: 409, error: store.BOT_STAYS });
+  assert.deepStrictEqual(await headless.startEmptyChat(p.dir, 'personal'), { ok: false, status: 409, error: store.BOT_STAYS });
+  assert.strictEqual(pidOf('claude-plain-in-bot'), 0);
+  assert.ok(!claude.get('claude-plain-in-bot'));
+  const own = await headless.launch(store.threadName(p.name, 'personal'), p.dir, 'personal', { start: 'new', specialist: p.name, runner: { settings: store.botSettings(p, 'chat'), accesses: p.dir } });
+  assert.ok(own.ok && !own.existed);
 });
 
 test('values never appear in API responses, logs, run records, session records, generated files or anything else outside .secrets and the fake env log', () => {

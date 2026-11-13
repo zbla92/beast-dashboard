@@ -25,7 +25,7 @@ TMP="$(mktemp -d /tmp/bd-gate-XXXX)"
 (cd "$REPO" && tar --exclude=./state --exclude=./state-backups --exclude=./.git --exclude=./whisper/.venv -cf - .) | (cd "$TMP" && tar -xf -)
 mkdir -p "$TMP/state" && printf '{"port": %s, "autoExpose": false}\n' "$PORT" > "$TMP/state/settings.json"
 cp "$REPO/state/claude-sessions.json" "$TMP/state/" 2>/dev/null   # read-only copy: lets /api/subagents resolve the live sessions' transcripts
-node -e 'const fs=require("fs"),f=process.argv[1],s=(()=>{try{return JSON.parse(fs.readFileSync(f,"utf8"))}catch{return {}}})();const r=(tmux,n,specialist)=>({tmux,account:"personal",sessionId:"00000000-0000-4000-8000-00000000000"+n,cwd:process.argv[2],transcriptPath:null,state:"idle",since:Date.now(),firstSeen:Date.now(),mode:"chat",specialist});s["claude-spec-gate-bot"]=r("claude-spec-gate-bot",1,"gate-bot");s["claude-chat-gate-plain"]=r("claude-chat-gate-plain",2,null);s["claude-spec-gate-writer"]=r("claude-spec-gate-writer",3,"gate-writer");fs.writeFileSync(f,JSON.stringify(s))' "$TMP/state/claude-sessions.json" "$TMP"
+node -e 'const fs=require("fs"),f=process.argv[1],s=(()=>{try{return JSON.parse(fs.readFileSync(f,"utf8"))}catch{return {}}})();const r=(tmux,n,specialist)=>({tmux,account:"personal",sessionId:"00000000-0000-4000-8000-00000000000"+n,cwd:process.argv[2],transcriptPath:null,state:"idle",since:Date.now(),firstSeen:Date.now(),mode:"chat",specialist});s["claude-spec-gate-bot"]=r("claude-spec-gate-bot",1,"gate-bot");s["claude-chat-gate-plain"]=r("claude-chat-gate-plain",2,null);s["claude-spec-gate-writer"]=r("claude-spec-gate-writer",3,"gate-writer");s["claude-spec-gate-lost"]=r("claude-spec-gate-lost",4,null);fs.writeFileSync(f,JSON.stringify(s))' "$TMP/state/claude-sessions.json" "$TMP"
 PLANS="$TMP/plans-store"; cp -r "$TMP/test/fixtures/plans/store" "$PLANS"
 SKH="$TMP/skills-home"; mkdir -p "$SKH/.claude"
 (cd "$TMP" && BD_TEST=1 BEAST_PLANS_DIR="$PLANS" BD_SPECIALISTS_DIR="$TMP/specialists" BD_SKILLS_HOME="$SKH" BD_PROVIDERS_FILE="$TMP/providers.json" exec node server.js > "$TMP/server.log" 2>&1) & PID=$!
@@ -208,7 +208,18 @@ r="$(hlpost hl-shell '{"session":"claude-gate-nope","cmd":"   "}') $(hlpost hl-s
 r="$(hlpost hl-shell-stop '{"session":"claude-gate-nope","id":"s-1"}') $(hlpost hl-shell-drop '{"session":"claude-gate-nope","id":"s-1"}')"
 [ "$r" = "400 400" ] && ok "POST hl-shell-stop / -drop non-chat session -> 400" || fail "POST hl-shell-stop / -drop non-chat session -> $r"
 r="$(hlpost send '{"session":"claude-spec-gate-bot","text":"hi"}') $(jq1 'j.error')"
-[ "$r" = '400 no specialist "gate-bot"' ] && ok "POST send to a bot's own chat goes through its teaching turn" || fail "POST send bot chat -> $r"
+[ "$r" = "400 chat runner is not reachable" ] && ok "POST send to a claude-spec session that is no bot's thread goes straight to its runner" || fail "POST send unknown bot name chat -> $r"
+GL="$TMP/specialists/gate-lost"
+r="$(sp specialist '{"name":"gate-lost"}')"
+mkdir -p "$GL/.bd/runs" && chmod 700 "$GL/.bd" "$GL/.bd/runs" && printf '{"account":"personal","seq":0}\n' > "$GL/.bd/thread.json" && printf 'gate outside edit\n' > "$GL/style.md"
+r="$r $(hlpost send '{"session":"claude-spec-gate-lost","text":"hi"}')"
+[ "${r%% *}" = 201 ] && git -C "$GL" log --format=%s 2>/dev/null | grep -q '^Changes made outside training$' && ok "POST send to a bot's own thread goes through its teaching turn even when the record names no bot" || fail "POST send bot thread -> $r $(jq1 'j.error') $(git -C "$GL" log --format=%s 2>/dev/null | head -3 | tr '\n' '|')"
+r="$(hlpost schedule "{\"session\":\"claude-spec-gate-lost\",\"at\":$(( $(date +%s) * 1000 + 3600000 )),\"prompts\":[\"use gate-lost-s3cret-value\"]}")"; GJ="$(jq1 'j.job.id')"
+r="$r $(sp specialist/gate-lost/accesses '{"name":"GATE_LOST","value":"gate-lost-s3cret-value"}') $(hlpost schedule-now "{\"id\":\"$GJ\"}") $(jq1 'j.error')"
+json /api/state >/dev/null
+[ "$r" = "200 200 409 this message contains one of the bot's credentials; set credentials in the bot's settings" ] && [ "$(jq_ 'd.claude.schedule.some(j=>j.session==="claude-spec-gate-lost")')" = false ] && ok "POST schedule-now of a job holding a bot credential -> 409 and the job is not queued again" || fail "POST schedule-now credential -> $r"
+r="$(hlpost claude-resume "{\"cwd\":\"$GL\"}") $(jq1 'j.error') $(hlpost claude-resume "{\"cwd\":\"$TMP/specialists\"}")"
+[ "$r" = "409 a bot chat stays with its bot 409" ] && ok "POST claude-resume in a bot folder or the specialists root -> 409" || fail "POST claude-resume bot folder -> $r $(head -c 200 /tmp/gate-$$.body)"
 r="$(hlpost send '{"session":"claude-chat-gate-plain","text":"hi"}') $(jq1 'j.error')"
 [ "$r" = "400 chat runner is not reachable" ] && ok "POST send to a plain chat goes straight to its runner" || fail "POST send plain chat -> $r"
 r="$(hlpost handoff '{"session":"claude-spec-gate-bot"}') $(jq1 'j.error'), $(hlpost chat-fork '{"session":"claude-spec-gate-bot"}') $(jq1 'j.error')"

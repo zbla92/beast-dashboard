@@ -309,7 +309,7 @@ session (old `training.js` `send` / `chatSend`); the commit, guard and undo code
 | `knowledge/**` | read, write | read | yes |
 | `examples/**` | read, write | read | yes |
 | the preamble block in `CLAUDE.md` (6.3) | read | read | yes, source `preamble` |
-| `specialist.json`, `.claude/**`, `.mcp.json`, `.gitignore`, `.git/**`, `.bd/**` | read only | read only | no |
+| `specialist.json`, `CLAUDE.local.md`, `.claude/**`, `.mcp.json`, `.gitignore`, `.git/**`, `.bd/**` | read only | read only | no |
 | `.secrets/**` | no (not even read) | no (not even read) | never |
 
 - Existing (`training.js` `checkTrainable`): `style.md`, `knowledge/` and `examples/` must be a
@@ -455,7 +455,7 @@ with `the bot folder path has characters the permission rules can't hold`):
 
 | File | Used by | `permissions.deny` |
 |---|---|---|
-| `.bd/settings.json` | the own chat | `Read`, `Edit`, `Write`, `Glob`, `Grep`, `NotebookEdit` on `<dir>/.secrets` and `<dir>/.secrets/**`; `Edit`, `Write`, `NotebookEdit` on `<dir>/specialist.json`, `<dir>/.claude/**`, `<dir>/.mcp.json`, `<dir>/.gitignore`, `<dir>/.git/**`, `<dir>/.bd/**` |
+| `.bd/settings.json` | the own chat | `Read`, `Edit`, `Write`, `Glob`, `Grep`, `NotebookEdit` on `<dir>/.secrets` and `<dir>/.secrets/**`; `Edit`, `Write`, `NotebookEdit` on `<dir>/specialist.json`, `<dir>/CLAUDE.local.md`, `<dir>/.claude/**`, `<dir>/.mcp.json`, `<dir>/.gitignore`, `<dir>/.git/**`, `<dir>/.bd/**` |
 | `.bd/call-settings.json` | every call | everything in the row above, plus `Edit`, `Write`, `NotebookEdit` on `<dir>/CLAUDE.md`, `<dir>/style.md`, `<dir>/knowledge/**`, `<dir>/examples/**` |
 
 - There are no `allow` rules: the bot's `permissionMode` and its own `.claude/settings.json` decide

@@ -1,26 +1,16 @@
 'use strict';
 FEAT.specialists = (() => {
-  const NAME_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;
   const CALL_RE = /^claude-spec-([a-z0-9][a-z0-9-]{0,31}?)-\d{6}-\d{4}(?:-\d{1,2})?(?:-company)?$/;
   const THREAD_RE = /^claude-spec-([a-z0-9][a-z0-9-]{0,31}?)(?:-company)?$/;
-  const MODELS = [['', 'Default'], ['opus', 'Opus'], ['sonnet', 'Sonnet'], ['haiku', 'Haiku'], ['fable', 'Fable']];
-  const MODES = [['run', 'Fresh run per task'], ['thread', 'One thread']];
   const PROVIDERS = [['claude', 'Claude'], ['openai', 'OpenAI'], ['xai', 'xAI']];
   const MODEL_HINT = { openai: 'model id, e.g. gpt-5', xai: 'model id, e.g. grok-4' };
-  const USES = [['skill', 'Skill'], ['agent', 'Separate agent'], ['both', 'Both']];
-  const USE_NOTE = {
-    skill: 'Agents load its profile into their own chat and do the work themselves, so nothing gets lost in a handoff.',
-    agent: 'Agents send it a task and get its answer back (bd-ask). Use for its own accesses, another provider or an independent view.',
-    both: 'Agents load it as a skill by default and ask it separately only when the work needs isolation.'
-  };
   const CALL_STATE = { starting: 'working', working: 'working', waiting: 'permission', done: 'idle', error: 'error', stopped: 'idle' };
   const FINAL_RUN = ['done', 'error', 'stopped'];
   const RAIL_CALLS = 5;
   const CALL_TITLE_MAX = 80;
   const LIVE_HINT = 'This call is still working. You can reply once it has a result.';
   const TILE_PX = { sm: 24, md: 36 };
-  const V = { list: [], templates: [], at: 0, busy: false, ok: false, sig: '' };
-  const CR = { onEsc: null };
+  const V = { list: [], at: 0, busy: false, ok: false, sig: '' };
   const CALLS = new Map();
   const ASKED = new Set();
   const PHANTOM = new Map();
@@ -149,7 +139,7 @@ FEAT.specialists = (() => {
     const finalsBefore = finals();
     try {
       const r = await api('specialists');
-      V.list = r.specialists || []; V.templates = r.templates || []; V.ok = true;
+      V.list = r.specialists || []; V.ok = true;
       for (const p of V.list) for (const c of p.recentCalls || []) CALLS.set(c.runId, c);
     } catch { V.ok = false; }
     const before = finKey();
@@ -188,7 +178,7 @@ FEAT.specialists = (() => {
     openTerm(r.runId);
   }
 
-  const create = () => FEAT.bots?.create ? FEAT.bots.create() : openCreate();
+  const create = () => FEAT.bots?.create();
 
   function callRow(r, cls) {
     const st = CALL_STATE[r.state] || 'idle';
@@ -341,103 +331,6 @@ FEAT.specialists = (() => {
     const r = callOf(name);
     if (!r) return null;
     return api('specialist/run/' + enc(r.runId) + '/send', { text, wait: false }).then(x => { CALLS.set(r.runId, { ...r, ...x }); refresh(true); return x; });
-  }
-
-  const opts = (list, cur) => {
-    const items = list.some(([v]) => v === (cur ?? '')) || cur == null ? list : [...list, [cur, cur]];
-    return items.map(([v, l]) => h('option', { value: v }, l));
-  };
-  const select = (list, cur) => { const s = h('select', { class: 'txt' }, opts(list, cur)); s.value = cur ?? ''; return s; };
-  const field = (label, el, cls = '') => h('label', { class: 'sp-f ' + cls }, h('span', null, label), el);
-
-  const legacyServer = () => V.list.some(valid) && !V.list.some(p => valid(p) && p.skill);
-
-  function useInput(provider, cur) {
-    const pick = select(USES, cur);
-    const note = h('span', { class: 'dim sp-note sp-usenote' });
-    const box = h('span', { class: 'sp-usebox' }, pick, note);
-    const paint = () => { note.textContent = USE_NOTE[pick.value] || ''; };
-    const show = prov => { if (isApi(prov)) pick.value = 'agent'; pick.disabled = isApi(prov); paint(); };
-    pick.onchange = paint;
-    show(provider);
-    return { box, show, value: () => pick.value };
-  }
-
-  function modelInput(provider, cur) {
-    const pick = select(MODELS, isApi(provider) ? '' : cur || '');
-    const id = h('input', { class: 'txt', value: isApi(provider) ? cur || '' : '', maxlength: 128, autocapitalize: 'off', autocomplete: 'off', spellcheck: 'false' });
-    const box = h('span', { class: 'sp-model' }, pick, id);
-    const show = p => { pick.classList.toggle('hidden', isApi(p)); id.classList.toggle('hidden', !isApi(p)); id.placeholder = MODEL_HINT[p] || ''; };
-    show(provider);
-    return { box, show, value: p => isApi(p) ? id.value.trim() || null : pick.value || null };
-  }
-
-  function setup(m, close) {
-    const onEsc = e => {
-      if (!m.querySelector('.spbox')) { document.removeEventListener('keydown', onEsc, true); return; }
-      if (e.key !== 'Escape' || m.classList.contains('hidden')) return;
-      e.preventDefault(); e.stopPropagation(); close();
-    };
-    CR.onEsc = onEsc; document.addEventListener('keydown', onEsc, true);
-    m.onclick = e => { if (e.target === m) close(); };
-  }
-
-  function closeModal() {
-    const m = $('#modal'); m.classList.add('hidden');
-    if (CR.onEsc) document.removeEventListener('keydown', CR.onEsc, true);
-    CR.onEsc = null;
-  }
-
-  function openCreate() {
-    const m = $('#modal'); m.classList.remove('hidden');
-    if (CR.onEsc) document.removeEventListener('keydown', CR.onEsc, true);
-    const templates = [{ id: 'blank', title: 'Blank' }, ...V.templates.filter(t => t.id !== 'blank')];
-    const err = h('div', { class: 'ns-status hidden' });
-    const name = h('input', { class: 'txt', placeholder: 'name, e.g. writer', autocapitalize: 'off', autocomplete: 'off', spellcheck: 'false', maxlength: 32 });
-    const title = h('input', { class: 'txt', placeholder: 'Title', maxlength: 60 });
-    const icon = h('input', { class: 'txt sp-icon', placeholder: '◆', maxlength: 8 });
-    const desc = h('input', { class: 'txt', placeholder: 'What it does, in one line', maxlength: 300 });
-    const tpl = h('select', { class: 'txt' }, templates.map(t => h('option', { value: t.id }, t.title || t.id)));
-    const provider = select(PROVIDERS, 'claude');
-    const model = modelInput('claude', null);
-    const mode = select(MODES, 'run');
-    const use = useInput('claude', 'skill');
-    const go = h('button', { class: 'btn primary ns-send' }, 'Create');
-    provider.onchange = () => { model.show(provider.value); use.show(provider.value); };
-    const fits = () => NAME_RE.test(name.value.trim()) && !/-$|-company$|-\d{6}-\d{4}|^run$/.test(name.value.trim());
-    const sync = () => { go.disabled = !fits(); };
-    tpl.onchange = () => { const t = templates.find(x => x.id === tpl.value); icon.placeholder = t?.meta?.icon || '◆'; };
-    name.oninput = () => { err.classList.add('hidden'); sync(); };
-    const make = async () => {
-      if (!fits() || go.disabled) return;
-      go.disabled = true; err.classList.add('hidden');
-      const body = { name: name.value.trim(), template: tpl.value };
-      if (title.value.trim()) body.title = title.value.trim();
-      if (icon.value.trim()) body.icon = icon.value.trim();
-      if (desc.value.trim()) body.description = desc.value.trim();
-      if (provider.value !== 'claude') body.provider = provider.value;
-      if (model.value(provider.value)) body.model = model.value(provider.value);
-      if (mode.value !== 'run') body.mode = mode.value;
-      if (!legacyServer()) body.use = use.value();
-      try {
-        const r = await api('specialist', body);
-        await refresh(true);
-        toast('Created ' + (r.specialist?.title || body.name), 'ok');
-        closeModal(); openBot(body.name);
-      } catch (e) { go.disabled = false; err.textContent = e.message; err.classList.remove('hidden'); }
-    };
-    go.onclick = make;
-    for (const el of [name, title, icon, desc]) el.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); make(); } };
-    const box = h('div', { class: 'box spbox spcreate' },
-      h('div', { class: 'sh' }, h('h3', null, gl('＋ New bot')), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', onclick: closeModal }, ico('x', 15))),
-      h('div', { class: 'sp-body' },
-        field('Name', name), h('div', { class: 'sp-row' }, field('Title', title, 'grow'), field('Icon', icon)), field('Description', desc),
-        h('div', { class: 'sp-row' }, field('Template', tpl, 'grow'), field('Mode', mode, 'grow')),
-        h('div', { class: 'sp-row' }, field('Provider', provider, 'grow'), field('Model', model.box, 'grow')),
-        field('Used as', use.box), err),
-      h('div', { class: 'sp-foot' }, h('span', { class: 'dim sp-note' }, 'Gets its own folder with instructions'), h('span', { class: 'sp' }), go));
-    m.replaceChildren(box); setup(m, closeModal);
-    sync(); if (!IS_PHONE) name.focus();
   }
 
   return { phantom, termTitle, termTile, termBar, termBarKey, chatBar, composerShown, sendCall, onState, railSection, paletteItems, homeTiles, unseenRuns, dismissRun, markSeen: seenByUser, trimSeen, openRun, create, refresh };

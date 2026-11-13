@@ -308,3 +308,37 @@ test('thread state is stored per specialist', t => {
   assert.deepStrictEqual(sp.getThread('th'), th);
   assert.throws(() => sp.setThread('th', { account: 'company', seq: -1 }), status(400));
 });
+
+test('botOfThread names the bot only for the tmux name its thread.json records, never for a bare claude-spec name', t => {
+  tmpRoot(t);
+  sp.create({ name: 'th' });
+  assert.strictEqual(sp.botOfThread('claude-spec-th'), null);
+  sp.setThread('th', { account: 'personal', seq: 0 });
+  assert.strictEqual(sp.botOfThread('claude-spec-th'), 'th');
+  assert.strictEqual(sp.botOfThread('claude-spec-th-company'), null);
+  assert.strictEqual(sp.botOfThread('claude-spec-nobody'), null);
+  assert.strictEqual(sp.botOfThread('claude-spec-th-261111-0930'), null);
+  assert.strictEqual(sp.botOfThread(null), null);
+  sp.setThread('th', { account: 'company', seq: 0 });
+  assert.strictEqual(sp.botOfThread('claude-spec-th'), null);
+  assert.strictEqual(sp.botOfThread('claude-spec-th-company'), 'th');
+});
+
+test('inBotRoot is true for the specialists root, any folder inside it and a symlink into it', t => {
+  const { tmp, root } = tmpRoot(t);
+  const p = sp.create({ name: 'th' });
+  fs.mkdirSync(path.join(p.dir, 'knowledge'), { recursive: true });
+  fs.symlinkSync(p.dir, path.join(tmp, 'link'));
+  for (const dir of [root, p.dir, path.join(p.dir, 'knowledge'), path.join(root, 'x', '..', 'th'), path.join(tmp, 'link')]) assert.strictEqual(sp.inBotRoot(dir), true, dir);
+  for (const dir of [tmp, root + '-other', path.join(tmp, 'specialistsx'), '', null]) assert.strictEqual(sp.inBotRoot(dir), false, String(dir));
+});
+
+test('CLAUDE.local.md is denied to Edit, Write and NotebookEdit in the own chat and in calls', t => {
+  tmpRoot(t);
+  const p = sp.create({ name: 'th' });
+  for (const kind of ['chat', 'call']) {
+    const deny = JSON.parse(fs.readFileSync(sp.botSettings(p, kind), 'utf8')).permissions.deny;
+    for (const tool of ['Edit', 'Write', 'NotebookEdit']) assert.ok(deny.includes(`${tool}(/${p.dir}/CLAUDE.local.md)`), `${kind} ${tool}`);
+    assert.ok(!deny.includes(`Read(/${p.dir}/CLAUDE.local.md)`));
+  }
+});

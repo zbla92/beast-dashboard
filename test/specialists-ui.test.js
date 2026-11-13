@@ -295,6 +295,21 @@ test('the main bot view has no Train panel, Profile tab, upload chips or Used as
   assert.ok(!/'[^']*Specialist[^']*'/.test(src));
 });
 
+test('new bot always goes through the bots create dialog; there is no old create form', () => {
+  const src = read('f-specialists.js');
+  for (const gone of ['openCreate', 'Used as', 'USE_NOTE', 'Fresh run per task', 'spcreate']) assert.ok(!src.includes(gone), gone);
+  const css = read('f-specialists.css');
+  for (const gone of ['spcreate', 'sp-usebox', 'sp-row', 'sp-body']) assert.ok(!css.includes(gone), gone);
+  const sb = build([P('writer')], []);
+  assert.doesNotThrow(() => sb.FEAT.specialists.create());
+  assert.strictEqual(sb.shown, null);
+  const made = [];
+  sb.FEAT.bots = { create: () => made.push('bots') };
+  sb.FEAT.specialists.create();
+  assert.deepStrictEqual(made, ['bots']);
+  assert.strictEqual(sb.shown, null);
+});
+
 test('the palette offers one bot entry per valid bot', async () => {
   const sb = build([P('writer'), { name: 'broken', error: 'x' }], []);
   await sb.FEAT.specialists.refresh(true);
@@ -330,11 +345,14 @@ test('runs finished while their terminal is open are not queued', async () => {
 test('the seen set is capped and moves since past the dropped runs', async () => {
   const localStorage = memStore();
   const sb = build([P('writer')], [], false, { localStorage });
+  const before = Number(localStorage.m.get('bd.spec.since'));
   Array.from({ length: 260 }, (_, i) => i).forEach(i => sb.FEAT.specialists.dismissRun('r' + i));
   const stored = JSON.parse(localStorage.m.get('bd.spec.seen'));
   assert.strictEqual(stored.length, 200);
   assert.strictEqual(stored[0].id, 'r60');
-  assert.ok(Number(localStorage.m.get('bd.spec.since')) >= Math.min(...stored.map(e => e.endedAt)));
+  const since = Number(localStorage.m.get('bd.spec.since'));
+  assert.ok(since >= before);
+  assert.ok(since <= Math.min(...stored.map(e => e.endedAt)));
 });
 
 test('trimSeen keeps the newest entries and raises since to the newest dropped endedAt', () => {

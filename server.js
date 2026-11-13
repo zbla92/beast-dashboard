@@ -77,6 +77,11 @@ edits.init({ entries: history.entries, live: liveOf, label: history.labelOf });
 wip.init({ projects: () => projects, sessions: () => Object.values(claude.all()), onChange: () => { gitStatus = { ...gitStatus, ...wip.gitStatus() }; pushState(false); } });
 claude.setLive(headless.live);
 const isChat = name => typeof name === 'string' && claude.get(name)?.mode === 'chat';
+const sessionSend = (name, text) => {
+  const held = credentialRefusal(name, [text]);
+  if (held) return { ok: false, refused: true, status: held.status, error: held.error };
+  return isChat(name) ? chatSend(name, text) : claude.send(name, text, true);
+};
 async function uploadCwd(params) {
   const session = params.get('session');
   if (session) {
@@ -173,10 +178,15 @@ async function rollNext(gen) {
 const SWITCHING = new Set(); const SWITCHED = new Map();
 const pathVersion = () => claudever.status().current || CLAUDE_VERSION;
 const chatBinFor = () => { const st = claudever.status(); return st.using && path.isAbsolute(st.bin || '') ? st.bin : null; };
-const isBotChat = name => { const bot = specialists.threadOfTmux(name); const rec = bot && claude.get(name); return !!(rec && rec.specialist === bot); };
-const chatSend = (name, text) => isBotChat(name) ? training.chatTurn(name, text) : headless.send(name, text);
+const isBotChat = name => !!specialists.botOfThread(name);
+const chatSend = async (name, text) => {
+  const held = credentialRefusal(name, [text]);
+  if (held) return { ok: false, refused: true, status: held.status, error: held.error };
+  return isBotChat(name) ? training.chatTurn(name, text) : headless.send(name, text);
+};
 const isBotSession = name => { const rec = claude.get(name); return !!((rec && rec.specialist) || specialists.specialistOfTmux(name)); };
-const BOT_STAYS = 'a bot chat stays with its bot';
+const BOT_STAYS = specialists.BOT_STAYS;
+const botFolder = cwd => specialists.inBotRoot(cwd);
 async function restartChat(name) {
   SWITCHING.add(name); SWITCHED.set(name, Date.now());
   try {
@@ -382,7 +392,7 @@ async function runSchedule() {
   const busy = name => { const st = claude.info(name).state; return st === 'working' || st === 'background' || st === 'permission'; };
   const exists = name => actions.sessionExists(name);
   const allow = j => !j.resume || autoresume.shouldFire({ enabled: !!settings.get().autoResume, job: j, rec: resumeRec(j.session), jobs: schedule.all() });
-  const done = await schedule.run(busy, (name, text) => isChat(name) ? chatSend(name, text) : claude.send(name, text, true), exists, allow);
+  const done = await schedule.run(busy, sessionSend, exists, allow);
   for (const j of done) {
     if ((j.whenFree || j.resume) && j.state === 'done') continue;   // the session's own "done" push already covers it
     // a task rode on this job: attach Claude's closing message and tell the phone about the TASK, not the job
@@ -1040,6 +1050,7 @@ async function api(req, res, url) {
     case 'shell': { const r = await actions.shellSession(); setTimeout(tick, 600); return json(res, r.ok ? 200 : 500, r); } // persistent bash in tmux (sh-N)
     case 'claude': {
       const p = proj(b.id); if (!p) return json(res, 404, { error: 'no project' });
+      if (botFolder(p.path)) return json(res, 409, { ok: false, error: BOT_STAYS });
       const account = b.account === 'company' ? 'company' : 'personal';
       let r;
       if (b.worktree) {
@@ -1058,6 +1069,7 @@ async function api(req, res, url) {
     case 'claude-resume': {
       const { sessionId, cwd, account } = b;
       if (!/^[0-9a-f-]{36}$/.test(sessionId || '') && sessionId || typeof cwd !== 'string' || !path.isAbsolute(cwd) || !fs.existsSync(cwd)) return json(res, 400, { error: 'bad session / folder gone' });
+      if (botFolder(cwd)) return json(res, 409, { ok: false, error: BOT_STAYS });
       const r = await resumeChat(cwd, account === 'company' ? 'company' : 'personal', sessionId || null);
       setTimeout(tick, 1000); setTimeout(tick, 3000); return json(res, r.ok ? 200 : 500, r);
     }
@@ -1115,6 +1127,7 @@ async function api(req, res, url) {
       if (!rec || rec.mode !== 'chat' || !(await actions.sessionExists(name))) return json(res, 404, { error: 'no such chat session' });
       if (rec.specialist || specialists.specialistOfTmux(name)) return json(res, 409, { error: 'a specialist session stays in its profile folder' });
       const cwd = targetCwd(b.target); if (!cwd || !fs.existsSync(cwd)) return json(res, 400, { error: 'unknown target' });
+      if (botFolder(cwd)) return json(res, 409, { error: BOT_STAYS });
       if (path.resolve(cwd) === path.resolve(rec.cwd || '')) return json(res, 409, { error: 'already there' });
       if (SWITCHING.has(name)) return json(res, 409, { error: 'busy' });
       const sid = rec.sessionId; const account = rec.account === 'company' ? 'company' : 'personal';
@@ -1169,9 +1182,9 @@ async function api(req, res, url) {
     case 'schedule-now': { // "send now" on a queued message: drop it from the queue and type it in
       const t = schedule.take(String(b.id || '')); if (!t.ok) return json(res, t.status, { error: t.error });
       const j = t.job; const rest = j.prompts.slice(j.idx), text = rest.join('\n\n');
-      const r = isChat(j.session) ? await chatSend(j.session, text) : await claude.send(j.session, text, true);
-      if (!r.ok) schedule.add(j.session, j.at, rest, { whenFree: j.whenFree });
-      pushState(true); return json(res, r.ok ? 200 : 500, r);
+      const r = await sessionSend(j.session, text);
+      if (!r.ok && !r.refused) schedule.add(j.session, j.at, rest, { whenFree: j.whenFree });
+      pushState(true); return json(res, r.ok ? 200 : r.status || 500, r);
     }
     case 'schedule-remove': { const r = schedule.remove(String(b.id || '')); pushState(true); return json(res, r.ok ? 200 : 409, r); }
     case 'handoff': { // usage limit on one account: start the other account in the same folder with a summary of where this one stopped
@@ -1182,7 +1195,7 @@ async function api(req, res, url) {
       const users = t.turns.filter(x => x.role === 'user').slice(-4).map(x => '- ' + x.text.replace(/\s+/g, ' ').slice(0, 300));
       const lastA = [...t.turns].reverse().find(x => x.role === 'assistant' && transcript.turnText(x)); const last = lastA && { text: transcript.turnText(lastA) }; const files = (from.touched || []).slice(0, 15).map(x => '- ' + x.path);
       const prompt = [`Handoff from another Claude Code session in this same folder (it hit its usage limit). Continue its work.`, ``, `What I asked it recently:`, ...users, ``, last ? `Its last reply (may be incomplete):\n${last.text.slice(0, 1500)}` : '', files.length ? `\nFiles it edited in that session:\n${files.join('\n')}` : '', ``, `Start by running git status and git diff --stat here to see the uncommitted state, then continue from where it stopped. Ask me if the goal is unclear.`].filter(x => x !== null).join('\n');
-      const r = await headless.startChat(from.cwd, to, prompt); if (r.ok && schedule.cancelResume(String(b.session))) pushState(true); setTimeout(tick, 1500); setTimeout(tick, 4000); return json(res, r.ok ? 200 : 500, { ...r, to });
+      const r = await headless.startChat(from.cwd, to, prompt); if (r.ok && schedule.cancelResume(String(b.session))) pushState(true); setTimeout(tick, 1500); setTimeout(tick, 4000); return json(res, r.ok ? 200 : r.status || 500, { ...r, to });
     }
     case 'guess-project': return json(res, 200, guess.guess(String(b.text || '').slice(0, 20000), { projects, history: history.entries(), context: typeof b.context === 'string' ? b.context : null, devRoot: settings.get().devRoot }));
     case 'icon-set': case 'icon-reset': {
@@ -1201,9 +1214,10 @@ async function api(req, res, url) {
     case 'chat-new': {
       const cwd = b.cwd !== undefined ? roots.chatFolder(b.cwd, settings.get().devRoot, projects.map(p => p.path)) : targetCwd(b.target);
       if (!cwd) return json(res, 400, { ok: false, error: b.cwd !== undefined ? 'cwd must be an existing folder inside the dev folder' : 'unknown target' });
+      if (botFolder(cwd)) return json(res, 409, { ok: false, error: BOT_STAYS });
       const r = b.empty === true ? await headless.startEmptyChat(cwd, b.account) : await headless.startChat(cwd, b.account, b.text);
       setTimeout(tick, 300);
-      return json(res, r.ok ? 200 : 400, r);
+      return json(res, r.ok ? 200 : r.status || 400, r);
     }
     case 'claude-settle': {
       const name = String(b.session || '');
