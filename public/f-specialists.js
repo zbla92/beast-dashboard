@@ -145,6 +145,8 @@ FEAT.specialists = (() => {
   async function refresh(force) {
     if (V.busy || (!force && Date.now() - V.at < 4000)) return;
     V.busy = true;
+    const finals = () => [...CALLS].map(([k, r]) => k + isFinal(r)).join(',');
+    const finalsBefore = finals();
     try {
       const r = await api('specialists');
       V.list = r.specialists || []; V.templates = r.templates || []; V.ok = true;
@@ -154,12 +156,16 @@ FEAT.specialists = (() => {
     try { await gather(); } catch {}
     V.busy = false; V.at = Date.now();
     repaint();
+    if (finalsBefore !== finals() && TERM.open) renderChatPane(false);
     if (before !== finKey()) announce();
   }
 
   function onState() {
     const sig = sessionSig();
-    if (!V.at || sig !== V.sig) { V.sig = sig; refresh(false); }
+    if (V.at && sig === V.sig) return;
+    if (V.busy || Date.now() - V.at < 4000) return;
+    V.sig = sig;
+    refresh(false);
   }
 
   const keyOf = () => [V.ok, V.list.map(p => [p.name, p.title, p.iconKey, p.iconColor, p.iconGlyph, p.provider, p.model, p.active, p.error, p.thread?.state, p.thread?.tmux, p.description, (p.recentCalls || []).map(r => [r.runId, r.state, r.caller, r.task])]), V.list.map(p => runSessions(p.name).map(s => [s.name, s.claude?.state, s.claude?.needsYou, s.claude?.title, s.claude?.firstPrompt, s.claude?.label]))];
@@ -172,7 +178,7 @@ FEAT.specialists = (() => {
     try {
       const r = await api('specialist/' + enc(name) + '/chat', {});
       await refresh(true);
-      openSession(r.thread.tmux);
+      openTerm(r.thread.tmux);
     } catch (e) { toast(e.message, 'err'); }
   }
 

@@ -26,6 +26,7 @@ FEAT.botSettings = (() => {
   const useOf = p => Object.hasOwn(USE_NOTE, p?.use) ? p.use : 'agent';
   const fail = (el, msg) => { el.replaceChildren(msg || ''); el.classList.toggle('hidden', !msg); };
   const url = path => 'specialist/' + enc(D.name) + path;
+  const ownsSession = tmux => typeof tmux === 'string' && (tmux === 'claude-spec-' + D.name || tmux === 'claude-spec-' + D.name + '-company' || tmux.startsWith('claude-spec-' + D.name + '-') && /^\d{6}-\d{4}/.test(tmux.slice(('claude-spec-' + D.name + '-').length)));
 
   const opts = (list, cur) => {
     const items = list.some(([v]) => v === (cur ?? '')) || cur == null ? list : [...list, [cur, cur]];
@@ -79,7 +80,7 @@ FEAT.botSettings = (() => {
     const iconBtn = (value, label, content) => h('button', { class: 'bs-ic' + (pick.icon === value ? ' on' : ''), type: 'button', title: label, 'aria-pressed': pick.icon === value ? 'true' : 'false', 'data-icon': value, onclick: () => { pick.icon = value; paintIcons(); } }, content);
     const paintIcons = () => iconRow.replaceChildren(
       iconBtn('auto', 'Auto, from the name', h('span', { class: 'bs-auto' }, 'Auto')),
-      legacy ? iconBtn(legacy, 'Current', h('span', { class: 'bs-glyph' }, legacy)) : null,
+      ...(legacy ? [iconBtn(legacy, 'Current', h('span', { class: 'bs-glyph' }, legacy))] : []),
       ...D.keys.map(k => iconBtn(k, k, window.BOT_ICON?.svg(k, 18) || h('span', { class: 'bs-keyname' }, k))));
     const swatch = (value, label, content, style) => h('button', { class: 'bs-sw' + (pick.color === value ? ' on' : ''), type: 'button', title: label, 'aria-pressed': pick.color === value ? 'true' : 'false', 'data-color': value || 'auto', style, onclick: () => { pick.color = value; paintColors(); } }, content);
     const paintColors = () => colorRow.replaceChildren(swatch(null, 'Auto, from the name', 'Auto', null), ...D.palette.map(c => swatch(c, c, null, 'background:' + c)));
@@ -214,7 +215,7 @@ FEAT.botSettings = (() => {
     const paint = () => {
       const rows = M.commits.filter(c => !HIDDEN_SOURCES.has(c.source));
       list.replaceChildren(...(rows.length ? rows.map(row) : [h('div', { class: 'dim sp-none' }, M.ready ? 'Nothing learned yet. Tell the bot "remember ..." in its chat.' : 'Loading…')]),
-        M.more ? h('button', { class: 'btn sm ghost', type: 'button', onclick: more }, 'Show older') : null);
+        ...(M.more ? [h('button', { class: 'btn sm ghost', type: 'button', onclick: more }, 'Show older')] : []));
     };
     const load = async () => {
       try { const r = await api(url('/train/history?limit=' + PAGE)); M.commits = r.commits || []; M.more = !!r.more; M.ready = true; fail(err, ''); } catch (e) { fail(err, e.message); }
@@ -286,6 +287,7 @@ FEAT.botSettings = (() => {
         await api(url('/archive'), { endChat: true });
         toast('Archived ' + (D.p.title || D.name), 'ok');
         close();
+        if (ownsSession(TERM.active)) closeTermPanel();
         reloadLists();
       } catch (e) { plain(); fail(err, e.message); }
     };

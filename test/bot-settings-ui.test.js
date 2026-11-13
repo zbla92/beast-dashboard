@@ -10,7 +10,7 @@ const node = (tag, attrs, kids) => {
   const n = { tag, attrs: attrs || {}, kids: kids.flat(Infinity).filter(k => k != null && k !== false), nodeType: 1, hiddenSet: new Set() };
   n.classList = { add() {}, remove() {}, toggle() {}, contains: () => false };
   n.querySelector = () => null;
-  n.replaceChildren = (...k) => { n.kids = k.flat(Infinity).filter(x => x != null && x !== false); };
+  n.replaceChildren = (...k) => { if (k.some(x => x == null || x === false)) throw new Error('replaceChildren got ' + k.find(x => x == null || x === false)); n.kids = k.flat(Infinity).filter(x => x != null && x !== false); };
   n.append = (...k) => { n.kids.push(...k); };
   n.setAttribute = () => {};
   n.focus = () => {};
@@ -32,7 +32,7 @@ const build = (p, extra = {}) => {
   const calls = [];
   const modal = node('div', {}, []);
   const sandbox = {
-    FEAT: {}, calls, modal, toasts: [], shown: null,
+    FEAT: {}, calls, modal, toasts: [], shown: null, TERM: {}, closeTermPanel() {},
     h: (tag, attrs, ...kids) => node(tag, attrs, kids),
     ico: n => ({ nodeType: 1, tag: 'svg', attrs: { n }, kids: [] }),
     $: () => modal, acct: a => a, window: {},
@@ -212,6 +212,20 @@ test('archive asks first, then ends an idle chat and archives', async () => {
   press(buttonByText(pane, 'Archive'));
   await settle();
   assert.deepStrictEqual(posts(sb)[0], ['specialist/db/archive', { endChat: true }]);
+});
+
+test('archive closes the open chat panel of this bot and leaves another chat alone', async () => {
+  const closed = [];
+  const mine = await opened(profile(), 'advanced', { TERM: { active: 'claude-spec-db' }, closeTermPanel: () => closed.push('x') });
+  press(buttonByText(section(mine.shown, 'advanced'), 'Archive bot'));
+  press(buttonByText(section(mine.shown, 'advanced'), 'Archive'));
+  await settle();
+  assert.strictEqual(closed.length, 1);
+  const other = await opened(profile(), 'advanced', { TERM: { active: 'claude-spec-db-2' }, closeTermPanel: () => closed.push('y') });
+  press(buttonByText(section(other.shown, 'advanced'), 'Archive bot'));
+  press(buttonByText(section(other.shown, 'advanced'), 'Archive'));
+  await settle();
+  assert.strictEqual(closed.length, 1);
 });
 
 test('Memory lists learned changes without start and preamble commits and undoes one', async () => {

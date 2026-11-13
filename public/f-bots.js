@@ -58,7 +58,7 @@ FEAT.bots = (() => {
     const head = h('div', { class: 'bt-head' }, h('h2', { class: 'bt-title' }, 'Bots'), h('span', { class: 'n' }, V.list.length), h('span', { class: 'bt-sp' }),
       h('button', { class: 'btn sm ghost icon bt-help', title: 'How bots work', 'aria-label': 'How bots work', onclick: () => FEAT.botsIntro?.open() }, '?'));
     const note = !V.ok && !V.list.length ? h('div', { class: 'note bt-note' }, 'Bots are not available.') : null;
-    root.replaceChildren(head, note, h('div', { class: 'bt-grid' }, ...sorted(V.list).map(card), newCard()));
+    root.replaceChildren(...[head, note].filter(Boolean), h('div', { class: 'bt-grid' }, ...sorted(V.list).map(card), newCard()));
   }
 
   async function refresh(force) {
@@ -87,7 +87,7 @@ FEAT.bots = (() => {
       const r = await api('specialist/' + enc(name) + '/chat', {});
       const tmux = r.thread?.tmux;
       if (!tmux) throw new Error('The chat did not start');
-      openSession(tmux);
+      openTerm(tmux);
     } catch (e) { toast(e.message, 'err'); }
   }
 

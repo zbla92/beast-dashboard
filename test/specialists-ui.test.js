@@ -113,7 +113,7 @@ test('a bot row opens its chat through the bots feature and falls back to the ch
   await withBots.FEAT.specialists.refresh(true);
   botRows(withBots.FEAT.specialists.railSection('rail'))[0].attrs.onclick();
   assert.deepStrictEqual(opened, ['writer']);
-  const sb = build([P('writer')], [], false, { openSession: n => { sb.session = n; } });
+  const sb = build([P('writer')], [], false, { openTerm: n => { sb.session = n; } });
   sb.api = async (p, body) => { sb.calls.push([p, body]); return p === 'specialists' ? { ok: true, specialists: [P('writer')], templates: [] } : { ok: true, started: true, thread: { tmux: 'claude-spec-writer' } }; };
   await sb.FEAT.specialists.refresh(true);
   botRows(sb.FEAT.specialists.railSection('rail'))[0].attrs.onclick();
@@ -203,6 +203,19 @@ test('a composer locked for a live call opens again once the call has a result',
   sb.FEAT.specialists.composerShown(c.box);
   assert.strictEqual(c.reply.disabled, false);
   assert.strictEqual(c.reply.placeholder, 'message');
+});
+
+test('the chat pane is repainted when a call turns final while a chat is open', async () => {
+  const painted = [];
+  const sb = build([P('writer', { recentCalls: [call(TMUX, { state: 'working' })] })], [], false, { renderChatPane: f => painted.push(f) });
+  sb.TERM.open = true;
+  await sb.FEAT.specialists.refresh(true);
+  painted.length = 0;
+  sb.api = async p => p === 'specialists' ? { ok: true, specialists: [P('writer', { recentCalls: [call(TMUX, { state: 'done' })] })], templates: [] } : { ok: true };
+  await sb.FEAT.specialists.refresh(true);
+  assert.deepStrictEqual(painted, [false]);
+  await sb.FEAT.specialists.refresh(true);
+  assert.deepStrictEqual(painted, [false]);
 });
 
 test('continuing a call posts to its send route without waiting and other chats are left to the normal send', async () => {

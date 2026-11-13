@@ -8,7 +8,7 @@ const read = f => fs.readFileSync(path.join(__dirname, '..', 'public', f), 'utf8
 
 const node = (tag, attrs, kids) => {
   const n = { tag, attrs: attrs || {}, kids: kids.flat(Infinity).filter(k => k != null && k !== false), classList: { add() {}, remove() {}, toggle() {}, contains: () => false } };
-  n.replaceChildren = (...k) => { n.kids = k.flat(Infinity).filter(x => x != null && x !== false); };
+  n.replaceChildren = (...k) => { if (k.some(x => x == null || x === false)) throw new Error('replaceChildren got ' + k.find(x => x == null || x === false)); n.kids = k.flat(Infinity).filter(x => x != null && x !== false); };
   n.focus = () => {};
   if (tag === 'input') n.value = '';
   return n;
@@ -33,7 +33,7 @@ const build = (list, extra = {}) => {
       if (p === 'specialist') return { ok: true, specialist: { name: body.name } };
       return { ok: true, thread: { tmux: 'claude-spec-' + p.split('/')[1] } };
     },
-    toast: (m, k) => sandbox.toasts.push([m, k]), openSession(n) { sandbox.opened = n; },
+    toast: (m, k) => sandbox.toasts.push([m, k]), openTerm(n) { sandbox.opened = n; },
     document: { hidden: true }, setInterval: () => 0,
   };
   Object.assign(sandbox, extra);
@@ -101,4 +101,10 @@ test('create sends only what the user set and then opens the chat', async () => 
   await go.onclick(); await settle();
   assert.deepStrictEqual(JSON.parse(JSON.stringify(sb.calls.find(c => c[0] === 'specialist'))), ['specialist', { name: 'writer', template: 'blank', description: 'drafts' }]);
   assert.strictEqual(sb.opened, 'claude-spec-writer');
+});
+
+test('a refused send removes its local echo from the transcript', () => {
+  const appSrc = read('app.js');
+  assert.match(appSrc, /conv\.append\(echo\)/);
+  assert.match(appSrc, /catch \(e\) \{ toast\(e\.message, 'err'\); echo\.remove\(\);/);
 });
