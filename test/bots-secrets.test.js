@@ -73,7 +73,7 @@ const gitIn = (dir, ...args) => execFileSync('git', ['-C', dir, ...args], { enco
 const flagOf = (argv, f) => argv.includes(f) ? argv[argv.indexOf(f) + 1] : null;
 
 const training = createTraining({ store, headless, tmuxHas, claudeGet: claude.get, goneMs: 50 });
-const runs = createRuns({ store, headless, tmuxHas, claudeGet: claude.get, training, goneMs: 50 });
+const runs = createRuns({ store, headless, tmuxHas, claudeGet: claude.get, setRunner: claude.setRunner, training, goneMs: 50 });
 const api = createSpecialistApi({ store, runs, training, readBody });
 const reply = (res, code, obj) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(obj)); };
 const srv = http.createServer(async (req, res) => {
@@ -281,6 +281,75 @@ test('commit guard: .secrets never enters history, staged files holding a value 
   await teach(p, 'nothing again');
   assert.strictEqual(gitIn(p.dir, 'rev-parse', 'HEAD').trim(), head);
   assert.strictEqual(gitIn(p.dir, 'show', 'HEAD:knowledge/ok.md'), 'plain notes\n');
+});
+
+test('adopting a live own chat that started without --settings updates its record for the next restart and leaves it running', async () => {
+  const p = withAccess({ mode: 'thread' });
+  const [s, opened] = await call('POST', `/api/specialist/${p.name}/chat`, {});
+  assert.strictEqual(s, 200, opened.error);
+  const tmux = store.threadName(p.name, 'personal');
+  const chatFile = path.join(p.dir, '.bd', 'settings.json');
+  await until(() => fakeArgs().find(x => x.cwd === p.dir));
+  const { settings, accesses: dir, ...old } = claude.get(tmux).runner;
+  assert.deepStrictEqual([settings, dir], [chatFile, p.dir]);
+  claude.setRunner(tmux, old);
+  assert.ok(!('settings' in claude.get(tmux).runner) && !('accesses' in claude.get(tmux).runner));
+  const pid = pidOf(tmux), n0 = fakeArgs().length;
+  const [s2, again] = await call('POST', `/api/specialist/${p.name}/chat`, {});
+  assert.deepStrictEqual([s2, again.started], [200, false]);
+  const rec = claude.get(tmux).runner;
+  assert.deepStrictEqual([rec.settings, rec.accesses, rec.permissionMode], [chatFile, p.dir, old.permissionMode]);
+  assert.ok(alive(tmux));
+  assert.strictEqual(pidOf(tmux), pid);
+  assert.strictEqual(fakeArgs().slice(n0).filter(x => x.cwd === p.dir).length, 0);
+});
+
+test('a run answer holding a stored value is kept with the access name in its place', async () => {
+  const p = withAccess();
+  const PHRASE = 'Echo: check the ledger';
+  accesses.set(p.dir, { name: 'PHRASE', value: PHRASE });
+  const [s, asked] = await call('POST', `/api/specialist/${p.name}/ask`, { text: 'check the ledger', wait: true, timeoutSec: 10 });
+  assert.strictEqual(s, 200, asked.error);
+  assert.deepStrictEqual([asked.state, asked.text], ['done', '[PHRASE]']);
+  assert.strictEqual(store.getRun(asked.runId).text, '[PHRASE]');
+  assert.ok(!JSON.stringify(store.listRuns(p.name)).includes(PHRASE));
+  assert.strictEqual(accesses.mask(accesses.values(p.dir), `failed: ${PHRASE} with ${SECRET}, ${SECRET.slice(0, -1)}`), `failed: [PHRASE] with [DB_URL], ${SECRET.slice(0, -1)}`);
+});
+
+test('a Summary line holding a stored value never reaches a commit message or the history', async () => {
+  const p = withAccess();
+  const NOTE = 'example-summary-value-42';
+  accesses.set(p.dir, { name: 'NOTE_KEY', value: NOTE });
+  await teach(p, `write knowledge/notes.md=plain notes\nSummary: uses ${NOTE} now`);
+  const [s, h] = await call('GET', `/api/specialist/${p.name}/train/history`);
+  assert.strictEqual(s, 200);
+  assert.deepStrictEqual([h.commits[0].source, h.commits[0].message], ['trainer', 'Training: knowledge/notes.md']);
+  assert.ok(!JSON.stringify(h).includes(NOTE));
+  assert.ok(!history(p.dir).includes(NOTE));
+  const [u, undone] = await call('POST', `/api/specialist/${p.name}/train/undo`, { commit: h.commits[0].id });
+  assert.strictEqual(u, 201, undone.error);
+  assert.ok(!history(p.dir).includes(NOTE));
+});
+
+test('an upload commits only its own file; a hand-staged file holding a value never enters history', async () => {
+  const p = withAccess();
+  await teach(p, 'write style.md=Calm.\nSummary: Calm style');
+  fs.mkdirSync(path.join(p.dir, 'knowledge'), { recursive: true });
+  fs.writeFileSync(path.join(p.dir, 'knowledge', 'stray.md'), `stray ${SECRET}\n`);
+  fs.writeFileSync(path.join(p.dir, 'knowledge', 'other.md'), 'other notes\n');
+  gitIn(p.dir, 'add', '-f', 'knowledge/stray.md', 'knowledge/other.md');
+  const u = new URL(`${await base()}/api/specialist/${p.name}/train/upload?filename=list.txt`);
+  const [s, up] = await new Promise((resolve, reject) => {
+    const req = http.request(u, { method: 'POST', headers: { 'content-length': 6 } }, res => { const out = []; res.on('data', d => out.push(d)); res.on('end', () => { const text = Buffer.concat(out).toString('utf8'); responses.push(text); resolve([res.statusCode, JSON.parse(text)]); }); });
+    req.on('error', reject);
+    req.end('items\n');
+  });
+  assert.strictEqual(s, 201, up.error);
+  assert.deepStrictEqual(gitIn(p.dir, 'show', '--name-only', '--format=', 'HEAD').trim().split('\n'), ['knowledge/files/list.txt']);
+  assert.deepStrictEqual(gitIn(p.dir, 'log', '-1', '--skip=1', '--name-only', '--format=%s').trim().split('\n').filter(Boolean), ['Changes made outside training', 'knowledge/other.md']);
+  assert.ok(!tracked(p.dir).includes('knowledge/stray.md'));
+  assert.strictEqual(gitIn(p.dir, 'diff', '--cached', '--name-only'), '');
+  assert.ok(!history(p.dir).includes(SECRET));
 });
 
 test('values never appear in API responses, logs, run records, session records, generated files or anything else outside .secrets and the fake env log', () => {

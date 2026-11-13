@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
+const { execFileSync } = require('child_process');
 
 const invoked = path.basename(process.argv[1] || '');
 const NAME = invoked === 'bd-bot' ? invoked : 'bd-ask';
@@ -101,7 +102,7 @@ async function main(argv, env, io) {
   if (!Number.isFinite(timeout) || timeout < 1) { io.err(`${NAME}: --timeout is a number of seconds, at least 1`); return 2; }
   const textArg = asking ? o.args[1] : o.continue !== undefined ? o.args[0] : null;
   const text = textArg === '-' ? io.stdin() : textArg;
-  if (textArg !== null && !text.trim()) { io.err('${NAME}: the task is empty'); return 2; }
+  if (textArg !== null && !text.trim()) { io.err(`${NAME}: the task is empty`); return 2; }
   const port = dashPort(env);
   const state = io.state || {};
 
@@ -170,10 +171,20 @@ async function main(argv, env, io) {
   const asked = material.length ? `${text}\n\nOriginal material (verbatim):\n${material.join('\n\n')}` : text;
   const body = { text: asked, wait: !o['no-wait'], timeoutSec: sec };
   if (o.files.length) body.files = o.files.map(f => path.resolve(io.cwd, f));
+  const from = callerSession(env);
+  if (from) body.from = from;
   const r = await request('POST', `/api/specialist/${encodeURIComponent(o.args[0])}/ask`, body, o['no-wait'] ? 60000 : limit(sec));
   if (r.fatal) { io.err(`${NAME}: ${r.message}`); return r.fatal; }
   if (o['no-wait']) { io.out(r.run.runId); return 0; }
   return follow(r.run);
+}
+
+function callerSession(env) {
+  if (!env.TMUX) return null;
+  try {
+    const name = execFileSync('tmux', ['display-message', '-p', '#S'], { env, encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    return /^[A-Za-z0-9_.-]{1,128}$/.test(name) ? name : null;
+  } catch { return null; }
 }
 
 module.exports = { main, parse, dashPort };

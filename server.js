@@ -67,7 +67,7 @@ const accesses = require('./lib/accesses');
 const credentialRefusal = (session, texts) => { try { accesses.refuseInSession(session, texts); return null; } catch (e) { return { status: e.status || 500, error: e.message }; } };
 const specialistSkills = require('./lib/specialist-skill').createSkills({ store: specialists });
 const training = require('./lib/training').createTraining({ store: specialists, headless, tmuxHas: actions.sessionExists, claudeGet: claude.get, skills: specialistSkills });
-const specialistRuns = require('./lib/specialist-runs').createRuns({ store: specialists, headless, tmuxHas: actions.sessionExists, claudeGet: claude.get, training, skills: specialistSkills, endSession: async tmux => { await actions.stop(tmux); claude.forget(tmux); }, liveSessions: async () => { const r = await run('tmux', ['list-sessions', '-F', '#{session_name}']); if (!r.ok && !/no server running|error connecting to/.test(r.stderr || '')) throw new Error('tmux list-sessions failed'); return r.ok ? r.stdout.split('\n').filter(Boolean) : []; } });
+const specialistRuns = require('./lib/specialist-runs').createRuns({ store: specialists, headless, tmuxHas: actions.sessionExists, claudeGet: claude.get, setRunner: claude.setRunner, training, skills: specialistSkills, endSession: async tmux => { await actions.stop(tmux); claude.forget(tmux); }, liveSessions: async () => { const r = await run('tmux', ['list-sessions', '-F', '#{session_name}']); if (!r.ok && !/no server running|error connecting to/.test(r.stderr || '')) throw new Error('tmux list-sessions failed'); return r.ok ? r.stdout.split('\n').filter(Boolean) : []; } });
 const specialistApi = require('./lib/specialist-api').createSpecialistApi({ store: specialists, runs: specialistRuns, training, skills: specialistSkills, readBody, onChange: () => setTimeout(tick, 200) });
 claude.setProjects(p => history.projectFor(p, projects));
 roots.init({ projects: () => projects });
@@ -1290,12 +1290,16 @@ async function api(req, res, url) {
     }
     case 'hl-answer': {
       if (!isChat(b.session)) return json(res, 404, { error: 'not a chat session' });
+      const answerHeld = credentialRefusal(b.session, [b.message, ...(b.answers && typeof b.answers === 'object' ? Object.entries(b.answers).flat().map(String) : [])]);
+      if (answerHeld) return json(res, answerHeld.status, { ok: false, error: answerHeld.error });
       const r = await headless.answer(b.session, b.rid, b.decision, b.answers, b.message); setTimeout(tick, 300); return json(res, r.ok ? 200 : 409, r);
     }
     case 'hl-shell': case 'hl-shell-stop': case 'hl-shell-drop': {
       const isCmd = parts[0] === 'hl-shell', cmd = typeof b.cmd === 'string' ? b.cmd.trim() : '';
       if (isCmd ? !cmd || cmd.length > 10000 : typeof b.id !== 'string' || !/^s-\d+$/.test(b.id)) return json(res, 400, { error: isCmd ? 'cmd must be 1..10000 chars' : 'bad command id' });
       if (!isChat(b.session)) return json(res, 400, { error: 'shell commands run in the terminal for terminal sessions' });
+      const shellHeld = isCmd ? credentialRefusal(b.session, [cmd]) : null;
+      if (shellHeld) return json(res, shellHeld.status, { ok: false, error: shellHeld.error });
       const r = isCmd ? await headless.shell(b.session, cmd) : parts[0] === 'hl-shell-stop' ? await headless.shellStop(b.session, b.id) : await headless.shellDrop(b.session, b.id);
       return json(res, r.ok ? 200 : 409, r);
     }

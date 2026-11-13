@@ -25,6 +25,7 @@ TMP="$(mktemp -d /tmp/bd-gate-XXXX)"
 (cd "$REPO" && tar --exclude=./state --exclude=./state-backups --exclude=./.git --exclude=./whisper/.venv -cf - .) | (cd "$TMP" && tar -xf -)
 mkdir -p "$TMP/state" && printf '{"port": %s, "autoExpose": false}\n' "$PORT" > "$TMP/state/settings.json"
 cp "$REPO/state/claude-sessions.json" "$TMP/state/" 2>/dev/null   # read-only copy: lets /api/subagents resolve the live sessions' transcripts
+node -e 'const fs=require("fs"),f=process.argv[1],s=(()=>{try{return JSON.parse(fs.readFileSync(f,"utf8"))}catch{return {}}})();const r=(tmux,n,specialist)=>({tmux,account:"personal",sessionId:"00000000-0000-4000-8000-00000000000"+n,cwd:process.argv[2],transcriptPath:null,state:"idle",since:Date.now(),firstSeen:Date.now(),mode:"chat",specialist});s["claude-spec-gate-bot"]=r("claude-spec-gate-bot",1,"gate-bot");s["claude-chat-gate-plain"]=r("claude-chat-gate-plain",2,null);s["claude-spec-gate-writer"]=r("claude-spec-gate-writer",3,"gate-writer");fs.writeFileSync(f,JSON.stringify(s))' "$TMP/state/claude-sessions.json" "$TMP"
 PLANS="$TMP/plans-store"; cp -r "$TMP/test/fixtures/plans/store" "$PLANS"
 SKH="$TMP/skills-home"; mkdir -p "$SKH/.claude"
 (cd "$TMP" && BD_TEST=1 BEAST_PLANS_DIR="$PLANS" BD_SPECIALISTS_DIR="$TMP/specialists" BD_SKILLS_HOME="$SKH" BD_PROVIDERS_FILE="$TMP/providers.json" exec node server.js > "$TMP/server.log" 2>&1) & PID=$!
@@ -187,6 +188,9 @@ r="$(sp specialist/gate-writer/accesses '{"name":"GATE_TOKEN","value":"gate-s3cr
 [ "$r" = "200 400 400" ] && ! grep -q 'gate-s3cret-value' /tmp/gate-$$.body && ok "POST accesses -> 200, bad name / unknown field -> 400" || fail "POST accesses -> $r"
 r="$(get /api/specialist/gate-writer/accesses | cut -d' ' -f1) $(jq1 'j.accesses.map(a=>a.name).join(",")') $(stat -c %a "$TMP/specialists/gate-writer/.secrets" "$TMP/specialists/gate-writer/.secrets/accesses.json" | tr '\n' ' ')"
 [ "$r" = "200 GATE_TOKEN 700 600 " ] && ! grep -q 'gate-s3cret-value' /tmp/gate-$$.body && [ "$(get /api/specialist/gate-writer | cut -d' ' -f1)" = 200 ] && ! grep -q 'gate-s3cret-value' /tmp/gate-$$.body && ! git -C "$TMP/specialists/gate-writer" log -p --all 2>/dev/null | grep -q 'gate-s3cret-value' && ok "GET accesses -> names only, .secrets 0700 / 0600, value not in the API or git" || fail "GET accesses -> $r"
+held() { local r; r="$(sp "$1" "$2")"; echo "$r $(grep -c 'contains one of the bot' /tmp/gate-$$.body) $(grep -c 'gate-s3cret-value' /tmp/gate-$$.body)"; }
+r="$(held hl-shell '{"session":"claude-spec-gate-writer","cmd":"curl -H gate-s3cret-value x"}'), $(held hl-answer '{"session":"claude-spec-gate-writer","rid":"r1","decision":"deny","message":"use gate-s3cret-value"}'), $(held hl-answer '{"session":"claude-spec-gate-writer","rid":"r1","decision":"allow","answers":{"Which one?":"gate-s3cret-value"}}'), $(held hl-shell '{"session":"claude-spec-gate-writer","cmd":"echo hi"}')"
+[ "$r" = "409 1 0, 409 1 0, 409 1 0, 409 0 0" ] && ok "POST hl-shell / hl-answer on a bot chat holding a credential value -> 409, value not echoed; a plain command passes the check" || fail "POST hl-shell / hl-answer credential check -> $r"
 r="$(sp specialist/gate-writer/accesses/GATE_TOKEN/delete '') $(sp specialist/gate-writer/accesses/GATE_TOKEN/delete '') $(get /api/specialist/gate-writer/train/feedback | cut -d' ' -f1) $(get /api/specialist/gate-nope/train | cut -d' ' -f1)"
 [ "$r" = "200 404 200 404" ] && ok "POST accesses delete -> 200, again -> 404; GET train feedback -> 200; unknown specialist -> 404" || fail "POST accesses delete / feedback / unknown -> $r"
 r="$(sp specialist '{"name":"gate-scout","provider":"openai"}') $(sp specialist '{"name":"gate-scout","provider":"grok","model":"x"}') $(sp specialist '{"name":"gate-scout","provider":"openai","model":"gpt-5"}')"
@@ -210,6 +214,12 @@ r="$(hlpost hl-shell '{"session":"claude-gate-nope","cmd":"   "}') $(hlpost hl-s
 [ "$r" = "400 400 400 400" ] && ok "POST hl-shell / -stop / -drop bad input -> 400" || fail "POST hl-shell bad input -> $r"
 r="$(hlpost hl-shell-stop '{"session":"claude-gate-nope","id":"s-1"}') $(hlpost hl-shell-drop '{"session":"claude-gate-nope","id":"s-1"}')"
 [ "$r" = "400 400" ] && ok "POST hl-shell-stop / -drop non-chat session -> 400" || fail "POST hl-shell-stop / -drop non-chat session -> $r"
+r="$(hlpost send '{"session":"claude-spec-gate-bot","text":"hi"}') $(jq1 'j.error')"
+[ "$r" = '400 no specialist "gate-bot"' ] && ok "POST send to a bot's own chat goes through its teaching turn" || fail "POST send bot chat -> $r"
+r="$(hlpost send '{"session":"claude-chat-gate-plain","text":"hi"}') $(jq1 'j.error')"
+[ "$r" = "400 chat runner is not reachable" ] && ok "POST send to a plain chat goes straight to its runner" || fail "POST send plain chat -> $r"
+r="$(hlpost handoff '{"session":"claude-spec-gate-bot"}') $(jq1 'j.error'), $(hlpost chat-fork '{"session":"claude-spec-gate-bot"}') $(jq1 'j.error')"
+[ "$r" = "409 a bot chat stays with its bot, 409 a bot chat stays with its bot" ] && ok "POST handoff / chat-fork of a bot chat -> 409" || fail "POST handoff / chat-fork bot chat -> $r"
 gop() { local id="$1" d="$2"; shift 2; curl -s -m 30 -o /tmp/gate-$$.body -w '%{http_code}' -X POST -H 'content-type: application/json' "$@" -d "$d" "$B/api/git/$id/op"; }
 json /api/git/gate-nope/branches 404
 json /api/git/gate-nope/log 404

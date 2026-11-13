@@ -674,3 +674,39 @@ test('own chat: a new bot is a repository with the preamble; teaching turns comm
   await training.boot();
   assert.deepStrictEqual((await call('GET', `/api/specialist/${plain.name}/train/history`))[1].commits.map(x => x.source), ['start']);
 });
+
+test('own chat: a turn that starts right after a result is marked, guarded and committed', async () => {
+  const p = fresh();
+  const tmux = store.threadName(p.name, 'personal');
+  const subs = [];
+  const live = { now: null };
+  const fake = {
+    subscribe: (t, fn) => { if (t === tmux) subs.push(fn); return () => {}; },
+    live: () => live.now,
+    status: async () => ({ state: 'idle' }),
+    send: async () => ({ ok: true }),
+    waitForRunner: async () => ({ up: true }),
+  };
+  const own = createTraining({ store, headless: fake, tmuxHas, goneMs: 50 });
+  const emit = o => subs.forEach(fn => fn(o));
+  const subjects = () => gitIn(p.dir, 'log', '--format=%s').trim().split('\n');
+  assert.ok((await own.chatTurn(tmux, 'first')).ok);
+  fs.mkdirSync(path.join(p.dir, 'knowledge'), { recursive: true });
+  fs.writeFileSync(path.join(p.dir, 'knowledge', 'one.md'), 'one\n');
+  live.now = { state: 'working', turn: { startedAt: 1 } };
+  emit({ ev: 'result', subtype: 'success', text: 'Summary: First' });
+  emit({ ev: 'state', state: 'working' });
+  await own.serial(p.name, async () => {});
+  assert.strictEqual(subjects()[0], 'First');
+  assert.strictEqual(await own.busy(p.name), 'the bot is busy');
+  const meta = () => { const { updatedAt, ...m } = JSON.parse(fs.readFileSync(path.join(p.dir, 'specialist.json'), 'utf8')); return m; };
+  const before = meta();
+  fs.writeFileSync(path.join(p.dir, 'knowledge', 'two.md'), 'two\n');
+  fs.writeFileSync(path.join(p.dir, 'specialist.json'), '{"evil":true}\n');
+  live.now = { state: 'idle' };
+  emit({ ev: 'result', subtype: 'success', text: 'Summary: Second' });
+  await until(() => subjects()[0] === 'Second');
+  assert.deepStrictEqual(meta(), before);
+  assert.deepStrictEqual(gitIn(p.dir, 'show', '--name-only', '--format=', 'HEAD').trim().split('\n'), ['knowledge/two.md']);
+  assert.strictEqual(gitIn(p.dir, 'log', '-1', '--format=%b').trim(), 'Bd-Source: chat');
+});

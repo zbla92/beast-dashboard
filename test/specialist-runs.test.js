@@ -596,6 +596,12 @@ test('http routes: create, list, get, update, archive and errors as { ok: false,
   assert.ok(list.templates.some(x => x.id === 'writer'));
   const item = list.specialists.find(s => s.name === name);
   assert.deepStrictEqual([item.active, item.lastRun, item.recentCalls, item.thread, 'trainer' in item], [0, null, [], null, false]);
+  const brokenDir = path.join(process.env.BD_SPECIALISTS_DIR, `broken${n}`);
+  fs.mkdirSync(brokenDir);
+  fs.writeFileSync(path.join(brokenDir, 'specialist.json'), '{bad');
+  const broken = (await call('GET', '/api/specialists'))[1].specialists.find(s => s.name === `broken${n}`);
+  fs.rmSync(brokenDir, { recursive: true });
+  assert.deepStrictEqual(Object.keys(broken).sort(), ['dir', 'error', 'name']);
   const [, got] = await call('GET', `/api/specialist/${name}?runs=5`);
   assert.match(got.specialist.instructions, /style\.md/);
   assert.deepStrictEqual(got.runs, []);

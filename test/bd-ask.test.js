@@ -175,3 +175,20 @@ test('--help prints usage and exits 0', async () => {
   assert.equal(await main(['--help'], {}, o), 0);
   assert.match(o.outs[0], /usage: bd-ask/);
 });
+
+test('inside tmux the ask sends the caller session as from, and leaves it out when the name is unusable', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bd-ask-tmux-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(dir, 'tmux'), '#!/bin/sh\n[ "$1 $2 $3" = "display-message -p #S" ] || exit 1\n[ -n "$FAKE_TMUX_FAIL" ] && exit 1\nprintf "%s\\n" "$FAKE_TMUX_NAME"\n', { mode: 0o755 });
+  const d = await fakeDash(t, () => [200, run('done', { text: 'ok' })]);
+  const ask = async extra => {
+    const o = io();
+    assert.equal(await main(['writer', 'Hi'], { ...envOf(d), PATH: `${dir}:${process.env.PATH}`, FAKE_TMUX_NAME: 'claude-caller.1', ...extra }, o), 0, o.errs.join('\n'));
+    return d.seen.at(-1).body;
+  };
+  assert.equal((await ask({ TMUX: '/tmp/tmux-1/default,1,0' })).from, 'claude-caller.1');
+  assert.equal('from' in await ask({}), false);
+  assert.equal('from' in await ask({ TMUX: '/tmp/tmux-1/default,1,0', FAKE_TMUX_NAME: 'bad name;x' }), false);
+  assert.equal('from' in await ask({ TMUX: '/tmp/tmux-1/default,1,0', FAKE_TMUX_NAME: 'x'.repeat(129) }), false);
+  assert.equal('from' in await ask({ TMUX: '/tmp/tmux-1/default,1,0', FAKE_TMUX_FAIL: '1' }), false);
+});
