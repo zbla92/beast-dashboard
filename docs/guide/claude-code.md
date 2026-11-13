@@ -64,7 +64,7 @@ like one you started. The folder defaults to the current one and must be inside 
 defaults to the login the shell runs under (`CLAUDE_CONFIG_DIR`). The port comes from `BEAST_DASH_PORT`, which every
 session the dashboard starts has. `./install.sh` links the command into `~/.local/bin`, and `--remove` takes it out.
 
-To hand a task to a [specialist](specialists.md) and get back only its answer, use `bd-ask`:
+To hand a task to a [bot](bots.md) and get back only its answer, use `bd-ask`:
 
 ```bash
 bd-ask --list
