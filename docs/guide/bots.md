@@ -1131,6 +1131,14 @@ out of the instructions, the history and every API response, but not away from y
 the bot itself (it can print them). Real separation (own Unix user, a broker for credentials) is a
 later phase. The OpenAI and xAI keys live in their own file outside every bot (section 14).
 
+The deny rules of 6.6 stop the Read tool and Bash commands that name a `.secrets` path (`cat`,
+`head`, `tail`, `grep <file>`, `cp`, redirections). They do not stop indirect reads such as
+`grep -r`, `sh -c`, an interpreter opening the file, or a pager. That is accepted: the file holds only
+this bot's own values, which its runs already get as env vars, and the commit guard (6.4) and the
+message check (section 7) keep those values out of history and out of what is sent to it. The
+Claude Code sandbox (`filesystem.denyRead`) would close the gap but also limits writes and network,
+so it is not used.
+
 ## 14. OpenAI and xAI keys
 
 Existing (`lib/providers.js`). The dashboard never asks for a key and never writes one. You add it by
