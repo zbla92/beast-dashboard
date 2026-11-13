@@ -105,6 +105,7 @@ cd ~/beast-dash && ./install.sh
 Open the URL it prints (`http://<tailscale-ip>:8787`), set your projects folder in ⚙ Settings. Done.
 
 Needs Linux with systemd, Node 18+ and tmux; Tailscale to reach it from your devices.
+On a Mac, run `./install-mac.sh` instead; see [macOS](docs/guide/macos.md).
 **Read [Access](docs/guide/access.md) before you expose it.** Prefer to let an agent set it up? Hand it [AGENT-SETUP.md](AGENT-SETUP.md).
 
 To update: `git pull && ./install.sh`, then reload the page.
@@ -113,6 +114,7 @@ To update: `git pull && ./install.sh`, then reload the page.
 
 [**Features & tour**](docs/guide/features.md) ·
 [Install](docs/guide/install.md) ·
+[macOS](docs/guide/macos.md) ·
 [Access & phone](docs/guide/access.md) ·
 [Claude Code](docs/guide/claude-code.md) ·
 [Plans](docs/guide/plans.md) ·

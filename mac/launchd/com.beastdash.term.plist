@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Beast Term: ttyd web terminal for the tmux sessions. It has no login of its own, so it listens on loopback (lo0)
+     only; reach it from your devices through bin/enable-https.sh (tailscale serve puts it on the dashboard's origin). -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.beastdash.term</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__TTYD__</string>
+    <string>-O</string>
+    <string>-i</string><string>lo0</string>
+    <string>-p</string><string>7681</string>
+    <string>-b</string><string>/term</string>
+    <string>-W</string>
+    <string>-a</string>
+    <string>-t</string><string>fontSize=14</string>
+    <string>-t</string><string>fontFamily=JetBrains Mono, Menlo, monospace</string>
+    <string>-t</string><string>theme={"background":"#0a0d13","foreground":"#e6edf3","cursor":"#5eead4","selectionBackground":"#264f78"}</string>
+    <string>-t</string><string>cursorBlink=true</string>
+    <string>-t</string><string>scrollback=20000</string>
+    <string>--ping-interval</string><string>20</string>
+    <string>-I</string><string>__REPO__/term/index.html</string>
+    <string>__REPO__/bin/term.sh</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>__PATH__</string>
+    <key>HOME</key><string>__HOME__</string>
+    <key>SHELL</key><string>__SHELL__</string>
+    <key>LANG</key><string>en_US.UTF-8</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>2</integer>
+  <key>ProcessType</key><string>Interactive</string>
+  <key>StandardOutPath</key><string>__LOGS__/term.log</string>
+  <key>StandardErrorPath</key><string>__LOGS__/term.log</string>
+</dict>
+</plist>
