@@ -38,5 +38,4 @@
   #view-bots main { padding: 6px 12px 40px; }
   .bt-grid { grid-template-columns: 1fr; gap: 10px; }
   .bt-card { padding: 13px 14px; }
-  .tabbar { grid-template-columns: repeat(6, 1fr); }
 }

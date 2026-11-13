@@ -204,7 +204,7 @@ FEAT.specAsk = (() => {
     const card = { id: newId(), session, specialist, title: titleOf(specialist), task, runId: null, mode: null, state: 'asking', text: '', error: '', follow: '', at: Date.now() };
     addCard(card);
     try {
-      const r = await api('specialist/' + enc(specialist) + '/ask', { text: composeTask(task, material), wait: false, ...(files && files.length ? { files } : {}) });
+      const r = await api('specialist/' + enc(specialist) + '/ask', { text: composeTask(task, material), from: session, wait: false, ...(files && files.length ? { files } : {}) });
       patch(session, card.id, { runId: r.runId, mode: r.mode || null, ...fromRun(r) });
     } catch (e) { patch(session, card.id, { state: 'error', error: e.message }); return; }
     watch(session, card.id);
@@ -243,8 +243,7 @@ FEAT.specAsk = (() => {
     const acts = h('div', { class: 'sax-acts' },
       c.text ? h('button', { class: 'btn sm', type: 'button', onclick: async () => { markCardSeen(c); const t = await fullText(c); navigator.clipboard.writeText(t).then(() => toast('Copied', 'ok'), () => toast('Could not copy', 'err')); } }, ico('copy', 13), 'Copy') : null,
       c.text ? h('button', { class: 'btn sm', type: 'button', title: 'put this text in the message box of this chat', onclick: async () => { markCardSeen(c); insertText(c.session, await fullText(c)); } }, ico('arrowUp', 13), 'Insert') : null,
-      c.text && c.runId && c.state === 'done' && FEAT.specialists ? h('button', { class: 'btn sm', type: 'button', title: 'edit this answer into a better one and send it to training', onclick: async () => { markCardSeen(c); FEAT.specialists.improve({ name: c.specialist, title: c.title, runId: c.runId, text: await fullText(c) }); } }, ico('pencil', 13), 'Improve') : null,
-      c.runId && FEAT.specialists ? h('button', { class: 'btn sm', type: 'button', onclick: () => { markCardSeen(c); FEAT.specialists.open(c.specialist, { run: c.runId }); } }, ico('ext', 13), 'Open run') : null,
+      c.runId && FEAT.specialists ? h('button', { class: 'btn sm', type: 'button', onclick: () => { markCardSeen(c); FEAT.specialists.openRun({ runId: c.runId, specialist: c.specialist, state: c.state, endedAt: c.endedAt }); } }, ico('ext', 13), 'Open run') : null,
       canFollow ? h('button', { class: 'btn sm', type: 'button', onclick: () => { markCardSeen(c); more.classList.toggle('hidden'); if (!more.classList.contains('hidden')) input.focus(); } }, ico('redo', 13), 'Continue') : null);
     el.replaceChildren(...[head, asked, body, cut, err, acts, canFollow ? more : null, h('div', { class: 'sax-note dim' }, 'Only shown here. It reaches this chat only if you press Insert.')].filter(Boolean));
     if (keep != null && canFollow) { input.value = keep; more.classList.remove('hidden'); input.focus(); }
@@ -259,7 +258,7 @@ FEAT.specAsk = (() => {
     closePicker();
     await ensureList(true);
     const items = lists.items;
-    const select = h('select', { class: 'sax-pick', 'aria-label': 'Specialist' }, items.map(p => h('option', { value: p.name }, p.title || p.name)));
+    const select = h('select', { class: 'sax-pick', 'aria-label': 'Bot' }, items.map(p => h('option', { value: p.name }, p.title || p.name)));
     const last = (() => { try { return localStorage.getItem(LAST_KEY); } catch { return null; } })();
     if (items.some(p => p.name === last)) select.value = last;
     const ta = h('textarea', { class: 'sax-task-in', rows: 7, placeholder: 'What should it do?', spellcheck: 'true' });
@@ -291,17 +290,17 @@ FEAT.specAsk = (() => {
     };
     go.onclick = submit;
     ta.onkeydown = ev => { if (ev.key === 'Enter' && !ev.isComposing && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); submit(); } };
-    const title = h('div', { class: 'sh' }, h('h3', null, 'Ask a specialist'));
+    const title = h('div', { class: 'sh' }, h('h3', null, 'Ask a bot'));
     const box = items.length
       ? h('div', { class: 'sax-box' }, title, select, ta, attach, status, h('div', { class: 'sax-foot' }, h('span', { class: 'dim' }, 'The answer comes back as a card in this chat.'), h('span', { class: 'sp' }), h('button', { class: 'btn', type: 'button', onclick: closePicker }, 'Cancel'), go))
-      : h('div', { class: 'sax-box' }, title, h('div', { class: 'dim' }, 'No specialists yet.'), h('div', { class: 'sax-foot' }, h('span', { class: 'sp' }), FEAT.specialists ? h('button', { class: 'btn primary', type: 'button', onclick: () => { closePicker(); FEAT.specialists.create(); } }, 'Create one') : null, h('button', { class: 'btn', type: 'button', onclick: closePicker }, 'Close')));
+      : h('div', { class: 'sax-box' }, title, h('div', { class: 'dim' }, 'No bots yet.'), h('div', { class: 'sax-foot' }, h('span', { class: 'sp' }), FEAT.specialists ? h('button', { class: 'btn primary', type: 'button', onclick: () => { closePicker(); FEAT.specialists.create(); } }, 'Create one') : null, h('button', { class: 'btn', type: 'button', onclick: closePicker }, 'Close')));
     const overlay = h('div', { class: 'sax-ov', onclick: ev => { if (ev.target === overlay) closePicker(); }, onkeydown: ev => { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); closePicker(); } } }, box);
     held.overlay = overlay;
     document.body.append(overlay);
     if (items.length) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
   }
 
-  const pill = () => held.el || (held.el = document.body.appendChild(h('button', { class: 'sax-pill hidden', type: 'button', tabindex: '-1', onmousedown: ev => ev.preventDefault(), oncontextmenu: ev => ev.preventDefault() }, ico('chat', 14), 'Ask specialist')));
+  const pill = () => held.el || (held.el = document.body.appendChild(h('button', { class: 'sax-pill hidden', type: 'button', tabindex: '-1', onmousedown: ev => ev.preventDefault(), oncontextmenu: ev => ev.preventDefault() }, ico('chat', 14), 'Ask bot')));
   const place = anchor => {
     const el = pill(), r = anchor.getBoundingClientRect();
     el.classList.remove('hidden');
@@ -337,7 +336,7 @@ FEAT.specAsk = (() => {
     const who = el.querySelector(':scope > .who');
     if (!who || !messageText(el._turn)) return;
     el._sax = true;
-    who.append(h('button', { class: 'sax-msg', type: 'button', title: 'ask a specialist about this message', 'aria-label': 'Ask a specialist about this message', onclick: ev => { ev.stopPropagation(); openPicker({ session: name, text: messageText(el._turn), around: turnsAround(el) }); } }, ico('chat', 12), h('span', null, 'Specialist')));
+    who.append(h('button', { class: 'sax-msg', type: 'button', title: 'ask a bot about this message', 'aria-label': 'Ask a bot about this message', onclick: ev => { ev.stopPropagation(); openPicker({ session: name, text: messageText(el._turn), around: turnsAround(el) }); } }, ico('chat', 12), h('span', null, 'Specialist')));
   };
 
   const resume = name => { for (const c of load(name)) { if (c.runId && !cardFinal(c)) watch(name, c.id); else markCardSeen(c); } };
@@ -346,6 +345,6 @@ FEAT.specAsk = (() => {
     capCards, parseCards, fromRun, createLimiter, touchIndex, backoff, messageText, taskFor, buildContext, composeTask, takesFiles, fileSuffix, materialBudget, follow: followSelection, ask, open: openPicker,
     convTail(name) { resume(name); return load(name).map(elFor); },
     conversation(name, conv) { ensureList(); for (const el of conv.children) decorate(name, el); },
-    sessMenu(name, sess, cl) { return cl ? { label: 'Ask a specialist…', icon: ico('chat', 15), title: 'send a task to a specialist; the answer comes back as a card here', onclick: () => openPicker({ session: name, text: '' }) } : null; },
+    sessMenu(name, sess, cl) { return cl ? { label: 'Ask a bot…', icon: ico('chat', 15), title: 'send a task to a bot; the answer comes back as a card here', onclick: () => openPicker({ session: name, text: '' }) } : null; },
   };
 })();

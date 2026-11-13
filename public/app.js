@@ -282,7 +282,7 @@ async function renderChatPane(force) {
 const HL = { name: null, es: null, snap: null, timer: 0, seen: new Set() };
 function liveWanted() {
   if (document.hidden) return null;
-  const n = TERM.active; if (TERM.open && n && chatMode(n) && isChatSess(n)) return FEAT.specialists?.noTranscript(n) ? null : n;
+  const n = TERM.active; if (TERM.open && n && chatMode(n) && isChatSess(n)) return n;
   const d = UI.drawer === 'session:' + SESS.name && SESS.tab === 'transcript' ? SESS.name : null;
   return d && isChatSess(d) ? d : null;
 }
@@ -729,16 +729,15 @@ function renderTermPanel(force) {
   const act = S.runtime.sessions.find(s => s.name === TERM.active); const cl = act && act.claude;
   const actAcc = act && (cl || isClaudeSession(act)) ? (cl?.account || (act.name.endsWith('-company') ? 'company' : 'personal')) : null;
   const accTag = () => actAcc ? h('span', { class: 'tacc ' + actAcc, title: 'Claude Code account: ' + acct(actAcc) }, acct(actAcc)) : null;
-  const mobName = act ? sessTitle(act) : (FEAT.specialists?.trainTitle(TERM.active) || TERM.active || 'Sessions');
+  const mobName = act ? sessTitle(act) : (FEAT.specialists?.termTitle(TERM.active) || TERM.active || 'Sessions');
   const toList = () => { TERM.showList = true; renderTermPanel(true); retop(); };
-  const backTo = FEAT.specialists?.backTo(TERM.active);
-  barAdd(h('button', { class: 'btn sm ghost mob icon', title: backTo ? backTo.title : 'back to the sessions (they keep running)', onclick: backTo ? backTo.go : toList }, ico('back', 17)),
+  barAdd(h('button', { class: 'btn sm ghost mob icon', title: 'back to the sessions (they keep running)', onclick: toList }, ico('back', 17)),
     h('button', { class: 'mob msess', title: 'switch session', onclick: toList }, act ? avatar(act.project, 'sm') : FEAT.specialists?.termTile(TERM.active), h('span', { class: 'nm' }, mobName), accTag(), instNum(act, TERM.active) ? h('span', { class: 'grp' }, '#' + instNum(act, TERM.active)) : null, cl && IS_PHONE ? stateBadge(cl, true) : null));
-  const gone = !act && !!TERM.active && !FEAT.specialists?.phantom(TERM.active) && !FEAT.specialists?.trainTitle(TERM.active) && TERM.active !== 'shell';
-  const actName = act ? sessTitle(act) : (FEAT.specialists?.trainTitle(TERM.active) || TERM.active);
+  const gone = !act && !!TERM.active && !FEAT.specialists?.phantom(TERM.active) && TERM.active !== 'shell';
+  const actName = act ? sessTitle(act) : (FEAT.specialists?.termTitle(TERM.active) || TERM.active);
   const isChatS = cl && cl.mode === 'chat'; const logOn = isChatS && TERM.view[TERM.active] === 'term';
   const updatePending = !!cl && (!!S.claude?.update || needsRestart(cl));
-  if (TERM.active) barAdd(h('button', { class: 'btn sm ghost icon desk', title: backTo ? backTo.title : 'back to the dashboard — every session keeps running  (Esc)', onclick: backTo ? backTo.go : closeTermPanel }, ico('back', 15)),
+  if (TERM.active) barAdd(h('button', { class: 'btn sm ghost icon desk', title: 'back to the dashboard — every session keeps running  (Esc)', onclick: closeTermPanel }, ico('back', 15)),
     h('button', { class: 'btn sm ghost icon desk' + (TERM.focus ? ' on' : ''), title: TERM.focus ? 'show the rail again' : 'focus mode — hide the rail with every session (screen sharing)', onclick: () => setFocus(!TERM.focus) }, ico('sidebar', 15)),
     h('span', { class: 'tid desk' }, act ? avatar(act.project, 'sm') : FEAT.specialists?.termTile(TERM.active),
       h('span', { class: 'tname' + (cl ? ' can-rename' : ''), title: cl ? 'click to rename · ' + TERM.active : TERM.active, onclick: cl ? () => renameDialog(TERM.active) : null }, actName, instNum(act, TERM.active) ? h('span', { class: 'grp' }, ' #' + instNum(act, TERM.active)) : null),
@@ -1603,7 +1602,6 @@ function cachedFirst(box, name, n, still, paint) {
 const cachedDone = () => { if (window.CHATS) CHATS.barOff(); };
 const updateFailed = box => { if (window.CHATS) CHATS.barOn(box, "couldn't update", 6000); };
 async function transcriptOf(name, n) {
-  if (FEAT.specialists?.noTranscript(name)) return FEAT.specialists.transcript(name) || NO_TRANSCRIPT;
   try { return await fetchTranscript(name, n); } catch (e) { return e.status && e.status < 500 ? NO_TRANSCRIPT : null; }
 }
 function chatOffline(box, on) {
@@ -1643,7 +1641,7 @@ function renderConversation(box, name, t, o) {
   const conv = same ? scroller.querySelector('.conv') : h('div', { class: 'conv' });
   const bar = h('div', { class: 'logbar cbar' }, h('span', { class: 'dim' }, `${t.turns.length} of ${t.total}${t.more ? '+' : ''} turns`), h('span', { style: 'flex:1' }),
     t.total > t.turns.length || (t.more && o.n < 200) ? h('button', { class: 'btn sm', onclick: o.more }, gl('↑ older')) : null,
-    ...(FEAT.specialists?.noTranscript(name) ? [] : feat('chatBar', name)), h('button', { class: 'btn sm', onclick: o.refresh }, gl('↻')));
+    ...feat('chatBar', name), h('button', { class: 'btn sm', onclick: o.refresh }, gl('↻')));
   const old = new Map(); for (const el of conv.children) if (el.dataset.h) old.set(el.dataset.h, el);
   const items = [];
   const lv = lv0;
@@ -1651,7 +1649,7 @@ function renderConversation(box, name, t, o) {
   const starts = m => !turnAt(lv) || m.at <= turnAt(lv) + 1500;
   const shownTurns = lv && lv.turn ? t.turns.filter(x => !(x.role === 'assistant' && (x.ts || 0) >= lv.turn.startedAt - 3000)) : t.turns;
   for (const turn of shownTurns) { let el = turn.h && old.get(turn.h); if (!el) { el = convTurn(turn, name); if (turn.h) el.dataset.h = turn.h; } el._turn = turn; items.push(el); }
-  if (!t.turns.length && !(PENDING[name] || []).length && !(claudeOf(name) || {}).menu) items.push(FEAT.specialists?.emptyChat(name) || h('div', { class: 'dim', style: 'padding:24px 4px' }, 'New conversation — nothing said yet. Type your first message below.'));
+  if (!t.turns.length && !(PENDING[name] || []).length && !(claudeOf(name) || {}).menu) items.push(h('div', { class: 'dim', style: 'padding:24px 4px' }, 'New conversation — nothing said yet. Type your first message below.'));
   const cl = claudeOf(name) || {};
   // busy: hooks / pane say so, or the transcript ends in a tool call that hasn't returned yet (Claude is running it)
   const busy = lv ? lv.state === 'working' || !!lv.turn : cl.state === 'working' || cl.state === 'background' || !!t.pending; const justSent = (PENDING[name] || []).length > 0;
@@ -1695,7 +1693,7 @@ function dropZone(box, el) {
   el.addEventListener('drop', ev => { if (!hasFiles(ev)) return; ev.preventDefault(); box.classList.remove('cdrop'); const c = box.querySelector('.cbox2'); if (c && c._c) c._c.attachFiles(ev.dataTransfer.files); });
 }
 function composer(box, name, cl, conv, scroller, o, busy, justSent, jobs, prevDraft, compKey) {
-  const stop = async () => { const chat = cl.mode === 'chat', last = chat ? null : (PENDING[name] || []).slice(-1)[0]; const waiting = chat ? waitingIn(liveOf(name)).length : 0; try { await api('key', { session: FEAT.specialists?.keyTarget(name) || name, key: 'esc' }); } catch {} if (!chat) PENDING[name] = []; if (last && !ta.value.trim()) { ta.value = last.text; grow(); } ta.focus(); toast(waiting ? `stopped — ${waiting} waiting message${waiting > 1 ? 's go' : ' goes'} to Claude next` : last ? 'stopped — your text is back in the box' : 'stopped'); setTimeout(o.refresh, 600); };
+  const stop = async () => { const chat = cl.mode === 'chat', last = chat ? null : (PENDING[name] || []).slice(-1)[0]; const waiting = chat ? waitingIn(liveOf(name)).length : 0; try { await api('key', { session: name, key: 'esc' }); } catch {} if (!chat) PENDING[name] = []; if (last && !ta.value.trim()) { ta.value = last.text; grow(); } ta.focus(); toast(waiting ? `stopped — ${waiting} waiting message${waiting > 1 ? 's go' : ' goes'} to Claude next` : last ? 'stopped — your text is back in the box' : 'stopped'); setTimeout(o.refresh, 600); };
   // reply box: textarea that grows to 6 lines; Enter sends, Shift+Enter = newline; Esc button interrupts Claude
   const ta = h('textarea', { class: 'creply', rows: 1, placeholder: cl.menu ? 'pick an option above first' : cl.mode === 'chat' && cl.state === 'permission' ? 'answer above, or type a message…' : cl.state === 'permission' ? 'y / n, or type…' : 'Message Claude…', title: 'Enter sends · Shift+Enter = new line', name: 'chatsearch', autocomplete: 'off', autocapitalize: 'sentences', spellcheck: true });
   ta.value = prevDraft;
@@ -1707,7 +1705,7 @@ function composer(box, name, cl, conv, scroller, o, busy, justSent, jobs, prevDr
   const send = async () => { if (shellMode()) return runShell(); const typed = ta.value.trim(), v = FEAT.quotes ? FEAT.quotes.message(name, typed) : typed; if (!v) return; if ((claudeOf(name) || {}).menu) { toast('Claude is asking something — pick an option above first', 'err'); return; } const chips = FEAT.quotes?.take(name, typed); FEAT.plan2?.answersSent(chips); ta.value = ''; grow();
     const pm = { text: v, ts: Date.now() }; (PENDING[name] = PENDING[name] || []).push(pm);
     conv.append(h('div', { class: 'turn user pending' }, h('div', { class: 'who' }, gl('❯ you'), h('span', { class: 'dim' }, ' sending…')), userBody(v))); scroller.scrollTop = scroller.scrollHeight;
-    try { const r = await (FEAT.specialists?.trainSend(name, v) || api('send', { session: name, text: v })); if (r && r.id) pm.id = r.id; } catch (e) { toast(e.message, 'err'); PENDING[name] = PENDING[name].filter(x => x !== pm); ta.value = typed; grow(); FEAT.quotes?.restore(name, chips); FEAT.plan2?.answersBack(chips); }
+    try { const r = await (FEAT.specialists?.sendCall(name, v) || api('send', { session: name, text: v })); if (r && r.id) pm.id = r.id; } catch (e) { toast(e.message, 'err'); PENDING[name] = PENDING[name].filter(x => x !== pm); ta.value = typed; grow(); FEAT.quotes?.restore(name, chips); FEAT.plan2?.answersBack(chips); }
     for (const ms of [400, 1200, 2500, 5000]) setTimeout(o.refresh, ms); };
   ta.addEventListener('input', grow);
   const busyNow = cl.state === 'working' || cl.state === 'background' || cl.state === 'permission';
@@ -1725,7 +1723,7 @@ function composer(box, name, cl, conv, scroller, o, busy, justSent, jobs, prevDr
   // 📎 attach: any file (photo / screenshot downscaled, everything else as-is) -> ~/dev/.pasted -> its path goes into the message (Claude reads it)
   const fileIn = h('input', { type: 'file', multiple: true, style: 'display:none' });
   const attachFiles = async files => { files = [...files].filter(Boolean); if (!files.length) return;
-    for (const f of files) { if (files.length > 1 || f.size > 2e6) toast('uploading ' + (f.name || 'image') + '…'); try { const up = FEAT.specialists?.attachFile(name, f); if (up) { await up; continue; } const p = await uploadFile(f, { session: name }); ta.value = (ta.value ? ta.value.replace(/\s*$/, ' ') : '') + p + ' '; grow(); } catch (e) { toast('upload failed: ' + e.message, 'err'); } }
+    for (const f of files) { if (files.length > 1 || f.size > 2e6) toast('uploading ' + (f.name || 'image') + '…'); try { const p = await uploadFile(f, { session: name }); ta.value = (ta.value ? ta.value.replace(/\s*$/, ' ') : '') + p + ' '; grow(); } catch (e) { toast('upload failed: ' + e.message, 'err'); } }
     ta.focus(); toast(files.length > 1 ? `${files.length} files attached — describe what to do with them and send` : 'attached — describe what to do with it and send', 'ok'); };
   fileIn.addEventListener('change', () => { const fs = [...fileIn.files]; fileIn.value = ''; attachFiles(fs); });
   ta.addEventListener('paste', ev => { const dt = ev.clipboardData; if (!dt) return; const txt = dt.getData('text/plain'); if (txt.length >= PASTE_AS_FILE) { ev.preventDefault(); attachFiles([new File([txt], `paste-${new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '')}.txt`, { type: 'text/plain' })]); return; } if (txt) return; const fs = [...(dt.files || [])]; if (fs.length) { ev.preventDefault(); attachFiles(fs); } });

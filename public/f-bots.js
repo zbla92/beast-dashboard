@@ -140,5 +140,5 @@ FEAT.bots = (() => {
   setInterval(() => { if (!document.hidden) refresh(true); }, REFRESH_MS);
   refresh(true);
 
-  return { openChat, create, all: () => V.list, paint, shown, onState, createBody };
+  return { openChat, create, all: () => V.list, refresh, paint, shown, onState, createBody };
 })();

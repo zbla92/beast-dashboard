@@ -61,7 +61,7 @@ test('ask posts without wait, re-polls on timeout and stores the final text', as
   });
   await sb.FEAT.specAsk.ask({ session: 'claude-x', specialist: 'w', task: '> q' });
   await new Promise(r => setTimeout(r, 50));
-  assert.strictEqual(JSON.stringify(calls[0]), JSON.stringify(['specialist/w/ask', { text: '> q', wait: false }]));
+  assert.strictEqual(JSON.stringify(calls[0]), JSON.stringify(['specialist/w/ask', { text: '> q', from: 'claude-x', wait: false }]));
   assert.match(calls[1][0], /^specialist\/run\/claude-spec-w-1\?wait=1&timeoutSec=\d+$/);
   assert.strictEqual(calls.length, 3);
   const saved = JSON.parse(sb.store.get('bd.specask.claude-x'));
@@ -144,20 +144,31 @@ test('stored cards are slimmed, truncated text is flagged and the session index 
   assert.ok(!sb.store.has('bd.specask.claude-big'));
 });
 
-test('a done card has an Improve action that hands the full answer to the specialists feature', async () => {
-  const got = [];
-  const feat = { quotes: { blockquote: q => q }, specialists: { markSeen() {}, open() {}, improve: o => got.push(o) } };
-  const sb = build(async p => p.endsWith('/ask') ? { ok: true, runId: 'r1', mode: 'run', state: 'done', text: 'answer' } : { ok: true, specialists: [{ name: 'w', title: 'W' }] }, { FEAT: feat });
+test('a done card has no Improve action and Open run points at the call chat', async () => {
+  const opened = [];
+  const feat = { quotes: { blockquote: q => q }, specialists: { markSeen() {}, openRun: r => opened.push(r) } };
+  const sb = build(async p => p.endsWith('/ask') ? { ok: true, runId: 'claude-spec-w-261111-0930', mode: 'run', state: 'done', text: 'answer', endedAt: 5 } : { ok: true, specialists: [{ name: 'w', title: 'W' }] }, { FEAT: feat });
   const nodes = [];
   sb.h = (tag, attrs, ...kids) => { const n = { isConnected: true, tag, attrs: attrs || {}, kids: kids.flat(Infinity), querySelector: () => null, contains: () => false, replaceChildren(...k) { n.kids = k.flat(Infinity); }, remove() {}, classList: { add() {}, remove() {}, toggle() {}, contains: () => false } }; nodes.push(n); return n; };
   await sb.FEAT.specAsk.ask({ session: 'claude-x', specialist: 'w', task: 'q' });
   await new Promise(r => setTimeout(r, 20));
-  const improve = nodes.filter(n => n.tag === 'button' && n.kids.includes('Improve')).pop();
-  assert.ok(improve);
-  await improve.attrs.onclick();
-  assert.strictEqual(got.length, 1);
-  assert.strictEqual(JSON.stringify(got[0]), JSON.stringify({ name: 'w', title: 'w', runId: 'r1', text: 'answer' }));
+  assert.ok(!nodes.some(n => n.tag === 'button' && n.kids.includes('Improve')));
+  const open = nodes.filter(n => n.tag === 'button' && n.kids.includes('Open run')).pop();
+  assert.ok(open);
+  open.attrs.onclick();
+  assert.strictEqual(opened.length, 1);
+  assert.strictEqual(opened[0].runId, 'claude-spec-w-261111-0930');
+  assert.strictEqual(opened[0].specialist, 'w');
 });
+
+test('the ask request names the calling session', async () => {
+  const calls = [];
+  const sb = build(async (p, body) => { calls.push([p, body]); return p.endsWith('/ask') ? { ok: true, runId: 'r1', mode: 'run', state: 'done', text: 'a' } : { ok: true, specialists: [] }; });
+  await sb.FEAT.specAsk.ask({ session: 'claude-x', specialist: 'w', task: 'q' });
+  assert.strictEqual(calls[0][1].from, 'claude-x');
+});
+
+
 
 const chatTurns = () => [
   { role: 'user', text: 'first question' },
@@ -202,9 +213,9 @@ test('ask sends the task, the original material and the files; without them the 
     return { ok: true, specialists: [] };
   });
   await sb.FEAT.specAsk.ask({ session: 's', specialist: 'w', task: 'Do it', material: '[User]\nhi', files: ['/a'] });
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(calls[0])), ['specialist/w/ask', { text: 'Task:\nDo it\n\nOriginal material (verbatim, from the chat):\n[User]\nhi', wait: false, files: ['/a'] }]);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(calls[0])), ['specialist/w/ask', { text: 'Task:\nDo it\n\nOriginal material (verbatim, from the chat):\n[User]\nhi', from: 's', wait: false, files: ['/a'] }]);
   await sb.FEAT.specAsk.ask({ session: 's', specialist: 'w', task: 'Plain', material: '', files: [] });
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(calls[1])), ['specialist/w/ask', { text: 'Plain', wait: false }]);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(calls[1])), ['specialist/w/ask', { text: 'Plain', from: 's', wait: false }]);
 });
 
 test('materialBudget uses the real length of the file list and the whole text stays within 100000', () => {

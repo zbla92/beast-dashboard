@@ -7,6 +7,7 @@ FEAT.botSettings = (() => {
   const PROVIDERS = [['claude', 'Claude'], ['openai', 'OpenAI'], ['xai', 'xAI']];
   const MODEL_HINT = { openai: 'model id, e.g. gpt-5', xai: 'model id, e.g. grok-4' };
   const USES = [['skill', 'Skill'], ['agent', 'Separate agent'], ['both', 'Both']];
+  const reloadLists = () => { FEAT.specialists?.refresh?.(true); FEAT.bots?.refresh?.(true); };
   const USE_NOTE = {
     skill: 'Agents load its profile into their own chat and do the work themselves, so nothing gets lost in a handoff.',
     agent: 'Agents send it a task and get its answer back (bd-ask). Use for its own accesses, another provider or an independent view.',
@@ -61,7 +62,7 @@ FEAT.botSettings = (() => {
     const r = await api(url(''));
     D.p = r.specialist;
     toast('Saved', 'ok');
-    FEAT.specialists?.refresh?.(true);
+    reloadLists();
   }
 
   function aboutPane() {
@@ -285,7 +286,7 @@ FEAT.botSettings = (() => {
         await api(url('/archive'), { endChat: true });
         toast('Archived ' + (D.p.title || D.name), 'ok');
         close();
-        FEAT.specialists?.refresh?.(true);
+        reloadLists();
       } catch (e) { plain(); fail(err, e.message); }
     };
     plain();
