@@ -169,15 +169,15 @@ test('a call runs with --settings call-settings.json next to --accesses under by
 test('the own chat runs with --settings settings.json and keeps it through an in-runner restart and a respawn', async () => {
   const p = withAccess({ mode: 'thread', permissionMode: 'acceptEdits' });
   const n0 = fakeArgs().length;
-  const [s, asked] = await call('POST', `/api/specialist/${p.name}/ask`, { text: 'hello', wait: true, timeoutSec: 10 });
-  assert.strictEqual(s, 200);
+  const [s, opened] = await call('POST', `/api/specialist/${p.name}/chat`, {});
+  assert.strictEqual(s, 200, opened.error);
   const tmux = store.threadName(p.name, 'personal');
   const chatFile = path.join(p.dir, '.bd', 'settings.json');
-  const first = fakeArgs().slice(n0).find(x => x.cwd === p.dir);
+  const first = await until(() => fakeArgs().slice(n0).find(x => x.cwd === p.dir));
   assert.strictEqual(flagOf(first.argv, '--settings'), chatFile);
   assert.strictEqual(flagOf(first.argv, '--permission-mode'), 'acceptEdits');
   assert.strictEqual(first.env.DB_URL, SECRET);
-  assert.strictEqual(asked.tmux || tmux, tmux);
+  assert.strictEqual(opened.thread.tmux || tmux, tmux);
   const rec = claude.get(tmux);
   assert.deepStrictEqual([rec.runner.settings, rec.runner.accesses], [chatFile, p.dir]);
   assert.deepStrictEqual(headless.runnerArgs(rec.runner).slice(-4), ['--accesses', p.dir, '--settings', chatFile]);

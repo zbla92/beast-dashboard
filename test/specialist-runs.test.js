@@ -30,6 +30,13 @@ case "$1" in
     cmd=$(printf '%s' "$1" | sed 's/^bash -ic /bash -c /')
     sh -c "exec $cmd" </dev/null >"$D/$name.log" 2>&1 &
     echo $! > "$D/$name.pid"; exit 0 ;;
+  respawn-pane)
+    name=""; while [ $# -gt 1 ]; do [ "$1" = "-t" ] && name="$2"; shift; done
+    name="\${name#=}"; name="\${name%:}"
+    [ -f "$D/$name.pid" ] && kill -9 "$(cat "$D/$name.pid")" 2>/dev/null
+    cmd=$(printf '%s' "$1" | sed 's/^bash -ic /bash -c /')
+    sh -c "exec $cmd" </dev/null >>"$D/$name.log" 2>&1 &
+    echo $! > "$D/$name.pid"; exit 0 ;;
 esac
 exit 0
 `, { mode: 0o755 });
@@ -229,43 +236,61 @@ test('send into a run that is still live goes to the same runner; a final run is
   await until(() => !alive(r.tmux));
 });
 
-test('thread mode: one session, asks one at a time, relaunched with the stored conversation when gone', async () => {
-  const p = fresh({ mode: 'thread' });
+test('own chat: opened once and resumed when gone, fresh starts a new conversation, calls stay runs, archive ends an idle chat only with endChat', async () => {
+  const ended = [];
+  const pid = name => +fs.readFileSync(path.join(procs, name + '.pid'), 'utf8');
+  const endSession = async tmux => { ended.push(tmux); process.kill(pid(tmux), 'SIGTERM'); await until(() => !alive(tmux)); };
+  const runs = createRuns({ store, headless, tmuxHas, claudeGet: claude.get, endSession, goneMs: 50 });
+  const p = fresh({ mode: 'thread', title: 'Helper' });
   const tmux = `claude-spec-${p.name}`;
-  const first = await runsReal.ask(p.name, { text: 'one', wait: true, timeoutSec: 10 });
-  assert.strictEqual(first.runId, `${tmux}_1`);
-  assert.strictEqual(first.tmux, tmux);
-  assert.strictEqual(first.text, 'Echo: one');
-  await new Promise(r => setTimeout(r, 400));
-  assert.ok(alive(tmux), 'a thread stays up after its result');
-  const launches = () => fakeArgs().filter(a => a.cwd === p.dir).length;
-  const before = launches();
-  const busy = await runsReal.ask(p.name, { text: 'hang' });
-  assert.strictEqual(busy.runId, `${tmux}_2`);
-  await assert.rejects(runsReal.ask(p.name, { text: 'three' }), e => e.status === 409 && /thread is busy/.test(e.message));
-  await assert.rejects(runsReal.send(busy.runId, { text: 'x' }), status(400));
+  const launches = () => fakeArgs().filter(a => a.cwd === p.dir);
+  const idle = () => until(async () => { const L = await headless.status(tmux); return L && L.state === 'idle' && !L.turn; });
+  const opened = await runs.chat(p.name, {});
+  assert.strictEqual(opened.started, true);
+  assert.deepStrictEqual(Object.keys(opened.thread), ['tmux', 'account', 'live', 'state', 'sessionId', 'transcriptPath', 'startedAt']);
+  assert.deepStrictEqual([opened.thread.tmux, opened.thread.account, opened.thread.live], [tmux, 'personal', true]);
+  assert.deepStrictEqual([claude.get(tmux).specialist, claude.get(tmux).firstPrompt, claude.get(tmux).runner.exitAfterResult], [p.name, 'Helper', false]);
+  assert.strictEqual((await runs.chat(p.name, {})).started, false);
+  assert.strictEqual(launches().length, 1);
+  const call = await runs.ask(p.name, { text: 'one', wait: true, timeoutSec: 10 });
+  assert.deepStrictEqual([call.mode, call.text, call.caller], ['run', 'Echo: one', null]);
+  assert.notStrictEqual(call.tmux, tmux);
+  await until(() => !alive(call.tmux));
+  assert.ok(alive(tmux));
+  assert.ok((await headless.send(tmux, 'hello')).ok);
+  await idle();
+  const info = await until(async () => { const x = (await runs.list()).find(s => s.name === p.name); return x.thread.state === 'idle' && x; });
+  assert.deepStrictEqual([info.recentCalls.map(r => r.runId), 'trainer' in info], [[call.runId], false]);
+  await assert.rejects(runs.archive(p.name), e => e.status === 409 && /live thread/.test(e.message));
+  assert.ok((await headless.send(tmux, 'hang')).ok);
+  await until(async () => (await runs.detail(p.name, 5)).thread.state === 'working');
+  await assert.rejects(runs.chat(p.name, { fresh: true }), e => e.status === 409 && e.message === 'the bot is busy');
+  await assert.rejects(runs.archive(p.name, { endChat: true }), e => e.status === 409 && /is busy in its chat/.test(e.message));
   await headless.interrupt(tmux);
-  assert.strictEqual((await runsReal.get(busy.runId, { wait: true, timeoutSec: 5 })).state, 'stopped');
-  const third = await runsReal.ask(p.name, { text: 'three', wait: true, timeoutSec: 10 });
-  assert.strictEqual(third.runId, `${tmux}_3`);
-  assert.strictEqual(third.text, 'Echo: three');
-  assert.strictEqual(launches(), before);
-  const info = await until(async () => { const x = (await runsReal.list()).find(s => s.name === p.name).thread; return x.state === 'idle' && x; });
-  assert.deepStrictEqual(info, { tmux, live: true, state: 'idle' });
-  await assert.rejects(runsReal.archive(p.name), e => e.status === 409 && /live thread/.test(e.message));
+  await idle();
   const thread = store.getThread(p.name);
   const tr = headless.transcriptOf(p.dir, 'personal', thread.sessionId);
   fs.mkdirSync(path.dirname(tr), { recursive: true }); fs.writeFileSync(tr, '');
-  process.kill(+fs.readFileSync(path.join(procs, tmux + '.pid'), 'utf8'), 'SIGTERM');
+  process.kill(pid(tmux), 'SIGTERM');
   await until(() => !alive(tmux));
-  const fourth = await runsReal.ask(p.name, { text: 'four', wait: true, timeoutSec: 10 });
-  assert.strictEqual(fourth.runId, `${tmux}_4`);
-  assert.strictEqual(fourth.text, 'Echo: four');
-  const relaunched = fakeArgs().filter(a => a.cwd === p.dir).pop().argv;
-  assert.strictEqual(relaunched[relaunched.indexOf('--resume') + 1], thread.sessionId);
-  process.kill(+fs.readFileSync(path.join(procs, tmux + '.pid'), 'utf8'), 'SIGTERM');
-  await until(() => !alive(tmux));
-  assert.strictEqual((await runsReal.archive(p.name)).name, p.name);
+  assert.strictEqual((await runs.detail(p.name, 5)).thread.live, false);
+  const again = await runs.chat(p.name, {});
+  assert.strictEqual(again.started, true);
+  const resumed = launches().pop().argv;
+  assert.strictEqual(resumed[resumed.indexOf('--resume') + 1], thread.sessionId);
+  assert.deepStrictEqual([store.getThread(p.name).sessionId, store.getThread(p.name).startedAt], [thread.sessionId, thread.startedAt]);
+  await idle();
+  const renewed = await runs.chat(p.name, { fresh: true });
+  assert.strictEqual(renewed.started, true);
+  assert.notStrictEqual(renewed.thread.sessionId, thread.sessionId);
+  assert.ok(!launches().pop().argv.includes('--resume'));
+  await assert.rejects(runs.chat(p.name, { fresh: 'yes' }), status(400));
+  await assert.rejects(runs.chat(p.name, { other: 1 }), status(400));
+  await assert.rejects(runs.archive(p.name, { endChat: 1 }), status(400));
+  await assert.rejects(runs.archive(p.name, { other: true }), status(400));
+  await idle();
+  assert.strictEqual((await runs.archive(p.name, { endChat: true })).name, p.name);
+  assert.deepStrictEqual(ended, [tmux]);
 });
 
 function fakeHeadless() {
@@ -416,7 +441,9 @@ test('fake runner: a restart that finds the runner already connected reads its s
   const p = fresh();
   const r = await runs.ask(p.name, { text: 'go' });
   const t1 = fresh({ mode: 'thread' });
-  const th = await runs.ask(t1.name, { text: 'one' });
+  const threadTmux = `claude-spec-${t1.name}`;
+  h.up.add(threadTmux);
+  const th = store.saveRun({ runId: `${threadTmux}_1`, specialist: t1.name, mode: 'thread', tmux: threadTmux, account: 'personal', sessionId: '0b8f7a2c-1111-4222-8333-444455556666', cwd: t1.dir, transcriptPath: null, state: 'working', task: 'one', text: null, startedAt: Date.now(), endedAt: null, turns: 1 });
   h.snaps.set(r.tmux, { ev: 'snapshot', state: 'idle', turn: null, pending: [], inbox: [], sessionId: r.sessionId });
   h.snaps.set(th.tmux, { ev: 'snapshot', state: 'idle', turn: null, pending: [], inbox: [], sessionId: th.sessionId });
   const answered = path.join(tmp, 'answered.jsonl');
@@ -427,8 +454,6 @@ test('fake runner: a restart that finds the runner already connected reads its s
   await later.boot();
   assert.deepStrictEqual([store.getRun(r.runId).state, store.getRun(r.runId).text], ['done', 'all of it']);
   assert.strictEqual(store.getRun(th.runId).state, 'stopped');
-  const next = await later.ask(t1.name, { text: 'two' });
-  assert.strictEqual(next.runId, `${th.tmux}_2`);
   fs.rmSync(answered);
 });
 
@@ -458,33 +483,38 @@ test('fake runner: a result with a follow-up still open waits for the next resul
   assert.deepStrictEqual([fin.state, fin.text], ['done', 'only']);
 });
 
-test('fake runner: a thread name taken by another session is refused; new folders restart an idle thread with all of them', async () => {
+test('fake runner: the own chat refuses a name taken by another session, adopts a live chat of the bot, restarts only an idle one and follows an account change', async () => {
   const h = fakeHeadless();
   const records = new Map();
-  h.restartChat = async (name, rec, bin, addDirs) => { h.restarted = { name, addDirs }; records.set(name, { ...rec, runner: { ...rec.runner, addDirs } }); return { ok: true }; };
   const launch = h.launch;
   h.launch = async (name, cwd, account, opts) => { records.set(name, { specialist: opts.specialist, runner: opts.runner }); return launch(name, cwd, account, opts); };
   const runs = createRuns({ store, headless: h, tmuxHas: async name => h.up.has(name), claudeGet: name => records.get(name) || null });
-  const p = fresh({ mode: 'thread' });
+  const p = fresh({ mode: 'thread', title: 'Helper' });
   const tmux = `claude-spec-${p.name}`;
   h.up.add(tmux);
   records.set(tmux, { specialist: null });
-  await assert.rejects(runs.ask(p.name, { text: 'x' }), e => e.status === 409 && /not this specialist's thread/.test(e.message));
+  await assert.rejects(runs.chat(p.name, {}), e => e.status === 409 && e.message === `the session ${tmux} is not this specialist's thread`);
+  const sid = '11111111-2222-4333-8444-555555555555';
+  records.set(tmux, { specialist: p.name, sessionId: sid, transcriptPath: path.join(tmp, 'adopted.jsonl') });
+  const adopted = await runs.chat(p.name, {});
+  assert.deepStrictEqual([adopted.started, adopted.thread.tmux, adopted.thread.sessionId, h.launched.length], [false, tmux, sid, 0]);
   h.up.delete(tmux); records.delete(tmux);
-  const d1 = path.join(tmp, 'tdir1'), d2 = path.join(tmp, 'tdir2');
-  for (const d of [d1, d2]) { fs.mkdirSync(d, { recursive: true }); fs.writeFileSync(path.join(d, 'f.md'), 'x'); }
-  const first = await runs.ask(p.name, { text: 'one', files: [path.join(d1, 'f.md')] });
-  assert.deepStrictEqual(h.launched.at(-1).opts.runner.addDirs, [d1]);
+  const opened = await runs.chat(p.name, {});
+  assert.deepStrictEqual([opened.started, h.launched.length], [true, 1]);
+  const { name, opts } = h.launched[0];
+  assert.deepStrictEqual([name, opts.start, opts.firstPrompt, opts.specialist, opts.replace], [tmux, 'new', 'Helper', p.name, false]);
+  assert.deepStrictEqual(opts.runner, { permissionMode: 'bypassPermissions', model: null, effort: null, addDirs: [], exitAfterResult: false, accesses: p.dir, settings: path.join(p.dir, '.bd', 'settings.json') });
+  h.snaps.set(tmux, { state: 'working', turn: { text: '' }, pending: [], inbox: [] });
+  await assert.rejects(runs.chat(p.name, { fresh: true }), e => e.status === 409 && e.message === 'the bot is busy');
+  h.snaps.set(tmux, { state: 'idle', turn: null, pending: [], inbox: [{ id: 'm-1', text: 'queued' }] });
+  await assert.rejects(runs.chat(p.name, { fresh: true }), e => e.status === 409 && e.message === 'the bot is busy');
   h.snaps.set(tmux, { state: 'idle', turn: null, pending: [], inbox: [] });
-  h.emit(tmux, { ev: 'result', subtype: 'success', text: 'ok', isError: false });
-  assert.strictEqual(store.getRun(first.runId).state, 'done');
-  await runs.ask(p.name, { text: 'same folder', files: [path.join(d1, 'f.md')] });
-  assert.strictEqual(h.restarted, undefined);
-  h.emit(tmux, { ev: 'result', subtype: 'success', text: 'ok', isError: false });
-  const third = await runs.ask(p.name, { text: 'two', files: [path.join(d2, 'f.md')] });
-  assert.deepStrictEqual(h.restarted, { name: tmux, addDirs: [d1, d2] });
-  assert.strictEqual(h.launched.length, 1);
-  assert.deepStrictEqual(h.sent.at(-1), { name: tmux, text: third.task });
+  assert.strictEqual((await runs.chat(p.name, { fresh: true })).started, true);
+  assert.deepStrictEqual([h.launched.length, h.launched[1].opts.replace, h.launched[1].opts.start], [2, true, 'new']);
+  store.update(p.name, { account: 'company' });
+  const moved = await runs.chat(p.name, {});
+  assert.deepStrictEqual([moved.started, moved.thread.tmux, moved.thread.account, h.launched.at(-1).name], [true, `${tmux}-company`, 'company', `${tmux}-company`]);
+  assert.ok(h.up.has(tmux));
 });
 
 test('fake runner: validation errors', async () => {
@@ -502,7 +532,25 @@ test('fake runner: validation errors', async () => {
   await assert.rejects(runs.get('nope'), status(400));
   await assert.rejects(runs.get(`claude-spec-${p.name}-261111-0930`), status(404));
   await assert.rejects(runs.send(`claude-spec-${p.name}-261111-0930`, { text: 'x' }), status(404));
+  for (const from of ['has space', 'x'.repeat(129), 5, 'a/b']) await assert.rejects(runs.ask(p.name, { text: 'x', from }), e => e.status === 400 && /^from must be a tmux session name/.test(e.message));
   assert.strictEqual(h.launched.length, 0);
+  const called = await runs.ask(p.name, { text: 'x', from: 'claude-chat-261111-0912' });
+  assert.deepStrictEqual([called.caller, store.getRun(called.runId).caller, store.listRuns(p.name)[0].caller], ['claude-chat-261111-0912', 'claude-chat-261111-0912', 'claude-chat-261111-0912']);
+  assert.strictEqual((await runs.ask(p.name, { text: 'y', from: null })).caller, null);
+});
+
+test('fake runner: recentCalls lists open calls first, then the newest finished ones, five at most, calls only', async () => {
+  const h = fakeHeadless();
+  let clock = Date.UTC(2026, 10, 11, 9, 0);
+  const runs = createRuns({ store, headless: h, tmuxHas: async name => h.up.has(name), now: () => clock, maxActive: 10 });
+  const p = fresh();
+  const made = [];
+  for (let i = 0; i < 7; i++) { clock += 60000; made.push(await runs.ask(p.name, { text: `t${i}` })); }
+  for (const r of made.slice(1)) { h.emit(r.tmux, { ev: 'result', subtype: 'success', text: 'ok', isError: false }); h.up.delete(r.tmux); }
+  store.saveRun({ runId: `claude-spec-${p.name}_1`, specialist: p.name, mode: 'thread', tmux: `claude-spec-${p.name}`, account: 'personal', sessionId: null, cwd: p.dir, transcriptPath: null, state: 'done', task: 'old', text: 'old', startedAt: clock + 60000, endedAt: clock + 60000, turns: 1 });
+  const item = (await runs.list()).find(s => s.name === p.name);
+  assert.deepStrictEqual(item.recentCalls.map(r => r.runId), [made[0], made[6], made[5], made[4], made[3]].map(r => r.runId));
+  assert.ok(item.recentCalls.every(r => !('text' in r) && 'caller' in r));
 });
 
 test('restorable skips specialist sessions; markChat keeps the specialist on a later update', () => {
@@ -538,7 +586,7 @@ test('http routes: create, list, get, update, archive and errors as { ok: false,
   const name = `web${++n}`;
   const [c, created] = await call('POST', '/api/specialist', { name, template: 'writer', description: 'Writes.' });
   assert.strictEqual(c, 201);
-  assert.strictEqual(created.specialist.icon, '✎');
+  assert.strictEqual(created.specialist.icon, 'write');
   assert.strictEqual((await call('POST', '/api/specialist', { name }))[0], 409);
   assert.strictEqual((await call('POST', '/api/specialist', { name: '../x' }))[0], 400);
   assert.strictEqual((await call('POST', '/api/specialist', { name: 'q', template: 'nope' }))[0], 400);
@@ -547,7 +595,7 @@ test('http routes: create, list, get, update, archive and errors as { ok: false,
   assert.strictEqual(list.root, process.env.BD_SPECIALISTS_DIR);
   assert.ok(list.templates.some(x => x.id === 'writer'));
   const item = list.specialists.find(s => s.name === name);
-  assert.deepStrictEqual([item.active, item.lastRun, item.thread], [0, null, null]);
+  assert.deepStrictEqual([item.active, item.lastRun, item.recentCalls, item.thread, 'trainer' in item], [0, null, [], null, false]);
   const [, got] = await call('GET', `/api/specialist/${name}?runs=5`);
   assert.match(got.specialist.instructions, /style\.md/);
   assert.deepStrictEqual(got.runs, []);
@@ -571,6 +619,15 @@ test('http routes: create, list, get, update, archive and errors as { ok: false,
   const [lr, liveRun] = await call('POST', `/api/specialist/${name}/archive`);
   assert.deepStrictEqual([lr, /live run session/.test(liveRun.error)], [409, true]);
   h.up.delete(asked.tmux);
+  const [ch, opened] = await call('POST', `/api/specialist/${name}/chat`, {});
+  assert.deepStrictEqual([ch, opened.ok, opened.started, opened.thread.tmux, opened.thread.live], [200, true, true, `claude-spec-${name}`, true]);
+  assert.strictEqual((await call('POST', `/api/specialist/${name}/chat`, { fresh: 1 }))[0], 400);
+  const [, listed] = await call('GET', '/api/specialists');
+  const again = listed.specialists.find(s => s.name === name);
+  assert.deepStrictEqual([again.recentCalls.map(r => r.runId), again.thread.tmux], [[asked.runId], `claude-spec-${name}`]);
+  assert.strictEqual((await call('POST', `/api/specialist/${name}/archive`, { endChat: true }))[0], 409);
+  assert.strictEqual((await call('POST', `/api/specialist/${name}/archive`, { other: true }))[0], 400);
+  h.up.delete(`claude-spec-${name}`);
   const [ar, archived] = await call('POST', `/api/specialist/${name}/archive`);
   assert.strictEqual(ar, 200);
   assert.match(archived.archivedAs, new RegExp(`^_archive/${name}-\\d{8}-\\d{6}$`));
