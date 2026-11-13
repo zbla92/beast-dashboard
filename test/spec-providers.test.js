@@ -116,7 +116,7 @@ test('providers: openai and xai need a model id; claude keeps its aliases; api, 
 
 test('key file: missing, wrong mode, symlink, not a file, bad JSON, missing provider or key, bad baseUrl', () => {
   fs.rmSync(KEYS, { force: true });
-  assert.match(providers.keyError('openai'), /^no key for openai: .*does not exist.*docs\/guide\/specialists\.md$/);
+  assert.match(providers.keyError('openai'), /^no key for openai: .*does not exist.*docs\/guide\/bots\.md$/);
   writeKeys({ openai: { apiKey: KEY } }, 0o644);
   const loose = providers.keyError('openai');
   assert.match(loose, /can be read by other users \(mode 644\); run: chmod 600 /);
@@ -293,7 +293,7 @@ test('no key: asking answers 409 with what to fix, list and detail still work an
   const [code, body] = await call(api, 'POST', `/api/specialist/${p.name}/ask`, { text: 'hello' });
   assert.strictEqual(code, 409);
   assert.strictEqual(body.ok, false);
-  assert.match(body.error, /^no key for openai: .*see docs\/guide\/specialists\.md$/);
+  assert.match(body.error, /^no key for openai: .*see docs\/guide\/bots\.md$/);
   const [lc, list] = await call(api, 'GET', '/api/specialists');
   assert.strictEqual(lc, 200);
   assert.match(list.specialists.find(s => s.name === p.name).keyError, /^no key for openai/);

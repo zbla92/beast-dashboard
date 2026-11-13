@@ -100,6 +100,7 @@ function run(opts = {}) {
   const planBin = path.join(root, 'bin', 'plan');
   const chatBin = path.join(root, 'bin', 'bd-chat');
   const askBin = path.join(root, 'bin', 'bd-ask');
+  const botBin = path.join(root, 'bin', 'bd-bot');
   const planCmd = /\s/.test(planBin) ? `"${planBin}" context` : `${planBin} context`;
   const guard = !remove && opts.pastedGuard !== false;
   const guardBin = path.join(root, 'bin', 'pasted-guard.sh');
@@ -140,6 +141,7 @@ function run(opts = {}) {
   try { linkBin(binDir, 'plan', planBin, plans, log); } catch (e) { log(`warning: could not update the plan command link: ${e.message}`); }
   if (!planOnly) try { linkBin(binDir, 'bd-chat', chatBin, !remove, log); } catch (e) { log(`warning: could not update the bd-chat command link: ${e.message}`); }
   if (!planOnly) try { linkBin(binDir, 'bd-ask', askBin, !remove, log); } catch (e) { log(`warning: could not update the bd-ask command link: ${e.message}`); }
+  if (!planOnly) try { linkBin(binDir, 'bd-bot', botBin, !remove, log); } catch (e) { log(`warning: could not update the bd-bot command link: ${e.message}`); }
 }
 
 function syncPlans(before, after, opts = {}) {

@@ -4,10 +4,13 @@ const fs = require('fs');
 const path = require('path');
 const http = require('http');
 
-const USAGE = `usage: bd-ask --list
-       bd-ask <specialist> (<task> | -) [--file <path>]... [--source <path>]... [--timeout <sec>] [--no-wait]
-       bd-ask --wait <runId> [--timeout <sec>]
-       bd-ask --continue <runId> (<text> | -) [--timeout <sec>]
+const invoked = path.basename(process.argv[1] || '');
+const NAME = invoked === 'bd-bot' ? invoked : 'bd-ask';
+
+const USAGE = `usage: ${NAME} --list
+       ${NAME} <specialist> (<task> | -) [--file <path>]... [--source <path>]... [--timeout <sec>] [--no-wait]
+       ${NAME} --wait <runId> [--timeout <sec>]
+       ${NAME} --continue <runId> (<text> | -) [--timeout <sec>]
 
 Hands a task to a specialist through the running dashboard and prints only its final answer on stdout,
 so the answer is all that enters your context. "-" reads the task from stdin.
@@ -86,19 +89,19 @@ const oneLine = s => String(s || '').replace(/\s+/g, ' ').trim();
 
 async function main(argv, env, io) {
   const parsed = (() => { try { return parse(argv); } catch (e) { return e; } })();
-  if (parsed instanceof Error) { io.err(`bd-ask: ${parsed.message}\n${USAGE}`); return 2; }
+  if (parsed instanceof Error) { io.err(`${NAME}: ${parsed.message}\n${USAGE}`); return 2; }
   const o = parsed;
   if (o.help) { io.out(USAGE); return 0; }
   const modes = [o.list, o.wait !== undefined, o.continue !== undefined].filter(Boolean).length;
   const asking = !modes;
   const wantArgs = o.list || o.wait !== undefined ? 0 : o.continue !== undefined ? 1 : 2;
-  if (modes > 1 || o.args.length !== wantArgs) { io.err(`bd-ask: ${asking && o.args.length < 2 ? 'give a specialist and a task' : 'wrong arguments'}\n${USAGE}`); return 2; }
-  if (!asking && (o.files.length || o.sources.length || o['no-wait'])) { io.err(`bd-ask: --file, --source and --no-wait go with a new task\n${USAGE}`); return 2; }
+  if (modes > 1 || o.args.length !== wantArgs) { io.err(`${NAME}: ${asking && o.args.length < 2 ? 'give a specialist and a task' : 'wrong arguments'}\n${USAGE}`); return 2; }
+  if (!asking && (o.files.length || o.sources.length || o['no-wait'])) { io.err(`${NAME}: --file, --source and --no-wait go with a new task\n${USAGE}`); return 2; }
   const timeout = o.timeout === undefined ? DEFAULT_TIMEOUT : Number(o.timeout);
-  if (!Number.isFinite(timeout) || timeout < 1) { io.err('bd-ask: --timeout is a number of seconds, at least 1'); return 2; }
+  if (!Number.isFinite(timeout) || timeout < 1) { io.err(`${NAME}: --timeout is a number of seconds, at least 1`); return 2; }
   const textArg = asking ? o.args[1] : o.continue !== undefined ? o.args[0] : null;
   const text = textArg === '-' ? io.stdin() : textArg;
-  if (textArg !== null && !text.trim()) { io.err('bd-ask: the task is empty'); return 2; }
+  if (textArg !== null && !text.trim()) { io.err('${NAME}: the task is empty'); return 2; }
   const port = dashPort(env);
   const state = io.state || {};
 
@@ -112,9 +115,9 @@ async function main(argv, env, io) {
 
   if (o.list) {
     const r = await request('GET', '/api/specialists', undefined, 30000);
-    if (r.fatal) { io.err(`bd-ask: ${r.message}`); return r.fatal; }
+    if (r.fatal) { io.err(`${NAME}: ${r.message}`); return r.fatal; }
     const items = r.run.specialists || [];
-    if (!items.length) { io.err('bd-ask: no specialists yet; create one in the dashboard'); return 0; }
+    if (!items.length) { io.err(`${NAME}: no specialists yet; create one in the dashboard`); return 0; }
     for (const s of items) io.out(s.error ? `${s.name}\t(invalid: ${oneLine(s.error)})` : `${s.name}\t${oneLine(s.title)}\t${oneLine(s.description)}\t${s.use || 'agent'}`);
     return 0;
   }
@@ -125,7 +128,7 @@ async function main(argv, env, io) {
 
   const settle = run => {
     if (run.state === 'done') { io.out(run.text || ''); return 0; }
-    io.err(`bd-ask: run ${run.runId} ${run.state === 'error' ? 'failed' : 'was stopped'}${run.error ? `: ${oneLine(run.error)}` : ''}`);
+    io.err(`${NAME}: run ${run.runId} ${run.state === 'error' ? 'failed' : 'was stopped'}${run.error ? `: ${oneLine(run.error)}` : ''}`);
     if (run.text) io.out(run.text);
     return 1;
   };
@@ -136,11 +139,11 @@ async function main(argv, env, io) {
     for (;;) {
       state.runId = run.runId || state.runId;
       if (FINAL.has(run.state)) return settle(run);
-      if (run.state === 'waiting' && !noted) { io.err(`bd-ask: run ${run.runId} needs an answer in the dashboard`); noted = true; }
-      if (Date.now() >= deadline) { io.err(`bd-ask: timed out after ${timeout} s; the run keeps going. Resume with: bd-ask --wait ${run.runId}`); return 4; }
+      if (run.state === 'waiting' && !noted) { io.err(`${NAME}: run ${run.runId} needs an answer in the dashboard`); noted = true; }
+      if (Date.now() >= deadline) { io.err(`${NAME}: timed out after ${timeout} s; the run keeps going. Resume with: ${NAME} --wait ${run.runId}`); return 4; }
       const sec = slice();
       const r = await request('GET', `/api/specialist/run/${encodeURIComponent(run.runId)}?wait=1&timeoutSec=${sec}`, undefined, limit(sec));
-      if (r.fatal) { io.err(`bd-ask: ${r.message} (run ${run.runId})`); return r.fatal; }
+      if (r.fatal) { io.err(`${NAME}: ${r.message} (run ${run.runId})`); return r.fatal; }
       run = r.run;
     }
   };
@@ -148,27 +151,27 @@ async function main(argv, env, io) {
   const sec = slice();
   if (o.wait !== undefined) {
     const r = await request('GET', `/api/specialist/run/${encodeURIComponent(o.wait)}?wait=1&timeoutSec=${sec}`, undefined, limit(sec));
-    if (r.fatal) { io.err(`bd-ask: ${r.message}`); return r.fatal; }
+    if (r.fatal) { io.err(`${NAME}: ${r.message}`); return r.fatal; }
     return follow(r.run);
   }
 
   if (o.continue !== undefined) {
     state.runId = o.continue;
     const r = await request('POST', `/api/specialist/run/${encodeURIComponent(o.continue)}/send`, { text, wait: true, timeoutSec: sec }, limit(sec));
-    if (r.fatal) { io.err(`bd-ask: ${r.message}`); return r.fatal; }
+    if (r.fatal) { io.err(`${NAME}: ${r.message}`); return r.fatal; }
     return follow(r.run);
   }
 
   const material = [];
   for (const f of o.sources) {
     const full = path.resolve(io.cwd, f);
-    try { material.push(fs.readFileSync(full, 'utf8')); } catch (e) { io.err(`bd-ask: cannot read --source ${f}: ${e.message}`); return 2; }
+    try { material.push(fs.readFileSync(full, 'utf8')); } catch (e) { io.err(`${NAME}: cannot read --source ${f}: ${e.message}`); return 2; }
   }
   const asked = material.length ? `${text}\n\nOriginal material (verbatim):\n${material.join('\n\n')}` : text;
   const body = { text: asked, wait: !o['no-wait'], timeoutSec: sec };
   if (o.files.length) body.files = o.files.map(f => path.resolve(io.cwd, f));
   const r = await request('POST', `/api/specialist/${encodeURIComponent(o.args[0])}/ask`, body, o['no-wait'] ? 60000 : limit(sec));
-  if (r.fatal) { io.err(`bd-ask: ${r.message}`); return r.fatal; }
+  if (r.fatal) { io.err(`${NAME}: ${r.message}`); return r.fatal; }
   if (o['no-wait']) { io.out(r.run.runId); return 0; }
   return follow(r.run);
 }
@@ -179,8 +182,8 @@ if (require.main === module) {
   const state = {};
   const io = { out: s => console.log(s), err: s => console.error(s), stdin: () => fs.readFileSync(0, 'utf8'), cwd: process.cwd(), state };
   process.on('SIGINT', () => {
-    console.error(`bd-ask: interrupted${state.runId ? `; the run keeps going. Resume with: bd-ask --wait ${state.runId}` : ''}`);
+    console.error(`${NAME}: interrupted${state.runId ? `; the run keeps going. Resume with: ${NAME} --wait ${state.runId}` : ''}`);
     process.exit(130);
   });
-  main(process.argv.slice(2), process.env, io).then(code => { process.exitCode = code; }, e => { console.error(`bd-ask: ${e.message}`); process.exitCode = 1; });
+  main(process.argv.slice(2), process.env, io).then(code => { process.exitCode = code; }, e => { console.error(`${NAME}: ${e.message}`); process.exitCode = 1; });
 }
