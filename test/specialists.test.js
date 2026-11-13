@@ -48,20 +48,42 @@ test('create writes the profile with defaults and the blank template', t => {
   assert.strictEqual(s.model, null);
   assert.strictEqual(s.effort, null);
   assert.strictEqual(s.color, null);
+  assert.strictEqual(s.icon, 'auto');
   assert.strictEqual(s.dir, path.join(root, 'helper'));
   assert.ok(s.createdAt && s.createdAt === s.updatedAt);
   assert.deepStrictEqual(s.files, { instructions: true, settings: false, mcp: false, skills: [], agents: [] });
   const onDisk = JSON.parse(fs.readFileSync(path.join(root, 'helper', 'specialist.json'), 'utf8'));
   assert.strictEqual(onDisk.name, 'helper');
   assert.strictEqual(onDisk.description, 'Answers questions');
-  assert.match(sp.readInstructions('helper'), /^# helper\n\nAnswers questions\n/);
+  assert.strictEqual(sp.readInstructions('helper'), sp.placePreamble('# helper\n\nAnswers questions\n'));
+  assert.match(sp.readInstructions('helper'), /^<!-- beast-dash bot preamble v1: written by the dashboard, do not edit -->\n## How this bot works\n[\s\S]*\n<!-- beast-dash bot preamble end -->\n\n# helper\n\nAnswers questions\n$/);
   assert.deepStrictEqual(fs.readdirSync(root), ['helper']);
+});
+
+test('the preamble sits at the top once, keeps the owner text and is not written for api bots', t => {
+  tmpRoot(t);
+  const block = sp.placePreamble('');
+  const [start, end] = ['<!-- beast-dash bot preamble v1: written by the dashboard, do not edit -->', '<!-- beast-dash bot preamble end -->'];
+  assert.ok(block.startsWith(start + '\n') && block.endsWith(end + '\n\n'));
+  assert.ok(!/^When to use:/m.test(block) && !block.includes('@'));
+  const own = '# Bot\n\nWhen to use: replies.\n';
+  const placed = sp.placePreamble(own);
+  assert.strictEqual(placed, block + own);
+  assert.strictEqual(sp.placePreamble(placed), placed);
+  const older = '<!-- beast-dash bot preamble v0: written by the dashboard, do not edit -->\nold text\n' + end + '\n\n' + own;
+  assert.strictEqual(sp.placePreamble(older), placed);
+  assert.strictEqual(sp.placePreamble('intro\n' + placed), 'intro\n' + placed);
+  assert.strictEqual(sp.placePreamble(own + end + '\n'), block + own);
+  assert.strictEqual(sp.placePreamble(start + '\n' + own), block + own);
+  assert.strictEqual(sp.placePreamble(placed.replace(/\n/g, '\r\n')), block + own.replace(/\n/g, '\r\n'));
+  const api = sp.create({ name: 'remote', provider: 'openai', model: 'gpt-5', instructions: own });
+  assert.strictEqual(sp.readInstructions(api.name), own);
 });
 
 test('the writer template adds a style guide, an examples folder and its defaults; fields given win', t => {
   const { root } = tmpRoot(t);
   const s = sp.create({ name: 'writer', model: 'sonnet' }, 'writer');
-  assert.strictEqual(s.icon, '✎');
+  assert.strictEqual(s.icon, 'write');
   assert.strictEqual(s.permissionMode, 'dontAsk');
   assert.strictEqual(s.model, 'sonnet');
   assert.ok(fs.statSync(path.join(root, 'writer', 'examples')).isDirectory());
@@ -197,7 +219,7 @@ test('archive moves the folder into _archive with a stamp and never deletes it',
   const at = new Date(Date.UTC(2026, 10, 11, 8, 30, 5));
   const a = sp.archive('old', at);
   assert.strictEqual(a.archivedAs, '_archive/old-20261111-083005');
-  assert.strictEqual(fs.readFileSync(path.join(root, '_archive', 'old-20261111-083005', 'CLAUDE.md'), 'utf8'), 'keep me');
+  assert.strictEqual(fs.readFileSync(path.join(root, '_archive', 'old-20261111-083005', 'CLAUDE.md'), 'utf8'), sp.placePreamble('keep me'));
   assert.deepStrictEqual(sp.list(), []);
   assert.throws(() => sp.get('old'), status(404));
   sp.create({ name: 'old' });

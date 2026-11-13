@@ -320,7 +320,7 @@ test('run: one request with the resolved instructions, a claude-shaped run recor
   assert.strictEqual(run.state, 'done', run.error);
   assert.match(run.runId, new RegExp(`^claude-spec-${p.name}-\\d{6}-\\d{4}$`));
   assert.deepStrictEqual([run.mode, run.account, run.text, run.error, run.turns, run.truncated], ['run', 'personal', 'answer 1: what is 2+2?', null, 1, false]);
-  assert.deepStrictEqual(Object.keys(run).sort(), ['account', 'cwd', 'endedAt', 'error', 'mode', 'runId', 'sessionId', 'specialist', 'startedAt', 'state', 'task', 'text', 'tmux', 'transcriptPath', 'truncated', 'turns'].sort());
+  assert.deepStrictEqual(Object.keys(run).sort(), ['account', 'caller', 'cwd', 'endedAt', 'error', 'mode', 'runId', 'sessionId', 'specialist', 'startedAt', 'state', 'task', 'text', 'tmux', 'transcriptPath', 'truncated', 'turns'].sort());
   assert.strictEqual(run.transcriptPath, path.join(p.dir, '.bd', 'conversations', run.sessionId + '.jsonl'));
   assert.strictEqual(mock.requests.length, 1);
   assert.deepStrictEqual(mock.requests[0].body, { model: 'gpt-5', messages: [{ role: 'system', content: '# Helper\n\nAnswer briefly.\n' }, { role: 'user', content: 'what is 2+2?' }] });
@@ -347,28 +347,35 @@ test('run: one request with the resolved instructions, a claude-shaped run recor
   noKey(fs.readFileSync(path.join(tmp, 'claude-sessions.json'), 'utf8'));
 });
 
-test('thread: a follow-up continues the same conversation; the runner env and argv hold no key', async () => {
+test('own chat: an api bot keeps one conversation, a call is a separate run; the runner env and argv hold no key', async () => {
   goodKeys();
-  const p = fresh({ provider: 'xai', model: 'grok-4', mode: 'thread' });
-  const first = await runs.ask(p.name, { text: 'remember 7', wait: true, timeoutSec: 20 });
-  assert.deepStrictEqual([first.state, first.runId, first.mode, first.text], ['done', `claude-spec-${p.name}_1`, 'thread', 'answer 1: remember 7'], first.error);
-  const second = await runs.ask(p.name, { text: 'what number?', wait: true, timeoutSec: 20 });
-  assert.deepStrictEqual([second.state, second.runId, second.sessionId, second.transcriptPath], ['done', `claude-spec-${p.name}_2`, first.sessionId, first.transcriptPath], second.error);
+  const p = fresh({ provider: 'xai', model: 'grok-4', mode: 'thread', account: 'company' });
+  const tmux = store.threadName(p.name, 'personal');
+  const opened = await runs.chat(p.name, {});
+  assert.deepStrictEqual([opened.started, opened.thread.tmux, opened.thread.account, opened.thread.live], [true, tmux, 'personal', true]);
+  assert.strictEqual(store.getThread(p.name).tmux, tmux);
+  assert.ok((await headless.send(tmux, 'remember 7')).ok);
+  await until(() => mock.requests.length === 1);
+  await until(async () => (await headless.status(tmux)).state === 'idle');
+  assert.ok((await headless.send(tmux, 'what number?')).ok);
+  await until(() => mock.requests.length === 2);
   assert.deepStrictEqual(mock.requests[1].body.messages, [{ role: 'system', content: providers.systemPrompt(p.dir) }, { role: 'user', content: 'remember 7' }, { role: 'assistant', content: 'answer 1: remember 7' }, { role: 'user', content: 'what number?' }]);
   assert.strictEqual(mock.requests[1].auth, `Bearer ${XKEY}`);
-  const tmux = store.threadName(p.name, 'personal');
-  assert.ok(alive(tmux));
+  assert.strictEqual((await runs.chat(p.name, {})).started, false);
   const pid = fs.readFileSync(path.join(procs, tmux + '.pid'), 'utf8').trim();
   noKey(fs.readFileSync(`/proc/${pid}/environ`, 'utf8'));
   const argv = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8');
   assert.match(argv, /api-runner\.js/);
   noKey(argv);
-  const live = await headless.status(tmux);
+  const live = await until(async () => { const L = await headless.status(tmux); return L.state === 'idle' && L; });
   assert.deepStrictEqual([live.v, live.provider, live.model, live.claude, live.version, live.state], [2, 'xai', 'grok-4', null, null, 'idle']);
+  assert.ok(!fs.readFileSync(path.join(p.dir, 'CLAUDE.md'), 'utf8').includes('beast-dash bot preamble'));
+  const call = await runs.ask(p.name, { text: 'a call', wait: true, timeoutSec: 20 });
+  assert.deepStrictEqual([call.state, call.mode, call.text], ['done', 'run', 'answer 3: a call'], call.error);
   const detail = await runs.detail(p.name, 10);
-  assert.deepStrictEqual([detail.thread.live, detail.runs.length, detail.specialist.keyError], [true, 2, null]);
+  assert.deepStrictEqual([detail.thread.live, detail.thread.state, detail.runs.map(r => r.runId), detail.specialist.keyError], [true, 'idle', [call.runId], null]);
   store.update(p.name, { provider: 'openai', model: 'gpt-5' });
-  await assert.rejects(runs.ask(p.name, { text: 'x' }), e => status(409)(e) && /still runs on xai/.test(e.message));
+  await assert.rejects(runs.chat(p.name, {}), e => status(409)(e) && /still runs on xai/.test(e.message));
   noKey(readAll(path.join(p.dir, '.bd')));
 });
 

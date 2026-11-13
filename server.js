@@ -65,7 +65,7 @@ headless.init({ port: settings.get().port, test: TEST, claudeBin: () => claudeve
 const specialists = require('./lib/specialists');
 const specialistSkills = require('./lib/specialist-skill').createSkills({ store: specialists });
 const training = require('./lib/training').createTraining({ store: specialists, headless, tmuxHas: actions.sessionExists, claudeGet: claude.get, skills: specialistSkills });
-const specialistRuns = require('./lib/specialist-runs').createRuns({ store: specialists, headless, tmuxHas: actions.sessionExists, claudeGet: claude.get, training, skills: specialistSkills, liveSessions: async () => { const r = await run('tmux', ['list-sessions', '-F', '#{session_name}']); if (!r.ok && !/no server running|error connecting to/.test(r.stderr || '')) throw new Error('tmux list-sessions failed'); return r.ok ? r.stdout.split('\n').filter(Boolean) : []; } });
+const specialistRuns = require('./lib/specialist-runs').createRuns({ store: specialists, headless, tmuxHas: actions.sessionExists, claudeGet: claude.get, training, skills: specialistSkills, endSession: async tmux => { await actions.stop(tmux); claude.forget(tmux); }, liveSessions: async () => { const r = await run('tmux', ['list-sessions', '-F', '#{session_name}']); if (!r.ok && !/no server running|error connecting to/.test(r.stderr || '')) throw new Error('tmux list-sessions failed'); return r.ok ? r.stdout.split('\n').filter(Boolean) : []; } });
 const specialistApi = require('./lib/specialist-api').createSpecialistApi({ store: specialists, runs: specialistRuns, training, skills: specialistSkills, readBody, onChange: () => setTimeout(tick, 200) });
 claude.setProjects(p => history.projectFor(p, projects));
 roots.init({ projects: () => projects });
@@ -171,8 +171,11 @@ async function rollNext(gen) {
 const SWITCHING = new Set(); const SWITCHED = new Map();
 const pathVersion = () => claudever.status().current || CLAUDE_VERSION;
 const chatBinFor = () => { const st = claudever.status(); return st.using && path.isAbsolute(st.bin || '') ? st.bin : null; };
-const chatSend = (name, text) => specialists.trainerOfTmux(name) ? training.chatSend(name, text) : headless.send(name, text);
+const isBotChat = name => { const bot = specialists.threadOfTmux(name); const rec = bot && claude.get(name); return !!(rec && rec.specialist === bot); };
+const chatSend = (name, text) => specialists.trainerOfTmux(name) ? training.chatSend(name, text) : isBotChat(name) ? training.chatTurn(name, text) : headless.send(name, text);
 const isTrainer = name => !!specialists.trainerOfTmux(name);
+const isBotSession = name => { const rec = claude.get(name); return !!((rec && rec.specialist) || specialists.specialistOfTmux(name)); };
+const BOT_STAYS = 'a bot chat stays with its bot';
 async function restartChat(name) {
   const rec = claude.get(name);
   if (isTrainer(name) && !(rec && rec.runner && rec.runner.trainer === true)) return { ok: false, error: 'this trainer session has no trainer settings; start it again from the Train tab' };
@@ -1175,6 +1178,7 @@ async function api(req, res, url) {
     case 'handoff': { // usage limit on one account: start the other account in the same folder with a summary of where this one stopped
       const from = claude.get(String(b.session || '')); if (!from || !from.cwd) return json(res, 404, { error: 'unknown session' });
       if (isTrainer(String(b.session))) return json(res, 409, { error: 'a trainer is started from its Train tab' });
+      if (isBotSession(String(b.session))) return json(res, 409, { error: BOT_STAYS });
       const to = from.account === 'company' ? 'personal' : 'company';
       const t = from.transcriptPath ? transcript.tail(from.transcriptPath, 12) : { turns: [] };
       const users = t.turns.filter(x => x.role === 'user').slice(-4).map(x => '- ' + x.text.replace(/\s+/g, ' ').slice(0, 300));
@@ -1214,6 +1218,7 @@ async function api(req, res, url) {
       const name = String(b.session || ''); const src = claude.get(name);
       if (!src) return json(res, 404, { ok: false, error: 'unknown session' });
       if (isTrainer(name)) return json(res, 409, { ok: false, error: 'a trainer has one conversation: start a new one from its Train tab' });
+      if (isBotSession(name)) return json(res, 409, { ok: false, error: BOT_STAYS });
       if (checkpoints.IN_TURN.has(src.state)) return json(res, 409, { ok: false, error: 'Claude is working in this session — fork it when it is done' });
       const r = await headless.forkChat(src);
       if (r.ok) {

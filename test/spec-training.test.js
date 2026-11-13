@@ -151,7 +151,7 @@ test('history: nothing on disk before training; uploads init git with a starting
   assert.match(up.commit.id, /^[0-9a-f]{40}$/);
   assert.strictEqual(up.commit.short, up.commit.id.slice(0, 7));
   assert.notStrictEqual(store.get(p.name).updatedAt, before);
-  assert.strictEqual(fs.readFileSync(path.join(p.dir, '.gitignore'), 'utf8'), '/*\n!/CLAUDE.md\n!/style.md\n!/knowledge/\n!/examples/\n');
+  assert.strictEqual(fs.readFileSync(path.join(p.dir, '.gitignore'), 'utf8'), '/*\n!/CLAUDE.md\n!/style.md\n!/knowledge/\n!/examples/\n/.secrets/\n/.bd/\n/.trainers/\n');
   assert.deepStrictEqual(gitIn(p.dir, 'ls-files').trim().split('\n').sort(), ['CLAUDE.md', 'knowledge/files/Notes - v1-.md']);
   assert.strictEqual(gitIn(p.dir, 'branch', '--show-current').trim(), 'main');
   assert.strictEqual(gitIn(p.dir, 'log', '-1', '--format=%an <%ae>').trim(), 'beast-dash <beast-dash@localhost>');
@@ -385,11 +385,11 @@ test('trainer: restricted launch in its own folder, Summary commits, files list,
   assert.deepStrictEqual((await training.chatSend(tmux, 'from the chat')).error, 'trainer is busy');
   assert.match((await training.chatSend(`${tmux}-company`, 'x')).error, /not the specialist's current trainer/);
   const [, list] = await call('GET', '/api/specialists');
-  assert.deepStrictEqual(list.specialists.find(x => x.name === p.name).trainer, { live: true, state: 'working', pendingFeedback: 0 });
+  assert.ok(!('trainer' in list.specialists.find(x => x.name === p.name)));
   assert.strictEqual((await call('POST', `/api/specialist/${p.name}/archive`))[0], 409);
   await trainerDone(p.name);
   const [, detail] = await call('GET', `/api/specialist/${p.name}`);
-  assert.deepStrictEqual(detail.specialist.trainer, { live: true, state: 'idle', pendingFeedback: 0 });
+  assert.ok(!('trainer' in detail.specialist));
   assert.strictEqual(fakeArgs().filter(x => x.cwd === T).length, 1);
 });
 
@@ -459,7 +459,6 @@ test('feedback: sent one per turn, applied with the commit, failed turns can be 
   fs.mkdirSync(path.join(q.dir, '.bd', 'runs'), { recursive: true });
   fs.writeFileSync(path.join(q.dir, '.bd', 'feedback.jsonl'), pending);
   assert.strictEqual((await call('POST', `/api/specialist/${q.name}/train/feedback`, { note: 'one more' }))[0], 429);
-  assert.deepStrictEqual((await call('GET', '/api/specialists'))[1].specialists.find(x => x.name === q.name).trainer, { live: false, state: null, pendingFeedback: 50 });
 });
 
 test('trainer: relaunch resumes the stored conversation, fresh starts a new one, boot fails feedback left sent and commits outside changes', async () => {
@@ -620,4 +619,58 @@ test('trainer: a message that does not reach the trainer is 500, and the trainer
   await assert.rejects(deaf.send(p.name, { text: 'hello' }), e => e.status === 500 && /did not reach the trainer/.test(e.message));
   assert.ok(!fs.existsSync(path.join(p.dir, '.bd', 'trainer-guard.json')));
   await assert.rejects(deaf.send(p.name, { text: 'hello' }), e => e.status === 500);
+});
+
+test('own chat: a new bot is a repository with the preamble; teaching turns commit as chat, protected files are put back, the preamble cannot be undone and undo waits for the turn', async () => {
+  const name = `t${++counter.n}`;
+  const [c, made] = await call('POST', '/api/specialist', { name, title: 'Teacher' });
+  assert.strictEqual(c, 201);
+  const dir = made.specialist.dir;
+  const commits = async () => (await call('GET', `/api/specialist/${name}/train/history`))[1].commits;
+  assert.deepStrictEqual((await commits()).map(x => [x.source, x.message]), [['start', 'Starting point']]);
+  assert.ok(gitIn(dir, 'show', 'HEAD:CLAUDE.md').startsWith('<!-- beast-dash bot preamble v1: written by the dashboard, do not edit -->\n'));
+  assert.deepStrictEqual(gitIn(dir, 'ls-files').trim().split('\n'), ['CLAUDE.md']);
+  const [o, opened] = await call('POST', `/api/specialist/${name}/chat`, {});
+  const tmux = `claude-spec-${name}`;
+  assert.deepStrictEqual([o, opened.ok, opened.started, opened.thread.tmux, opened.thread.live], [200, true, true, tmux, true]);
+  assert.strictEqual(claude.get(tmux).specialist, name);
+  assert.strictEqual((await commits()).length, 1);
+  const settled = () => until(async () => !(await training.busy(name)));
+  assert.ok((await training.chatTurn(tmux, 'write knowledge/alpha.md=Alpha\nSummary: Learned alpha')).ok);
+  await until(async () => (await commits())[0].source === 'chat');
+  await settled();
+  let hist = await commits();
+  assert.deepStrictEqual([hist[0].message, hist[0].files], ['Learned alpha', [{ path: 'knowledge/alpha.md', change: 'added' }]]);
+  const meta = () => { const { updatedAt, ...m } = JSON.parse(fs.readFileSync(path.join(dir, 'specialist.json'), 'utf8')); return m; };
+  const before = meta();
+  const ignore = fs.readFileSync(path.join(dir, '.gitignore'), 'utf8');
+  assert.ok((await training.chatTurn(tmux, 'write specialist.json={"evil":true}\nwrite .gitignore=*\nwrite CLAUDE.md=# Only mine\nwrite knowledge/beta.md=Beta')).ok);
+  await until(async () => (await commits()).length === hist.length + 1);
+  await settled();
+  hist = await commits();
+  assert.deepStrictEqual(meta(), before);
+  assert.strictEqual(fs.readFileSync(path.join(dir, '.gitignore'), 'utf8'), ignore);
+  assert.strictEqual(fs.readFileSync(path.join(dir, 'CLAUDE.md'), 'utf8'), store.placePreamble('# Only mine'));
+  assert.deepStrictEqual([hist[0].source, hist[0].message, hist[0].files.map(f => f.path)], ['chat', 'Learned: CLAUDE.md, knowledge/beta.md', ['CLAUDE.md', 'knowledge/beta.md']]);
+  assert.ok((await training.chatTurn(tmux, 'hello')).ok);
+  await settled();
+  assert.strictEqual((await commits()).length, hist.length);
+  assert.ok((await training.chatTurn(tmux, 'slow')).ok);
+  assert.deepStrictEqual(await call('POST', `/api/specialist/${name}/train/undo`, { commit: hist[0].id }), [409, { ok: false, error: 'the bot is busy' }]);
+  assert.deepStrictEqual(await call('POST', `/api/specialist/${name}/chat`, { fresh: true }), [409, { ok: false, error: 'the bot is busy' }]);
+  await settled();
+  fs.writeFileSync(path.join(dir, 'CLAUDE.md'), '# Edited by hand\n');
+  const asked = await runs.ask(name, { text: 'a call', wait: true, timeoutSec: 10 });
+  assert.deepStrictEqual([asked.state, asked.mode], ['done', 'run']);
+  hist = await commits();
+  assert.deepStrictEqual(hist.slice(0, 2).map(x => [x.source, x.message]), [['preamble', 'Updated the bot preamble'], ['outside', 'Changes made outside training']]);
+  assert.strictEqual(fs.readFileSync(path.join(dir, 'CLAUDE.md'), 'utf8'), store.placePreamble('# Edited by hand\n'));
+  assert.deepStrictEqual(await call('POST', `/api/specialist/${name}/train/undo`, { commit: hist[0].id }), [400, { ok: false, error: 'the preamble is managed by the dashboard' }]);
+  const [u] = await call('POST', `/api/specialist/${name}/train/undo`, { commit: hist.find(x => x.message === 'Learned alpha').id });
+  assert.strictEqual(u, 201);
+  assert.ok(!fs.existsSync(path.join(dir, 'knowledge', 'alpha.md')));
+  const plain = fresh();
+  assert.ok(!fs.existsSync(path.join(plain.dir, '.git')));
+  await training.boot();
+  assert.deepStrictEqual((await call('GET', `/api/specialist/${plain.name}/train/history`))[1].commits.map(x => x.source), ['start']);
 });
