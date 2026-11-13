@@ -1,0 +1,42 @@
+#view-bots main { padding: 8px 28px 60px; max-width: 1100px; }
+.bt-head { display: flex; align-items: center; gap: 8px; margin: 14px 2px 12px; }
+.bt-title { margin: 0; font-size: var(--fs-xl); font-weight: 600; letter-spacing: -.01em; }
+.bt-head .n { font-size: var(--fs-md); font-weight: 500; color: var(--dim); }
+.bt-sp { flex: 1; }
+.bt-help { font-weight: 600; }
+.bt-note { margin-bottom: 10px; }
+.bt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: 12px; }
+.bt-card { display: flex; align-items: flex-start; gap: 12px; min-width: 0; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); color: var(--text); font: inherit; text-align: left; cursor: pointer; transition: background .15s, border-color .15s; }
+.bt-card:hover { background: color-mix(in srgb, var(--panel2) 60%, var(--panel)); border-color: var(--line2); }
+.bt-card:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent); outline-offset: 2px; }
+.bt-card.st-working { border-color: color-mix(in srgb, var(--st-work) 35%, transparent); }
+.bt-card.st-waiting { border-color: color-mix(in srgb, var(--st-perm) 45%, transparent); }
+.bt-card.st-error { border-color: color-mix(in srgb, var(--st-err) 35%, transparent); }
+.bt-tile { flex: none; display: inline-grid; place-items: center; border-radius: var(--r); font-weight: 600; line-height: 1; overflow: hidden; }
+.bt-body { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
+.bt-name { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: var(--fs-lg); font-weight: 600; letter-spacing: -.01em; }
+.bt-nm { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bt-desc { font-size: var(--fs-md); color: var(--muted); line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+.bt-meta { font-size: var(--fs-sm); color: var(--dim); }
+.bt-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--st-idle); }
+.bt-dot.st-working { background: var(--st-work); animation: breathe 1.6s ease-in-out infinite; }
+.bt-dot.st-waiting { background: var(--st-perm); }
+.bt-dot.st-error { background: var(--st-err); }
+.bt-new { align-items: center; border-style: dashed; background: transparent; color: var(--muted); }
+.bt-new:hover { color: var(--text); }
+.bt-plus { width: 44px; height: 44px; background: var(--fill); color: var(--muted); }
+.box.bt-create { width: min(480px, 94vw); }
+.bt-form { display: flex; flex-direction: column; gap: 12px; padding: 4px 0; }
+.bt-f { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.bt-f > span { font-size: var(--fs-sm); color: var(--dim); }
+.bt-f .txt { width: 100%; }
+.bt-adv > summary { cursor: pointer; font-size: var(--fs-sm); color: var(--muted); }
+.bt-advbody { display: flex; flex-direction: column; gap: 12px; margin-top: 10px; }
+.bt-foot { display: flex; align-items: center; gap: 8px; padding-top: 8px; }
+@media (prefers-reduced-motion: reduce) { .bt-dot.st-working { animation: none; } }
+@media (max-width: 900px) {
+  #view-bots main { padding: 6px 12px 40px; }
+  .bt-grid { grid-template-columns: 1fr; gap: 10px; }
+  .bt-card { padding: 13px 14px; }
+  .tabbar { grid-template-columns: repeat(6, 1fr); }
+}

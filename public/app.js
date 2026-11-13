@@ -2258,7 +2258,7 @@ async function openTranscriptFile(hh) {
 const LAYERS = { depth: 0, closing: false, modal: false, queue: [], fwd: false, pend: null, skip: 0, timer: 0, fwdTimer: 0, skipTimer: 0, reuse: false, back: false, restoring: 0, hist: [], boot: null };
 const modalOpen = () => !$('#modal').classList.contains('hidden');
 const OVERLAY_OPEN = { drawer: () => !!UI.drawer, modal: modalOpen, palette: () => PAL.open };   // the Code steps are judged by FEAT.code
-const VIEWS = ['home', 'projects', 'tasks', 'code'];
+const VIEWS = ['home', 'projects', 'tasks', 'code', 'bots'];
 function curLoc() { return { v: UI.view, t: TERM.open ? (IS_PHONE && TERM.showList ? '' : TERM.active || '') : null }; }
 const sameLoc = (a, b) => !!a && !!b && a.v === b.v && a.t === b.t;
 const isEntry = s => !!s && typeof s === 'object' && typeof s.depth === 'number' && typeof s.bd === 'string';
@@ -2924,20 +2924,21 @@ function taskModal(t, projectId) {
 // ---------- views: home (stats · agents · running) / projects (cards + search) ----------
 function setView(v, keepQuery) {
   UI.view = v; localStorage.setItem('bd.view', v);
-  $('#view-home').classList.toggle('hidden', v !== 'home'); $('#view-projects').classList.toggle('hidden', v !== 'projects'); $('#view-tasks').classList.toggle('hidden', v !== 'tasks'); $('#view-code').classList.toggle('hidden', v !== 'code');
+  $('#view-home').classList.toggle('hidden', v !== 'home'); $('#view-projects').classList.toggle('hidden', v !== 'projects'); $('#view-tasks').classList.toggle('hidden', v !== 'tasks'); $('#view-code').classList.toggle('hidden', v !== 'code'); $('#view-bots').classList.toggle('hidden', v !== 'bots');
   for (const b of document.querySelectorAll('#nav .navb')) b.classList.toggle('on', b.dataset.view === v);
   if (v === 'home' && !keepQuery) { $('#search').value = ''; UI.q = ''; }
   render();
+  if (v === 'bots') FEAT.bots?.shown();
 }
 function render() {
   if (UI.menuOpen) return; // don't yank menus from under the cursor
-  $('#view-home').classList.toggle('hidden', UI.view !== 'home'); $('#view-projects').classList.toggle('hidden', UI.view !== 'projects'); $('#view-tasks').classList.toggle('hidden', UI.view !== 'tasks'); $('#view-code').classList.toggle('hidden', UI.view !== 'code');
+  $('#view-home').classList.toggle('hidden', UI.view !== 'home'); $('#view-projects').classList.toggle('hidden', UI.view !== 'projects'); $('#view-tasks').classList.toggle('hidden', UI.view !== 'tasks'); $('#view-code').classList.toggle('hidden', UI.view !== 'code'); $('#view-bots').classList.toggle('hidden', UI.view !== 'bots');
   for (const b of document.querySelectorAll('#nav .navb')) b.classList.toggle('on', b.dataset.view === UI.view);
   markTab();
   document.body.classList.toggle('view-projects', UI.view === 'projects'); document.body.dataset.view = UI.view;
-  const vt = $('#vtitle'); if (vt) vt.textContent = ({ home: 'Home', projects: 'Projects', tasks: 'Tasks', code: 'Code' })[UI.view] || '';
+  const vt = $('#vtitle'); if (vt) vt.textContent = ({ home: 'Home', projects: 'Projects', tasks: 'Tasks', code: 'Code', bots: 'Bots' })[UI.view] || '';
   renderHeader(); renderBanner(); renderTunnels(); renderRail();
-  if (UI.view === 'home') { renderStats(); renderFeatHome(); renderTermStrip(); renderRunning(); } else if (UI.view === 'tasks') renderTasks(); else if (UI.view !== 'code') renderMain();
+  if (UI.view === 'home') { renderStats(); renderFeatHome(); renderTermStrip(); renderRunning(); } else if (UI.view === 'tasks') renderTasks(); else if (UI.view === 'bots') FEAT.bots?.paint(); else if (UI.view !== 'code') renderMain();
   if (UI.drawer) renderDrawer(false);
   if (TERM.open) { renderTermPanel(); renderChatPane(false); } else $('#term-count').textContent = sessCount();
   gcFrames();
@@ -3127,7 +3128,7 @@ document.addEventListener('keydown', e => {
   const typing = ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT' || ae.isContentEditable);
   if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); PAL.open ? closePalette() : openPalette(); return; }
   if (PAL.open) return;   // the palette handles its own keys
-  if (e.key === 'Escape') { if (!$('#modal').classList.contains('hidden')) $('#modal').classList.add('hidden'); else if (UI.menuOpen) closeMenu(); else if (UI.drawer) closeDrawer(); else if (TERM.open) closeTermPanel(); else if (UI.q) { $('#search').value = ''; UI.q = ''; renderMain(); } else if (UI.view === 'code' && FEAT.code?.back(true)) {} else if (UI.view === 'projects' || UI.view === 'tasks' || UI.view === 'code') goView('home'); } // drawer before term: the Changes drawer can sit on top of the terminal
+  if (e.key === 'Escape') { if (!$('#modal').classList.contains('hidden')) $('#modal').classList.add('hidden'); else if (UI.menuOpen) closeMenu(); else if (UI.drawer) closeDrawer(); else if (TERM.open) closeTermPanel(); else if (UI.q) { $('#search').value = ''; UI.q = ''; renderMain(); } else if (UI.view === 'code' && FEAT.code?.back(true)) {} else if (UI.view === 'projects' || UI.view === 'tasks' || UI.view === 'code' || UI.view === 'bots') goView('home'); } // drawer before term: the Changes drawer can sit on top of the terminal
   if (typing || !TERM.open || UI.drawer || UI.menuOpen || (IS_PHONE && TERM.showList) || document.body.classList.contains('recording') || !$('#modal').classList.contains('hidden')) return;
   const pane = $('#term-chat'); const reply = pane && !pane.classList.contains('hidden') && pane.dataset.chat === TERM.active && pane.querySelector('.creply');
   if (!reply || reply.disabled) return;
@@ -3244,7 +3245,7 @@ function firstState() {
   else if (t) { history.replaceState(history.state, '', location.pathname); openTerm(t); }
   else if (sess && q.get('view') !== 'code') { history.replaceState(history.state, '', location.pathname); openSession(sess, q.get('tab') || 'transcript'); }
   else if (['chat', 'resume'].includes(q.get('new'))) { history.replaceState(history.state, '', location.pathname); newSessionModal(q.get('new') === 'chat' ? 'new' : 'resume', q.get('text') || '', { project: q.get('project') || null, account: q.get('account') || null }); }
-  else if (['projects', 'home', 'tasks'].includes(q.get('view'))) { history.replaceState(history.state, '', location.pathname); setView(q.get('view')); retop(); }
+  else if (['projects', 'home', 'tasks', 'bots'].includes(q.get('view'))) { history.replaceState(history.state, '', location.pathname); setView(q.get('view')); retop(); }
   else if (q.get('newtask')) { history.replaceState(history.state, '', location.pathname); setView('tasks'); retop(); taskModal(null, q.get('newtask') === '1' ? null : q.get('newtask')); }
   else if (q.get('settings')) { history.replaceState(history.state, '', location.pathname); settingsModal(); }
   else if (q.get('downloads')) { history.replaceState(history.state, '', location.pathname); downloadsModal(); }
