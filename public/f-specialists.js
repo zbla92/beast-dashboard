@@ -56,7 +56,7 @@ FEAT.specialists = (() => {
   const callTitle = r => cut(firstLine(r.task) || r.runId, CALL_TITLE_MAX);
   const callerTitle = tmux => { const s = S.runtime.sessions.find(x => x.name === tmux); return (s && sessTitle(s)) || tmux; };
   const calledFrom = r => r.caller ? 'called from ' + callerTitle(r.caller) : 'called from outside the dashboard';
-  const callsOf = p => (p.recentCalls || []).filter(r => r.mode === 'run').slice(0, RAIL_CALLS);
+  const callsOf = p => (p.recentCalls || []).filter(r => r.mode === 'run' && !isFinal(r)).slice(0, RAIL_CALLS);
 
   function loadCall(id) {
     if (ASKED.has(id)) return;

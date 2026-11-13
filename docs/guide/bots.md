@@ -591,8 +591,8 @@ main-thread assistant message in the transcript after the turn's prompt. Capped 
   there is no new flag. The dashboard's own ask dialog (`public/f-spec-ask.js`) passes the session
   it was opened from.
 - **Rail.** The Bots section (renamed from Specialists) lists bots alphabetically by name, never by
-  state. Under each bot: its open calls, then its newest finished calls, newest first, at most 5 in
-  total from `recentCalls` (10.4). Each call row shows a state dot, the first line of the task (cut to
+  state. Under each bot: only its open calls (not final), newest first, at most 5 from
+  `recentCalls` (10.4). Finished calls are listed in the bot header's Calls menu. Each call row shows a state dot, the first line of the task (cut to
   80 chars) and a second line `called from <caller>`, where `<caller>` is the calling session's
   display title from the session list, its tmux name when that session is unknown, or
   `called from outside the dashboard` when `caller` is `null`.

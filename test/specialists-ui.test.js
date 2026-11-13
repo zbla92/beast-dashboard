@@ -122,28 +122,29 @@ test('a bot row opens its chat through the bots feature and falls back to the ch
   assert.strictEqual(sb.session, 'claude-spec-writer');
 });
 
-test('under a bot the rail shows at most 5 calls from recentCalls in the given order, as two-line rows', async () => {
-  const recent = Array.from({ length: 8 }, (_, i) => call('claude-spec-writer-26111' + i + '-0930', { task: 'Task number ' + i, state: i === 0 ? 'working' : 'done' }));
-  const sb = build([P('writer', { recentCalls: [...recent, call('claude-spec-writer', { mode: 'thread' })] }), P('arch', { recentCalls: [call('claude-spec-arch-261111-0930', { specialist: 'arch', task: 'Other' })] })], []);
+test('under a bot the rail shows at most 5 live calls from recentCalls in the given order, as two-line rows, and no finished ones', async () => {
+  const recent = Array.from({ length: 8 }, (_, i) => call('claude-spec-writer-26111' + i + '-0930', { task: 'Task number ' + i, state: i === 0 ? 'starting' : 'working' }));
+  const finishedCall = call('claude-spec-writer-261119-0930', { task: 'Finished', state: 'done' });
+  const sb = build([P('writer', { recentCalls: [finishedCall, ...recent, call('claude-spec-writer', { mode: 'thread', state: 'working' })] }), P('arch', { recentCalls: [call('claude-spec-arch-261111-0930', { specialist: 'arch', task: 'Other', state: 'working' }), call('claude-spec-arch-261111-0931', { specialist: 'arch', task: 'Old' })] })], []);
   await sb.FEAT.specialists.refresh(true);
   const rows = railRows(sb.FEAT.specialists.railSection('rail'));
   assert.deepStrictEqual(rows.map(r => /k-spec-run/.test(r.attrs.class) ? 'call' : 'bot'), ['bot', 'call', 'bot', 'call', 'call', 'call', 'call', 'call']);
   const writerCalls = rows.slice(3).map(r => text(r.kids.find(k => k.attrs.class === 'rtx').kids[0]).trim());
   assert.deepStrictEqual(writerCalls, ['Task number 0', 'Task number 1', 'Task number 2', 'Task number 3', 'Task number 4']);
   assert.match(rows[3].attrs.class, /st-working/);
-  assert.match(rows[4].attrs.class, /st-idle/);
+  assert.match(rows[4].attrs.class, /st-working/);
   assert.strictEqual(find(rows[3], n => n.attrs.class === 'rln2').length, 1);
 });
 
 test('a call row opens the call as a chat under its run id', async () => {
-  const sb = build([P('writer', { recentCalls: [call(TMUX)] })], []);
+  const sb = build([P('writer', { recentCalls: [call(TMUX, { state: 'working' })] })], []);
   await sb.FEAT.specialists.refresh(true);
   callRows(sb.FEAT.specialists.railSection('rail'))[0].attrs.onclick();
   assert.strictEqual(sb.opened, TMUX);
 });
 
 test('the called from line uses the caller title, falls back to the tmux name and says outside the dashboard for no caller', async () => {
-  const list = [P('writer', { recentCalls: [call(TMUX, { caller: 'claude-ana' }), call('claude-spec-writer-261111-0931', { caller: 'claude-gone' }), call('claude-spec-writer-261111-0932')] })];
+  const list = [P('writer', { recentCalls: [call(TMUX, { caller: 'claude-ana', state: 'working' }), call('claude-spec-writer-261111-0931', { caller: 'claude-gone', state: 'working' }), call('claude-spec-writer-261111-0932', { state: 'working' })] })];
   const sb = build(list, [], false, withSession([{ name: 'claude-ana' }]));
   await sb.FEAT.specialists.refresh(true);
   const subs = callRows(sb.FEAT.specialists.railSection('rail')).map(r => text(find(r, n => n.attrs.class === 'rsub')[0]));
