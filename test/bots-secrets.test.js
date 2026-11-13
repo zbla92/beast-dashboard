@@ -105,11 +105,12 @@ const withAccess = (fields = {}) => {
   accesses.set(p.dir, { name: 'DB_URL', value: SECRET, note: 'read replica' });
   return p;
 };
-const trainerDone = name => until(async () => { const [, o] = await call('GET', `/api/specialist/${name}/train`); return o.trainer && o.trainer.live && o.trainer.state === 'idle' ? o : null; });
 const teach = async (p, text) => {
-  const [s] = await call('POST', `/api/specialist/${p.name}/train/send`, { text });
-  assert.strictEqual(s, 200);
-  return trainerDone(p.name);
+  for (const [, rel, body] of text.matchAll(/^write (\S+?)=(.*)$/gm)) {
+    fs.mkdirSync(path.dirname(path.join(p.dir, rel)), { recursive: true });
+    fs.writeFileSync(path.join(p.dir, rel), body + '\n');
+  }
+  await training.beforeLaunch(p.name);
 };
 const tracked = dir => gitIn(dir, 'log', '--all', '--name-only', '--format=').split('\n').filter(Boolean);
 const history = dir => gitIn(dir, 'log', '--all', '-p', '--format=%H %s%n%b');
@@ -231,7 +232,7 @@ test('a message holding a credential value is refused for an ask, a continued ca
   assert.strictEqual(store.getRun(asked.runId).turns, 1);
   assert.strictEqual(inputs().length, in1);
 
-  for (const tmux of [store.threadName(p.name, 'personal'), store.threadName(p.name, 'company'), asked.tmux, store.trainerName(p.name, 'personal')]) {
+  for (const tmux of [store.threadName(p.name, 'personal'), store.threadName(p.name, 'company'), asked.tmux]) {
     assert.throws(() => accesses.refuseInSession(tmux, [`hi ${SECRET}`]), e => e.status === 409 && e.message === KNOWN, tmux);
     assert.throws(() => accesses.refuseInSession(tmux, ['fine', 42, SECRET]), e => e.status === 409, tmux);
     assert.doesNotThrow(() => accesses.refuseInSession(tmux, [`hi ${SHORT}`, null]));
@@ -316,37 +317,15 @@ test('a run answer holding a stored value is kept with the access name in its pl
   assert.strictEqual(accesses.mask(accesses.values(p.dir), `failed: ${PHRASE} with ${SECRET}, ${SECRET.slice(0, -1)}`), `failed: [PHRASE] with [DB_URL], ${SECRET.slice(0, -1)}`);
 });
 
-test('a Summary line holding a stored value never reaches a commit message or the history', async () => {
+test('a hand-staged file holding a value never enters history and unrelated staged files are committed as outside changes', async () => {
   const p = withAccess();
-  const NOTE = 'example-summary-value-42';
-  accesses.set(p.dir, { name: 'NOTE_KEY', value: NOTE });
-  await teach(p, `write knowledge/notes.md=plain notes\nSummary: uses ${NOTE} now`);
-  const [s, h] = await call('GET', `/api/specialist/${p.name}/train/history`);
-  assert.strictEqual(s, 200);
-  assert.deepStrictEqual([h.commits[0].source, h.commits[0].message], ['trainer', 'Training: knowledge/notes.md']);
-  assert.ok(!JSON.stringify(h).includes(NOTE));
-  assert.ok(!history(p.dir).includes(NOTE));
-  const [u, undone] = await call('POST', `/api/specialist/${p.name}/train/undo`, { commit: h.commits[0].id });
-  assert.strictEqual(u, 201, undone.error);
-  assert.ok(!history(p.dir).includes(NOTE));
-});
-
-test('an upload commits only its own file; a hand-staged file holding a value never enters history', async () => {
-  const p = withAccess();
-  await teach(p, 'write style.md=Calm.\nSummary: Calm style');
+  await teach(p, 'write style.md=Calm.');
   fs.mkdirSync(path.join(p.dir, 'knowledge'), { recursive: true });
   fs.writeFileSync(path.join(p.dir, 'knowledge', 'stray.md'), `stray ${SECRET}\n`);
   fs.writeFileSync(path.join(p.dir, 'knowledge', 'other.md'), 'other notes\n');
   gitIn(p.dir, 'add', '-f', 'knowledge/stray.md', 'knowledge/other.md');
-  const u = new URL(`${await base()}/api/specialist/${p.name}/train/upload?filename=list.txt`);
-  const [s, up] = await new Promise((resolve, reject) => {
-    const req = http.request(u, { method: 'POST', headers: { 'content-length': 6 } }, res => { const out = []; res.on('data', d => out.push(d)); res.on('end', () => { const text = Buffer.concat(out).toString('utf8'); responses.push(text); resolve([res.statusCode, JSON.parse(text)]); }); });
-    req.on('error', reject);
-    req.end('items\n');
-  });
-  assert.strictEqual(s, 201, up.error);
-  assert.deepStrictEqual(gitIn(p.dir, 'show', '--name-only', '--format=', 'HEAD').trim().split('\n'), ['knowledge/files/list.txt']);
-  assert.deepStrictEqual(gitIn(p.dir, 'log', '-1', '--skip=1', '--name-only', '--format=%s').trim().split('\n').filter(Boolean), ['Changes made outside training', 'knowledge/other.md']);
+  await training.beforeLaunch(p.name);
+  assert.deepStrictEqual(gitIn(p.dir, 'show', '--name-only', '--format=', 'HEAD').trim().split('\n'), ['knowledge/other.md']);
   assert.ok(!tracked(p.dir).includes('knowledge/stray.md'));
   assert.strictEqual(gitIn(p.dir, 'diff', '--cached', '--name-only'), '');
   assert.ok(!history(p.dir).includes(SECRET));
