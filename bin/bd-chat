@@ -44,7 +44,7 @@ function dashPort(env) {
   return 8787;
 }
 
-const currentAccount = env => path.basename(env.CLAUDE_CONFIG_DIR || '') === '.claude-company' ? 'company' : 'personal';
+const currentAccount = env => require('../lib/accounts').accountOf(env.CLAUDE_CONFIG_DIR);
 
 function post(port, route, body) {
   return new Promise((resolve, reject) => {
