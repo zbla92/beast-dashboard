@@ -17,24 +17,22 @@ const PERMISSION = arg('permission-mode') || 'bypassPermissions';
 const ADD_DIRS = process.argv.flatMap((a, i) => a === '--add-dir' && process.argv[i + 1] ? [process.argv[i + 1]] : []);
 const EXIT_AFTER_RESULT = process.argv.includes('--exit-after-result');
 const START_MODEL = arg('model') || null, START_EFFORT = arg('effort') || null;
-const TRAINER = process.argv.includes('--trainer');
 const SETTINGS = arg('settings') || null, ACCESSES = arg('accesses') || null;
-const TRAINER_TOOLS = 'Read,Glob,Grep,Edit,Write';
 const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}(\[1m\])?$/;
 if (!PERMISSION_MODES.includes(PERMISSION) || ADD_DIRS.some(d => !path.isAbsolute(d)) || (START_MODEL && !MODEL_ID.test(START_MODEL)) || (START_EFFORT && !['low', 'medium', 'high', 'xhigh', 'max'].includes(START_EFFORT))) {
   process.stderr.write('headless-runner.js: bad --permission-mode, --add-dir, --model or --effort\n');
   process.exit(2);
 }
-if ((TRAINER && (!SETTINGS || ACCESSES)) || (SETTINGS && !path.isAbsolute(SETTINGS)) || (ACCESSES && !path.isAbsolute(ACCESSES))) {
-  process.stderr.write('headless-runner.js: --trainer needs an absolute --settings file and takes no --accesses; --accesses needs an absolute profile folder\n');
+if ((SETTINGS && !path.isAbsolute(SETTINGS)) || (ACCESSES && !path.isAbsolute(ACCESSES))) {
+  process.stderr.write('headless-runner.js: --settings needs an absolute file and --accesses an absolute profile folder\n');
   process.exit(2);
 }
 if (!SOCK || !/^[0-9a-f-]{36}$/.test(SID || '') || !['new', 'resume', 'fork'].includes(arg('start')) || (arg('start') === 'fork' && !/^[0-9a-f-]{36}$/.test(FORK || ''))) {
-  process.stderr.write('usage: headless-runner.js --sock <path> --cwd <dir> --session-id <uuid> --start new|resume|fork [--fork-from <uuid>] [--account personal|company] [--claude <bin>] [--name <tmux name>] [--permission-mode <mode>] [--add-dir <dir>]... [--model <model>] [--effort <level>] [--exit-after-result] [--trainer] [--settings <file>] [--accesses <profile>]\n');
+  process.stderr.write('usage: headless-runner.js --sock <path> --cwd <dir> --session-id <uuid> --start new|resume|fork [--fork-from <uuid>] [--account personal|company] [--claude <bin>] [--name <tmux name>] [--permission-mode <mode>] [--add-dir <dir>]... [--model <model>] [--effort <level>] [--exit-after-result] [--settings <file>] [--accesses <profile>]\n');
   process.exit(2);
 }
 
-const MAX_LINE = 4 * 1024 * 1024, MAX_TEXT = 200 * 1024, MAX_SEND = TRAINER ? 1024 * 1024 : 100000;
+const MAX_LINE = 4 * 1024 * 1024, MAX_TEXT = 200 * 1024, MAX_SEND = 100000;
 const INHERITED = ['CLAUDECODE', 'CLAUDE_EFFORT', 'CLAUDE_PID'];
 const KEEP = ['CLAUDE_CODE_AUTO_COMPACT_WINDOW'];
 
@@ -100,7 +98,6 @@ function accessesForRun() {
 }
 
 function permissionArgs() {
-  if (TRAINER) return ['--restricted', '--tools', TRAINER_TOOLS, '--strict-mcp-config', '--permission-mode', 'dontAsk', '--settings', SETTINGS];
   return ['--permission-prompt-tool', 'stdio', ...(PERMISSION === 'bypassPermissions' ? ['--dangerously-skip-permissions'] : ['--permission-mode', PERMISSION]), ...(SETTINGS ? ['--settings', SETTINGS] : [])];
 }
 
@@ -556,7 +553,6 @@ function onClientOp(c, m) {
     }
     case 'interrupt': interrupt(); return ack();
     case 'shell': {
-      if (TRAINER) return fail('the trainer has no shell');
       if (stopping) return fail('runner is stopping');
       const cmd = typeof m.cmd === 'string' ? m.cmd.trim() : '';
       if (!cmd || cmd.length > MAX_CMD) return fail('cmd must be 1..10000 chars');
@@ -593,7 +589,6 @@ function onClientOp(c, m) {
         CLAUDE = m.claude; upgradeAfterTurn = false; clearTimeout(upgradeTimer);
       }
       if (m.addDirs !== undefined) {
-        if (TRAINER) return fail('the trainer works only in its profile folder');
         if (!Array.isArray(m.addDirs) || m.addDirs.length > 40 || m.addDirs.some(d => typeof d !== 'string' || !path.isAbsolute(d) || !isDir(d))) return fail('addDirs must be a list of at most 40 existing absolute folders');
         ADD_DIRS.splice(0, ADD_DIRS.length, ...new Set(m.addDirs));
       }

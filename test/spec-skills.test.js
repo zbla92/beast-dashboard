@@ -363,11 +363,13 @@ test('API: create, update, list and GET carry S; the sync endpoint; training com
     const [u, updated] = await call('POST', `/api/specialist/${name}`, { description: 'Does api things.' });
     assert.deepStrictEqual([u, states(updated.specialist.skill)], [200, ['ok']]);
     assert.ok(read(f).includes('\nDoes api things.\n'));
-    const [up, uploaded] = await call('POST', `/api/specialist/${name}/train/upload?filename=notes.md`, 'facts', true);
-    assert.strictEqual(up, 201);
+    fs.mkdirSync(path.join(store.profileDir(name), 'knowledge', 'files'), { recursive: true });
+    fs.writeFileSync(path.join(store.profileDir(name), 'knowledge', 'files', 'notes.md'), 'facts');
+    const [sy] = await call('POST', `/api/specialist/${name}/skill/sync`, { force: true });
+    assert.strictEqual(sy, 200);
     assert.ok(read(f).includes('   - knowledge/files/notes.md (1 KiB)\n'));
-    const [ud] = await call('POST', `/api/specialist/${name}/train/undo`, { commit: uploaded.commit.id });
-    assert.strictEqual(ud, 201);
+    fs.rmSync(path.join(store.profileDir(name), 'knowledge', 'files', 'notes.md'));
+    await call('POST', `/api/specialist/${name}/skill/sync`, { force: true });
     assert.ok(!read(f).includes('notes.md'));
     const [i] = await call('POST', `/api/specialist/${name}`, { instructions: '# Api\n\nWhen to use: other work.\n' });
     assert.strictEqual(i, 200);
