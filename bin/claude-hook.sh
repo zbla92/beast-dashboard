@@ -11,7 +11,8 @@ port="${BEAST_DASH_PORT:-8787}"
 sess=""
 [ -n "$TMUX_PANE" ] && sess=$(tmux display-message -p -t "$TMUX_PANE" '#S' 2>/dev/null)
 [ -n "$sess" ] || exit 0                          # not in tmux -> nothing on the dashboard to update
-acct=personal; case "$CLAUDE_CONFIG_DIR" in *claude-company*) acct=company;; esac
+# only the two logins carry this hook, so any config folder other than ~/.claude is the second one (lib/accounts.js)
+acct=personal; case "${CLAUDE_CONFIG_DIR%/}" in ""|*/.claude) ;; *) acct=company;; esac
 ts=$(date +%s%3N)
 # Big tool inputs (a Write of a whole file) are useless to the dashboard: clip every string to 400 chars.
 if command -v jq >/dev/null 2>&1; then

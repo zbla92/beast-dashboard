@@ -65,11 +65,11 @@ function setState(state) { if (S.state === state) return; S.state = state; S.sin
 function childEnv() {
   const env = { ...process.env };
   for (const k of Object.keys(env)) if (INHERITED.includes(k) || (k.startsWith('CLAUDE_CODE_') && !KEEP.includes(k))) delete env[k];
-  if (ACCOUNT === 'company') env.CLAUDE_CONFIG_DIR = path.join(process.env.HOME || '', '.claude-company'); else delete env.CLAUDE_CONFIG_DIR;
+  if (ACCOUNT === 'company') env.CLAUDE_CONFIG_DIR = configDir(); else delete env.CLAUDE_CONFIG_DIR;
   return env;
 }
 
-const configDir = () => ACCOUNT === 'company' ? path.join(process.env.HOME || '', '.claude-company') : path.join(process.env.HOME || '', '.claude');
+const configDir = () => ACCOUNT === 'company' ? arg('config-dir') || require('../lib/accounts').companyDir() : path.join(process.env.HOME || '', '.claude');
 const forked = () => fs.existsSync(path.join(configDir(), 'projects', CWD.replace(/[^A-Za-z0-9]/g, '-'), SID + '.jsonl'));
 
 function binVersion(bin) {
