@@ -63,6 +63,8 @@ const claudeupdate = require('./lib/claudeupdate');
 claudever.init({ stateDir: STATE, versionsDir: process.env.BD_CLAUDE_VERSIONS, link: process.env.BD_CLAUDE_LINK, fake: TEST && !(process.env.BD_CLAUDE_VERSIONS && process.env.BD_CLAUDE_LINK) ? (process.env.BD_FAKE_CLAUDE || 'claude') : null, onChange: (st, prev) => { setTimeout(() => pushState(false), 0); if (st.using && st.using !== prev) setTimeout(rollChats, 0); } });
 headless.init({ port: settings.get().port, test: TEST, claudeBin: () => claudever.chatBin() });
 const specialists = require('./lib/specialists');
+const accesses = require('./lib/accesses');
+const credentialRefusal = (session, texts) => { try { accesses.refuseInSession(session, texts); return null; } catch (e) { return { status: e.status || 500, error: e.message }; } };
 const specialistSkills = require('./lib/specialist-skill').createSkills({ store: specialists });
 const training = require('./lib/training').createTraining({ store: specialists, headless, tmuxHas: actions.sessionExists, claudeGet: claude.get, skills: specialistSkills });
 const specialistRuns = require('./lib/specialist-runs').createRuns({ store: specialists, headless, tmuxHas: actions.sessionExists, claudeGet: claude.get, training, skills: specialistSkills, liveSessions: async () => { const r = await run('tmux', ['list-sessions', '-F', '#{session_name}']); if (!r.ok && !/no server running|error connecting to/.test(r.stderr || '')) throw new Error('tmux list-sessions failed'); return r.ok ? r.stdout.split('\n').filter(Boolean) : []; } });
@@ -1163,7 +1165,7 @@ async function api(req, res, url) {
       let last = null; for (const tk of list) { const r = schedule.add(name, at, [tasks.prompt(tk, p.name)]); if (!r.ok) return json(res, 500, r); tasks.noteRun(tk.id, name, r.job.id); last = r.job.id; }
       pushState(true); return json(res, 200, { ok: true, session: name, job: last, count: list.length });
     }
-    case 'schedule': { const r = schedule.add(b.session, +b.at, b.prompts || b.prompt, { whenFree: !!b.whenFree }); pushState(true); setTimeout(() => runSchedule().catch(() => {}), 300); return json(res, r.ok ? 200 : 400, r); }
+    case 'schedule': { const held = credentialRefusal(String(b.session || ''), [].concat(b.prompts || b.prompt)); if (held) return json(res, held.status, { ok: false, error: held.error }); const r = schedule.add(b.session, +b.at, b.prompts || b.prompt, { whenFree: !!b.whenFree }); pushState(true); setTimeout(() => runSchedule().catch(() => {}), 300); return json(res, r.ok ? 200 : 400, r); }
     case 'schedule-now': { // "send now" on a queued message: drop it from the queue and type it in
       const t = schedule.take(String(b.id || '')); if (!t.ok) return json(res, t.status, { error: t.error });
       const j = t.job; const rest = j.prompts.slice(j.idx), text = rest.join('\n\n');
@@ -1249,6 +1251,7 @@ async function api(req, res, url) {
     case 'send': { // type into a tmux session (quick reply from the card / phone)
       if (typeof b.session !== 'string' || typeof b.text !== 'string') return json(res, 400, { error: 'session + text' });
       if (SWITCHING.has(b.session)) return json(res, 409, { error: 'busy' });
+      const held = credentialRefusal(b.session, [b.text]); if (held) return json(res, held.status, { ok: false, error: held.error });
       if (isChat(b.session)) { if (b.enter === false) return json(res, 400, { error: 'chat sessions take whole messages' }); const r = await chatSend(b.session, b.text); setTimeout(tick, 300); return json(res, r.ok ? 200 : 400, r); }
       const r = await claude.send(b.session, b.text, b.enter !== false); setTimeout(tick, 400); return json(res, r.ok ? 200 : 400, r);
     }

@@ -25,12 +25,12 @@ if (!PERMISSION_MODES.includes(PERMISSION) || ADD_DIRS.some(d => !path.isAbsolut
   process.stderr.write('headless-runner.js: bad --permission-mode, --add-dir, --model or --effort\n');
   process.exit(2);
 }
-if ((TRAINER && (!SETTINGS || !path.isAbsolute(SETTINGS) || ACCESSES)) || (!TRAINER && SETTINGS) || (ACCESSES && !path.isAbsolute(ACCESSES))) {
+if ((TRAINER && (!SETTINGS || ACCESSES)) || (SETTINGS && !path.isAbsolute(SETTINGS)) || (ACCESSES && !path.isAbsolute(ACCESSES))) {
   process.stderr.write('headless-runner.js: --trainer needs an absolute --settings file and takes no --accesses; --accesses needs an absolute profile folder\n');
   process.exit(2);
 }
 if (!SOCK || !/^[0-9a-f-]{36}$/.test(SID || '') || !['new', 'resume', 'fork'].includes(arg('start')) || (arg('start') === 'fork' && !/^[0-9a-f-]{36}$/.test(FORK || ''))) {
-  process.stderr.write('usage: headless-runner.js --sock <path> --cwd <dir> --session-id <uuid> --start new|resume|fork [--fork-from <uuid>] [--account personal|company] [--claude <bin>] [--name <tmux name>] [--permission-mode <mode>] [--add-dir <dir>]... [--model <model>] [--effort <level>] [--exit-after-result] [--trainer --settings <file>] [--accesses <profile>]\n');
+  process.stderr.write('usage: headless-runner.js --sock <path> --cwd <dir> --session-id <uuid> --start new|resume|fork [--fork-from <uuid>] [--account personal|company] [--claude <bin>] [--name <tmux name>] [--permission-mode <mode>] [--add-dir <dir>]... [--model <model>] [--effort <level>] [--exit-after-result] [--trainer] [--settings <file>] [--accesses <profile>]\n');
   process.exit(2);
 }
 
@@ -101,7 +101,7 @@ function accessesForRun() {
 
 function permissionArgs() {
   if (TRAINER) return ['--restricted', '--tools', TRAINER_TOOLS, '--strict-mcp-config', '--permission-mode', 'dontAsk', '--settings', SETTINGS];
-  return ['--permission-prompt-tool', 'stdio', ...(PERMISSION === 'bypassPermissions' ? ['--dangerously-skip-permissions'] : ['--permission-mode', PERMISSION])];
+  return ['--permission-prompt-tool', 'stdio', ...(PERMISSION === 'bypassPermissions' ? ['--dangerously-skip-permissions'] : ['--permission-mode', PERMISSION]), ...(SETTINGS ? ['--settings', SETTINGS] : [])];
 }
 
 function startChild() {

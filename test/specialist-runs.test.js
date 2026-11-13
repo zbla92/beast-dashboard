@@ -294,7 +294,7 @@ test('fake runner: permission prompts move the run to waiting and back; a runner
   const r = await runs.ask(p.name, { text: 'go' });
   assert.strictEqual(r.state, 'working');
   assert.strictEqual(h.launched[0].opts.specialist, p.name);
-  assert.deepStrictEqual(h.launched[0].opts.runner, { permissionMode: 'bypassPermissions', model: null, effort: null, addDirs: [], exitAfterResult: true, accesses: p.dir });
+  assert.deepStrictEqual(h.launched[0].opts.runner, { permissionMode: 'bypassPermissions', model: null, effort: null, addDirs: [], exitAfterResult: true, accesses: p.dir, settings: path.join(p.dir, '.bd', 'call-settings.json') });
   h.snaps.set(r.tmux, { pending: [{ rid: 'q' }] });
   h.emit(r.tmux, { ev: 'pending', req: { rid: 'q' } });
   assert.strictEqual(store.getRun(r.runId).state, 'waiting');

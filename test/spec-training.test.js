@@ -133,7 +133,7 @@ test('runner: --trainer needs --settings and refuses --accesses', async () => {
   assert.strictEqual(await run(['--trainer']), 2);
   assert.strictEqual(await run(['--trainer', '--settings', 'rel.json']), 2);
   assert.strictEqual(await run(['--trainer', '--settings', '/t/s.json', '--accesses', '/p']), 2);
-  assert.strictEqual(await run(['--settings', '/t/s.json']), 2);
+  assert.strictEqual(await run(['--settings', 'rel.json']), 2);
 });
 
 test('history: nothing on disk before training; uploads init git with a starting point, outside changes, diff, pagination', async () => {
