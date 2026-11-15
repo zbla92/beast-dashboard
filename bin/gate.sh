@@ -224,6 +224,8 @@ r="$(hlpost send '{"session":"claude-chat-gate-plain","text":"hi"}') $(jq1 'j.er
 [ "$r" = "400 chat runner is not reachable" ] && ok "POST send to a plain chat goes straight to its runner" || fail "POST send plain chat -> $r"
 r="$(hlpost handoff '{"session":"claude-spec-gate-bot"}') $(jq1 'j.error'), $(hlpost chat-fork '{"session":"claude-spec-gate-bot"}') $(jq1 'j.error')"
 [ "$r" = "409 a bot chat stays with its bot, 409 a bot chat stays with its bot" ] && ok "POST handoff / chat-fork of a bot chat -> 409" || fail "POST handoff / chat-fork bot chat -> $r"
+r="$(hlpost hl-shell-input '{"session":"claude-gate-nope","id":"s-1","text":"a\u0003b"}') $(hlpost hl-shell-input '{"session":"claude-gate-nope","id":"s-1","text":"a\nb"}') $(hlpost hl-shell-input '{"session":"claude-gate-nope","id":"s-1","text":"a\tb"}') $(hlpost hl-shell-input '{"session":"claude-gate-nope","id":"s-1","text":5}') $(hlpost hl-shell-input '{"session":"claude-gate-nope","id":"../x","text":"a"}') $(hlpost hl-shell-input '{"session":"claude-gate-nope","id":"s-1","text":"ok"}')"
+[ "$r" = "400 400 400 400 400 400" ] && ok "POST hl-shell-input control chars / bad id / non-chat session -> 400" || fail "POST hl-shell-input -> $r"
 gop() { local id="$1" d="$2"; shift 2; curl -s -m 30 -o /tmp/gate-$$.body -w '%{http_code}' -X POST -H 'content-type: application/json' "$@" -d "$d" "$B/api/git/$id/op"; }
 json /api/git/gate-nope/branches 404
 json /api/git/gate-nope/log 404

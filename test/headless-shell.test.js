@@ -58,7 +58,7 @@ test('shell: runs in the session folder with a clean env, streams output, and th
   const ack = await k.op({ op: 'shell', cmd: '  ' + cmd + '  ' });
   assert.strictEqual(ack.ev, 'ack'); assert.match(ack.id, /^s-\d+$/);
   const started = k.evs.find(e => e.ev === 'shell' && e.shell.id === ack.id);
-  assert.deepStrictEqual({ ...started.shell, at: 0 }, { id: ack.id, cmd, state: 'running', code: null, at: 0, end: null, out: '', cut: false, signal: null });
+  assert.deepStrictEqual({ ...started.shell, at: 0 }, { id: ack.id, cmd, state: 'running', code: null, at: 0, end: null, out: '', cut: false, signal: null, stdin: 'open', waiting: false });
   await k.until(e => e.ev === 'shell-out' && e.id === ack.id);
   const end = (await k.ended(ack.id)).shell;
   assert.strictEqual(end.state, 'done'); assert.strictEqual(end.code, 3); assert.ok(end.end >= end.at);
@@ -235,9 +235,80 @@ test('apply keeps snap.shells current: start, appended output with the 64 KB cap
   const old = {}; headless.apply(old, { ev: 'shell', shell: e }); assert.strictEqual(old.shells.length, 1);
 });
 
+test('shell input: a line reaches a read command, is echoed into the output, and the command finishes', async t => {
+  const r = runner(t); const k = await client(t, r.sock);
+  const ack = await k.op({ op: 'shell', cmd: `printf 'Paste code here if prompted > '; read x; echo "got:$x"` });
+  const waiting = (await k.until(e => e.ev === 'shell' && e.shell.id === ack.id && e.shell.waiting)).shell;
+  assert.strictEqual(waiting.stdin, 'open'); assert.strictEqual(waiting.out, 'Paste code here if prompted > ');
+  assert.strictEqual((await k.op({ op: 'shell-input', id: ack.id, text: 'abc123' })).ev, 'ack');
+  const end = (await k.ended(ack.id)).shell;
+  assert.strictEqual(end.state, 'done'); assert.strictEqual(end.code, 0); assert.strictEqual(end.waiting, false); assert.strictEqual(end.stdin, 'closed');
+  assert.strictEqual(end.out, 'Paste code here if prompted > abc123\ngot:abc123\n');
+});
+
+test('shell input: eof ends a cat', async t => {
+  const r = runner(t); const k = await client(t, r.sock);
+  const ack = await k.op({ op: 'shell', cmd: 'cat' });
+  assert.strictEqual((await k.op({ op: 'shell-input', id: ack.id, text: 'hello' })).ev, 'ack');
+  await k.until(e => e.ev === 'shell' && e.shell.id === ack.id && e.shell.out === 'hello\nhello\n');
+  assert.strictEqual((await k.op({ op: 'shell-input', id: ack.id, eof: true })).ev, 'ack');
+  const end = (await k.ended(ack.id)).shell;
+  assert.strictEqual(end.state, 'done'); assert.strictEqual(end.code, 0);
+  assert.strictEqual((await k.op({ op: 'shell-input', id: ack.id, eof: true })).ev, 'error');
+});
+
+test('shell input: refused for a finished command, a closed stdin, bad text and unknown ids', async t => {
+  const r = runner(t); const k = await client(t, r.sock);
+  const done = await k.op({ op: 'shell', cmd: 'echo hi' }); await k.ended(done.id);
+  assert.strictEqual((await k.op({ op: 'shell-input', id: done.id, text: 'x' })).ev, 'error');
+  const run = await k.op({ op: 'shell', cmd: 'cat' });
+  assert.strictEqual((await k.op({ op: 'shell-input', id: run.id, text: 'a\x03b' })).ev, 'error');
+  for (const text of ['a\nb', 'a\tb', 'a\rb', 'a\x7fb', 'a\x00b']) assert.strictEqual((await k.op({ op: 'shell-input', id: run.id, text })).ev, 'error', JSON.stringify(text));
+  assert.strictEqual((await k.op({ op: 'shell-input', id: run.id, text: 'x'.repeat(4097) })).ev, 'error');
+  assert.strictEqual((await k.op({ op: 'shell-input', id: 's-999', text: 'x' })).ev, 'error');
+  await k.op({ op: 'shell-input', id: run.id, eof: true });
+  assert.strictEqual((await k.op({ op: 'shell-input', id: run.id, text: 'late' })).ev, 'error');
+  await k.ended(run.id);
+});
+
+test('shell input: a reader that prints nothing first waits after a quiet spell and stays open after a line; claude gets only its output, not the typed line', async t => {
+  const r = runner(t); const k = await client(t, r.sock);
+  const ack = await k.op({ op: 'shell', cmd: 'cat' });
+  const t0 = Date.now();
+  const waiting = (await k.until(e => e.ev === 'shell' && e.shell.id === ack.id && e.shell.waiting)).shell;
+  assert.ok(Date.now() - t0 >= 1400); assert.strictEqual(waiting.out, ''); assert.strictEqual(waiting.stdin, 'open');
+  const n = k.evs.length;
+  assert.strictEqual((await k.op({ op: 'shell-input', id: ack.id, text: 'typed-line' })).ev, 'ack');
+  const after = (await k.until(e => e.ev === 'shell' && e.shell.id === ack.id && k.evs.indexOf(e) >= n)).shell;
+  assert.strictEqual(after.waiting, true); assert.strictEqual(after.out, 'typed-line\n');
+  await k.until(e => e.ev === 'shell-out' && e.id === ack.id && e.chunk === 'typed-line\n');
+  assert.strictEqual(k.evs.filter(e => e.ev === 'shell-out' && e.id === ack.id).map(e => e.chunk).join(''), 'typed-line\n');
+  await k.op({ op: 'shell-input', id: ack.id, eof: true });
+  const end = (await k.ended(ack.id)).shell;
+  assert.strictEqual(end.out, 'typed-line\ntyped-line\n'); assert.strictEqual(end.waiting, false);
+  await k.op({ op: 'send', text: 'look' }); await k.until(e => e.ev === 'result');
+  assert.deepStrictEqual(userInputs(r, 'look')[0].map(b => b.text), ['<bash-input>cat</bash-input>', '<bash-stdout>typed-line\n</bash-stdout><bash-stderr></bash-stderr>', 'look']);
+});
+
+test('shell input: output that ends in a newline is not waiting', async t => {
+  const r = runner(t); const k = await client(t, r.sock);
+  const ack = await k.op({ op: 'shell', cmd: 'echo line; sleep 2' });
+  await wait(1900);
+  const s = (await k.snap()).shells.find(x => x.id === ack.id);
+  assert.strictEqual(s.waiting, false); assert.strictEqual(s.stdin, 'open');
+  await k.op({ op: 'shell-stop', id: ack.id });
+});
+
+test('apply: a shell-out clears waiting', () => {
+  const snap = { shells: [{ id: 's-1', out: 'p > ', waiting: true }] };
+  headless.apply(snap, { ev: 'shell-out', id: 's-1', chunk: 'x' });
+  assert.strictEqual(snap.shells[0].waiting, false);
+});
+
 test('client: shell input is checked before it reaches a runner', async () => {
   assert.deepStrictEqual(await headless.shell('claude-x', '  '), { ok: false, error: 'command must be 1..10000 chars' });
   assert.deepStrictEqual(await headless.shell('claude-x', 'x'.repeat(10001)), { ok: false, error: 'command must be 1..10000 chars' });
   assert.deepStrictEqual(await headless.shellStop('claude-x', 'nope'), { ok: false, error: 'bad command id' });
+  assert.deepStrictEqual(await headless.shellInput('claude-x', '../x', 'a'), { ok: false, error: 'bad command id' });
   assert.deepStrictEqual(await headless.shellDrop('claude-x', 5), { ok: false, error: 'bad command id' });
 });

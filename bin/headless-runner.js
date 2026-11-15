@@ -476,10 +476,11 @@ function upgrade(bin) {
 const isDir = p => { try { return fs.statSync(p).isDirectory(); } catch { return false; } };
 const executable = p => { try { fs.accessSync(p, fs.constants.X_OK); return fs.statSync(p).isFile(); } catch { return false; } };
 
-const SHELL_MS = +process.env.BD_HL_SHELL_MS || 600000, SHELL_OUT = 64 * 1024, SHELL_PRIV = 30000, SHELL_KEEP = 5, MAX_CMD = 10000;
+const SHELL_MS = +process.env.BD_HL_SHELL_MS || 600000, SHELL_OUT = 64 * 1024, SHELL_PRIV = 30000, SHELL_KEEP = 5, MAX_CMD = 10000, SHELL_QUIET = 1500, MAX_INPUT = 4096;
 const shells = [];
 let shellSeq = 0;
-const pubShell = e => ({ id: e.id, cmd: e.cmd, state: e.state, code: e.code, at: e.at, end: e.end, out: e.out, cut: e.cut, signal: e.signal });
+const shellWaiting = e => e.state === 'running' && e.stdinOpen && !e.why && (e.typed || (Date.now() - e.lastOut >= SHELL_QUIET && !e.out.endsWith('\n')));
+const pubShell = e => ({ id: e.id, cmd: e.cmd, state: e.state, code: e.code, at: e.at, end: e.end, out: e.out, cut: e.cut, signal: e.signal, stdin: e.state === 'running' && e.stdinOpen ? 'open' : 'closed', waiting: shellWaiting(e) });
 function shellList() { return shells.map(pubShell); }
 const shellBin = () => { const s = process.env.SHELL; return s && path.isAbsolute(s) && executable(s) ? s : '/bin/bash'; };
 const signalGroup = (e, sig) => { try { process.kill(-e.proc.pid, sig); } catch {} };
@@ -494,7 +495,23 @@ function shellText(e, st, s) {
   st.cut += Math.max(0, v.length - SHELL_PRIV); st.text = v.slice(-SHELL_PRIV);
   if (o.length > SHELL_OUT) e.cut = true;
   e.out = o.slice(-SHELL_OUT); e.chunk = (e.chunk + s).slice(-SHELL_OUT);
-  if (!e.flush) e.flush = setTimeout(() => { e.flush = null; const chunk = e.chunk; e.chunk = ''; if (chunk) emit({ ev: 'shell-out', id: e.id, chunk }); }, 250);
+  e.lastOut = Date.now(); quietLater(e);
+  if (!e.flush) e.flush = setTimeout(() => flushShell(e), 250);
+}
+function quietLater(e) {
+  clearTimeout(e.quiet);
+  e.quiet = setTimeout(() => { if (e.state === 'running') emit({ ev: 'shell', shell: pubShell(e) }); }, SHELL_QUIET + 20);
+}
+function flushShell(e) {
+  clearTimeout(e.flush); e.flush = null;
+  const chunk = e.chunk; e.chunk = '';
+  if (chunk) emit({ ev: 'shell-out', id: e.id, chunk });
+}
+function echoInput(e, text) {
+  flushShell(e);
+  const o = e.out + text + '\n';
+  if (o.length > SHELL_OUT) e.cut = true;
+  e.out = o.slice(-SHELL_OUT);
 }
 function shellData(e, k, d) {
   if (e.state !== 'running') return;
@@ -505,7 +522,7 @@ function shellData(e, k, d) {
 function endShell(e, why) {
   if (e.state !== 'running') return;
   for (const k of ['stdout', 'stderr']) { const h = e[k].held; e[k].held = ''; shellText(e, e[k], strip(h)); }
-  clearTimeout(e.timer); clearTimeout(e.kill); clearTimeout(e.flush); e.flush = null; e.chunk = '';
+  clearTimeout(e.timer); clearTimeout(e.kill); clearTimeout(e.flush); clearTimeout(e.quiet); e.flush = null; e.chunk = '';
   e.state = why || e.why || 'done'; e.code = Number.isInteger(e.exit) ? e.exit : null; e.end = Date.now();
   e.signal = e.state === 'done' ? e.sig || null : null;
   if (e.proc) { try { e.proc.stdout.destroy(); e.proc.stderr.destroy(); } catch {} }
@@ -521,14 +538,22 @@ function killShell(e, why) {
   signalGroup(e, 'SIGTERM');
   e.kill = setTimeout(() => signalGroup(e, 'SIGKILL'), 3000);
 }
+function shellInput(e, text, eof) {
+  if (!e.proc || !e.stdinOpen || e.why) return 'the command is not waiting for input';
+  if (eof) { e.stdinOpen = false; e.proc.stdin.end(); } else { echoInput(e, text); e.typed = true; e.proc.stdin.write(text + '\n'); }
+  emit({ ev: 'shell', shell: pubShell(e) });
+  return null;
+}
 function startShell(cmd) {
-  const e = { id: `s-${++shellSeq}`, cmd, state: 'running', code: null, at: Date.now(), end: null, out: '', cut: false, chunk: '', flush: null, why: null, exit: null, sig: null, signal: null, kill: null, proc: null, timer: null,
+  const e = { id: `s-${++shellSeq}`, cmd, state: 'running', code: null, at: Date.now(), end: null, out: '', cut: false, chunk: '', flush: null, why: null, exit: null, sig: null, signal: null, kill: null, proc: null, timer: null, quiet: null, lastOut: Date.now(), stdinOpen: true, typed: false,
     stdout: { held: '', text: '', cut: 0 }, stderr: { held: '', text: '', cut: 0 } };
   shells.push(e);
   line(clean(`$ ${short(cmd, 400)}`));
   emit({ ev: 'shell', shell: pubShell(e) });
-  try { e.proc = spawn(shellBin(), ['-lc', cmd], { cwd: CWD, env: { ...childEnv(), TERM: 'dumb', NO_COLOR: '1' }, stdio: ['ignore', 'pipe', 'pipe'], detached: true }); } catch (err) { failShell(e, err); return e.id; }
+  quietLater(e);
+  try { e.proc = spawn(shellBin(), ['-lc', cmd], { cwd: CWD, env: { ...childEnv(), TERM: 'dumb', NO_COLOR: '1' }, stdio: ['pipe', 'pipe', 'pipe'], detached: true }); } catch (err) { failShell(e, err); return e.id; }
   const p = e.proc;
+  p.stdin.on('error', () => { e.stdinOpen = false; });
   p.stdout.setEncoding('utf8'); p.stderr.setEncoding('utf8');
   p.stdout.on('data', d => shellData(e, 'stdout', d));
   p.stderr.on('data', d => shellData(e, 'stderr', d));
@@ -563,6 +588,14 @@ function onClientOp(c, m) {
       const e = shells.find(x => x.id === m.id && x.state === 'running');
       if (!e) return fail('no such running command');
       killShell(e, 'stopped'); return ack();
+    }
+    case 'shell-input': {
+      const e = shells.find(x => x.id === m.id && x.state === 'running');
+      if (!e) return fail('no such running command');
+      const eof = m.eof === true, text = typeof m.text === 'string' ? m.text : '';
+      if (!eof && (text.length > MAX_INPUT || /[\x00-\x1f\x7f]/.test(text))) return fail('text must be at most 4096 chars without control characters');
+      const err = shellInput(e, text, eof);
+      return err ? fail(err) : ack();
     }
     case 'shell-drop': {
       const e = shells.find(x => x.id === m.id);

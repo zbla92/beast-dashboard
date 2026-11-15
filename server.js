@@ -1312,6 +1312,17 @@ async function api(req, res, url) {
       const r = isCmd ? await headless.shell(b.session, cmd) : parts[0] === 'hl-shell-stop' ? await headless.shellStop(b.session, b.id) : await headless.shellDrop(b.session, b.id);
       return json(res, r.ok ? 200 : 409, r);
     }
+    case 'hl-shell-input': {
+      if (typeof b.id !== 'string' || !/^s-\d+$/.test(b.id)) return json(res, 400, { error: 'bad command id' });
+      if (b.text !== undefined && typeof b.text !== 'string') return json(res, 400, { error: 'text must be a string' });
+      const eof = b.eof === true, text = b.text || '';
+      if (!eof && (text.length > 4096 || /[\x00-\x1f\x7f]/.test(text))) return json(res, 400, { error: 'text must be at most 4096 chars without control characters' });
+      if (!isChat(b.session)) return json(res, 400, { error: 'shell commands run in the terminal for terminal sessions' });
+      const inputHeld = text ? credentialRefusal(b.session, [text]) : null;
+      if (inputHeld) return json(res, inputHeld.status, { ok: false, error: inputHeld.error });
+      const r = await headless.shellInput(b.session, b.id, text, eof);
+      return json(res, r.ok ? 200 : 409, r);
+    }
     case 'choose': { if (isChat(b.session)) return json(res, 400, { error: 'chat sessions answer through hl-answer' }); const r = await claude.choose(String(b.session || ''), b.index, b.label); setTimeout(tick, 400); return json(res, r.ok ? 200 : 409, r); }
     case 'answer': {
       if (isChat(b.session)) {
