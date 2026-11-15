@@ -203,6 +203,17 @@ async function oldRunnerUpgrade(name) {
   return r;
 }
 let chatPushTimer = null;
+const providers = require('./lib/providers');
+const authLogin = require('./lib/authlogin').createAuthLogin({
+  accounts: () => accounts(),
+  claudeBin: () => TEST ? process.env.BD_FAKE_CLAUDE_AUTH || path.join(__dirname, 'test', 'fixtures', 'fake-claude-auth') : claudever.bin(),
+  sessionAccount: name => { const rec = claude.get(name); return rec?.mode === 'chat' && !providers.isApi(rec.runner?.provider) ? headless.recordAccount(rec) || 'personal' : null; },
+  restart: name => restartChat(name),
+  send: (name, text) => chatSend(name, text),
+  idle: async name => { const L = await headless.status(name); return !L || (['idle', 'exited'].includes(L.state) && !L.turn && !(L.pending || []).length && !(L.inbox || []).length); },
+  onChange: () => setTimeout(() => pushState(false), 0),
+});
+headless.onEvent((name, o) => authLogin.onEvent(name, o));
 headless.onEvent(() => { if (!chatPushTimer) chatPushTimer = setTimeout(() => { chatPushTimer = null; tick(); }, 150); });
 
 const PUBLIC = path.join(__dirname, 'public');
@@ -219,7 +230,7 @@ let lastStateJson = '';
 function stateObj() {
   icons.poll(projects);
   const s = settings.get();
-  return { projects: projects.map(p => ({ ...p, git: gitStatus[p.id] || null })), wip: wip.state(), runtime: { ...snapshot, manual: expose.manual() }, settings: s, host: { nextWake: s.sleepButton ? (sleepMod.nextWake() || 0) && sleepMod.nextWake().getTime() : 0, tsIp: TS_IP, tsName: expose.tailscaleName(), tailscale: TS_INFO, chatRoll: ROLL, publicHost: s.publicHost || TS_IP || 'localhost', terminalPort: 7681, hostname: require('os').hostname(), home: require('os').homedir(), devRoot: s.devRoot, user: process.env.USER || 'user', lastResume: LAST_RESUME, startedAt: STARTED_AT, build: build(), pushSubs: push.subscriptions().length, probe: probe.status(), stateErrors: corrupted(), claudeVer: claudever.status(), accounts: accounts() }, claude: { restorable: claude.restorable(), usage: usage.summary(), limits: limits.all(), windowStart: windowStarter.status(), installed: CLAUDE_VERSION, update: CLAUDE_UPDATE || claudeUpdater.status(), schedule: schedule.all(), tasks: tasks.all() }, health: health.all(), crashes: recentCrashes(), stats: sys.latest(), statsHistory: sys.history() };
+  return { projects: projects.map(p => ({ ...p, git: gitStatus[p.id] || null })), wip: wip.state(), runtime: { ...snapshot, manual: expose.manual() }, settings: s, host: { nextWake: s.sleepButton ? (sleepMod.nextWake() || 0) && sleepMod.nextWake().getTime() : 0, tsIp: TS_IP, tsName: expose.tailscaleName(), tailscale: TS_INFO, chatRoll: ROLL, publicHost: s.publicHost || TS_IP || 'localhost', terminalPort: 7681, hostname: require('os').hostname(), home: require('os').homedir(), devRoot: s.devRoot, user: process.env.USER || 'user', lastResume: LAST_RESUME, startedAt: STARTED_AT, build: build(), pushSubs: push.subscriptions().length, probe: probe.status(), stateErrors: corrupted(), claudeVer: claudever.status(), accounts: accounts() }, claude: { restorable: claude.restorable(), usage: usage.summary(), limits: limits.all(), windowStart: windowStarter.status(), installed: CLAUDE_VERSION, update: CLAUDE_UPDATE || claudeUpdater.status(), schedule: schedule.all(), tasks: tasks.all(), auth: authLogin.state() }, health: health.all(), crashes: recentCrashes(), stats: sys.latest(), statsHistory: sys.history() };
 }
 let ACCTS = null, acctsAt = 0;
 function accounts() { if (!ACCTS || Date.now() - acctsAt > 30000) { acctsAt = Date.now(); ACCTS = ['personal', ...(fs.existsSync(path.join(require('os').homedir(), '.claude-company')) ? ['company'] : [])]; } return ACCTS; }
@@ -1384,6 +1395,7 @@ async function api(req, res, url) {
       const p = projects.find(x => x.path === c.target);
       return json(res, 200, { ok: true, id: p ? p.id : null, path: c.target, rel: c.rel.split(path.sep).join('/'), account: c.account });
     }
+    case 'auth': { const r = await authLogin.api(parts[1], b); return json(res, r.status, r.body); }
     case 'rescan': { await rescan(); await tick(); pushState(true); return json(res, 200, { ok: true, count: projects.length }); }
     default: return json(res, 404, { error: 'not found' });
   }

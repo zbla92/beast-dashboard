@@ -28,7 +28,7 @@ cp "$REPO/state/claude-sessions.json" "$TMP/state/" 2>/dev/null   # read-only co
 node -e 'const fs=require("fs"),f=process.argv[1],s=(()=>{try{return JSON.parse(fs.readFileSync(f,"utf8"))}catch{return {}}})();const r=(tmux,n,specialist)=>({tmux,account:"personal",sessionId:"00000000-0000-4000-8000-00000000000"+n,cwd:process.argv[2],transcriptPath:null,state:"idle",since:Date.now(),firstSeen:Date.now(),mode:"chat",specialist});s["claude-spec-gate-bot"]=r("claude-spec-gate-bot",1,"gate-bot");s["claude-chat-gate-plain"]=r("claude-chat-gate-plain",2,null);s["claude-spec-gate-writer"]=r("claude-spec-gate-writer",3,"gate-writer");s["claude-spec-gate-lost"]=r("claude-spec-gate-lost",4,null);fs.writeFileSync(f,JSON.stringify(s))' "$TMP/state/claude-sessions.json" "$TMP"
 PLANS="$TMP/plans-store"; cp -r "$TMP/test/fixtures/plans/store" "$PLANS"
 SKH="$TMP/skills-home"; mkdir -p "$SKH/.claude"
-(cd "$TMP" && BD_TEST=1 BEAST_PLANS_DIR="$PLANS" BD_SPECIALISTS_DIR="$TMP/specialists" BD_SKILLS_HOME="$SKH" BD_PROVIDERS_FILE="$TMP/providers.json" exec node server.js > "$TMP/server.log" 2>&1) & PID=$!
+(cd "$TMP" && BD_TEST=1 BEAST_PLANS_DIR="$PLANS" BD_SPECIALISTS_DIR="$TMP/specialists" BD_SKILLS_HOME="$SKH" BD_PROVIDERS_FILE="$TMP/providers.json" FAKE_AUTH_DIR="$TMP/fake-auth" exec node server.js > "$TMP/server.log" 2>&1) & PID=$!
 cleanup() { kill "$PID" 2>/dev/null; sleep 0.3; kill -9 "$PID" 2>/dev/null; rm -rf "$TMP"; rm -f /tmp/gate-$$.*; }
 trap cleanup EXIT
 B="http://127.0.0.1:$PORT"
@@ -253,6 +253,41 @@ if [ -n "$GITP" ]; then
     r="$(gop "$GITP" '{"op":"nope"}' -H "$h")"; [ "$r" = 403 ] && ok "POST git op with $h -> 403" || fail "POST git op with $h -> $r"
   done
 fi
+
+echo "== auth (fake claude)"
+ap() { local ep="$1" d="$2"; shift 2; curl -s -m 15 -o /tmp/gate-$$.body -w '%{http_code}' -X POST -H 'content-type: application/json' "$@" -d "$d" "$B/api/auth/$ep"; }
+aq() { curl -s -m 5 -o /tmp/gate-$$.body "$B/api/state"; jq_ "(a=>($1))(d.claude.auth.personal)"; }
+awaitq() { for _ in $(seq 1 60); do [ "$(aq "$1")" = true ] && return 0; sleep 0.25; done; return 1; }
+[ "$(aq '["loggedIn","expiresAt","checkedAt","failed","needsLogin","retry","login"].every(k=>k in a)&&a.loggedIn===null&&a.checkedAt===null&&a.needsLogin===false&&Array.isArray(a.retry)&&a.login===null')" = true ] && ok "state claude.auth.personal: not checked at boot" || fail "claude.auth.personal shape $(head -c 300 /tmp/gate-$$.body | tr -d '\n')"
+[ -e "$TMP/fake-auth/status.log" ] && fail "claude auth status ran without a reason" || ok "claude auth status did not run at boot"
+r="$(ap check '{"account":"personal"}')"; [ "$r" = 200 ] && [ "$(jq_ 'd.ok&&d.auth.loggedIn===false&&d.auth.needsLogin===true&&d.auth.checkedAt>0')" = true ] && ok "POST auth/check -> logged out, needsLogin" || fail "POST auth/check logged out -> $r $(head -c 200 /tmp/gate-$$.body)"
+for d in '{"account":"nope"}' '{}' '{"account":"../personal"}'; do r="$(ap start "$d")"; [ "$r" = 400 ] && ok "POST auth/start $d -> 400" || fail "POST auth/start $d -> $r"; done
+for h in "Origin: https://evil.example" "Sec-Fetch-Site: cross-site"; do
+  r="$(ap start '{"account":"personal"}' -H "$h")"; [ "$r" = 403 ] && ok "POST auth/start with $h -> 403" || fail "POST auth/start with $h -> $r"
+  r="$(ap code '{"account":"personal","id":"x","code":"GOOD-fake-code-1234"}' -H "$h")"; [ "$r" = 403 ] && ok "POST auth/code with $h -> 403" || fail "POST auth/code with $h -> $r"
+done
+[ "$(aq 'a.login===null')" = true ] && ok "blocked start left no login" || fail "blocked start started a login"
+r="$(ap start '{"account":"personal"}')"; AID="$(jq_ 'd.ok&&d.login&&d.login.id')"
+[ "$r" = 200 ] && [ -n "$AID" ] && ok "POST auth/start -> 200 with a login id" || fail "POST auth/start -> $r $(head -c 200 /tmp/gate-$$.body)"
+awaitq 'a.login&&a.login.state==="waiting"&&/^https:\/\/claude\.com\/cai\/oauth\/authorize\?/.test(a.login.url)' && ok "login waiting with the oauth url" || fail "login not waiting $(head -c 300 /tmp/gate-$$.body)"
+for c in '"short"' '"has a space in it"' '"ctl\u0003char-code"' '"tab\tin-the-code"' '42'; do
+  r="$(ap code "{\"account\":\"personal\",\"id\":\"$AID\",\"code\":$c}")"; [ "$r" = 400 ] && ok "POST auth/code $c -> 400" || fail "POST auth/code $c -> $r"; done
+r="$(ap code '{"account":"nope","id":"x","code":"GOOD-fake-code-1234"}')"; [ "$r" = 400 ] && ok "POST auth/code unknown account -> 400" || fail "POST auth/code unknown account -> $r"
+r="$(ap code '{"account":"personal","id":"wrong","code":"GOOD-fake-code-1234"}')"; [ "$r" = 409 ] && [ "$(jq_ 'd.error')" = "Login expired, start again" ] && ok "POST auth/code wrong id -> 409 Login expired" || fail "POST auth/code wrong id -> $r $(head -c 200 /tmp/gate-$$.body)"
+r="$(ap code "{\"account\":\"personal\",\"id\":\"$AID\",\"code\":\"BAD-gate-secret-7777\"}")"; [ "$r" = 200 ] && ok "POST auth/code bad code -> 200" || fail "POST auth/code bad code -> $r"
+awaitq 'a.login&&a.login.state==="error"&&/^Login failed:/.test(a.login.message)' && ok "bad code -> error with the Login failed line" || fail "bad code state $(head -c 300 /tmp/gate-$$.body)"
+grep -q 'BAD-gate-secret' /tmp/gate-$$.body "$TMP/server.log" && fail "the pasted code shows in state or the server log" || ok "the pasted code is in neither state nor the server log"
+r="$(ap start '{"account":"personal"}')"; AID="$(jq_ 'd.login&&d.login.id')"
+awaitq 'a.login&&a.login.state==="waiting"' || fail "second login not waiting"
+r="$(ap code "{\"account\":\"personal\",\"id\":\"$AID\",\"code\":\"  GOOD-fake-code-1234 \"}")"; [ "$r" = 200 ] && ok "POST auth/code good code -> 200" || fail "POST auth/code good code -> $r"
+awaitq 'a.login&&a.login.state==="ok"&&a.loggedIn===true&&a.needsLogin===false&&a.failed===null' && ok "good code -> ok, logged in" || fail "good code state $(head -c 300 /tmp/gate-$$.body)"
+r="$(ap check '{"account":"personal"}')"; [ "$r" = 200 ] && [ "$(jq_ 'd.ok&&d.auth.loggedIn===true')" = true ] && ok "POST auth/check -> logged in" || fail "POST auth/check -> $r $(head -c 200 /tmp/gate-$$.body)"
+r="$(ap check '{"account":"nope"}')"; [ "$r" = 400 ] && ok "POST auth/check unknown account -> 400" || fail "POST auth/check unknown account -> $r"
+ap start '{"account":"personal"}' >/dev/null; r="$(ap cancel '{"account":"personal"}')"
+[ "$r" = 200 ] && [ "$(aq 'a.login===null')" = true ] && ok "POST auth/cancel -> login gone" || fail "POST auth/cancel -> $r"
+r="$(ap retry '{"session":"claude-gate-nope"}')"; [ "$r" = 409 ] && ok "POST auth/retry with nothing to retry -> 409" || fail "POST auth/retry nothing -> $r"
+r="$(ap retry '{"session":"bad name;x"}')"; [ "$r" = 400 ] && ok "POST auth/retry bad session -> 400" || fail "POST auth/retry bad session -> $r"
+r="$(ap nope '{}')"; [ "$r" = 404 ] && ok "POST auth/nope -> 404" || fail "POST auth/nope -> $r"
 
 echo "== guards"
 r="$(curl -s -m 5 "$B/api/transcribe?warm=1")"
