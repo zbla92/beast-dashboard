@@ -56,6 +56,12 @@
 <link rel="stylesheet" href="/f-views.css">
 <link rel="stylesheet" href="/f-chat.css">
 <link rel="stylesheet" href="/f-cards.css">
+<link rel="stylesheet" href="/f-specialists.css">
+<link rel="stylesheet" href="/f-spec-ask.css">
+<link rel="stylesheet" href="/f-bots-intro.css">
+<link rel="stylesheet" href="/f-bot-settings.css">
+<link rel="stylesheet" href="/f-bots.css">
+<link rel="stylesheet" href="/f-auth.css">
 </head>
 <body>
 <!-- Layout: desktop = rail (nav + every live session) | main column; phone = slim header,
@@ -66,6 +72,7 @@
     <button class="navb on" data-view="home" title="Home"><svg class="ico" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11.5 12 5l8 6.5V19a1 1 0 0 1-1 1h-4.5v-5h-5v5H5a1 1 0 0 1-1-1z"/></svg><span class="nl">Home</span></button>
     <button class="navb" data-view="projects" title="Projects"><svg class="ico" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/></svg><span class="nl">Projects</span> <span class="n" id="proj-count">0</span></button>
     <button class="navb" data-view="code" title="Code"><svg class="ico" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 7-5 5 5 5M16 7l5 5-5 5"/></svg><span class="nl">Code</span></button>
+    <button class="navb" data-view="bots" title="Bots"><svg class="ico" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="8" width="16" height="11" rx="3"/><path d="M12 4v4M9 13v1.5M15 13v1.5M2.5 13v2M21.5 13v2"/><circle cx="12" cy="3.5" r="0.8"/></svg><span class="nl">Bots</span> <span class="n" id="bots-count">0</span></button>
     <button class="navb" data-view="tasks" title="Tasks"><svg class="ico" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="m8.5 12.5 2.5 2.5 4.5-5.5"/></svg><span class="nl">Tasks</span> <span class="n" id="task-count">0</span></button>
   </nav>
   <div class="nav nav2">
@@ -115,6 +122,7 @@
 
 <div id="view-tasks" class="hidden"><main id="tasks"></main></div>
 <div id="view-code" class="hidden"><main id="code"></main></div>
+<div id="view-bots" class="hidden"><main id="bots"></main></div>
 </div>
 
 <nav class="tabbar" id="tabbar" aria-label="Sections">
@@ -122,7 +130,7 @@
   <button class="tb" data-act="inbox"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 13.5 6.5 6a1.5 1.5 0 0 1 1.4-1h8.2a1.5 1.5 0 0 1 1.4 1L20 13.5V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M4 13.5h4.5l1 2h5l1-2H20"/></svg><span>Inbox</span><i class="tbn need hidden" id="tb-need"></i></button>
   <button class="tb" data-act="sessions"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="m7 9 3 3-3 3M13 15h4"/></svg><span>Sessions</span><i class="tbn hidden" id="tb-sess"></i></button>
   <button class="tb" data-view="code"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 7-5 5 5 5M16 7l5 5-5 5"/></svg><span>Code</span></button>
-  <button class="tb" data-view="tasks"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="m8.5 12.5 2.5 2.5 4.5-5.5"/></svg><span>Tasks</span><i class="tbn hidden" id="tb-tasks"></i></button>
+  <button class="tb" data-view="bots"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="8" width="16" height="11" rx="3"/><path d="M12 4v4M9 13v1.5M15 13v1.5M2.5 13v2M21.5 13v2"/><circle cx="12" cy="3.5" r="0.8"/></svg><span>Bots</span></button>
 </nav>
 
 <aside class="drawer" id="drawer"></aside>
@@ -133,6 +141,7 @@
 <div class="modal hidden" id="modal"></div>
 <div class="modal palette hidden" id="palette"></div>
 <script src="/f-local.js"></script>
+<script src="/bot-icons.js"></script>
 <script src="/f-chats.js"></script>
 <script src="/app.js"></script>
 <!-- feature modules: each registers FEAT.<name>; app.js calls them through feat() -->
@@ -158,5 +167,11 @@
 <script src="/f-pin.js"></script>
 <script src="/f-conn.js"></script>
 <script src="/f-cache.js"></script>
+<script src="/f-specialists.js"></script>
+<script src="/f-spec-ask.js"></script>
+<script src="/f-bots-intro.js"></script>
+<script src="/f-bot-settings.js"></script>
+<script src="/f-bots.js"></script>
+<script src="/f-auth.js"></script>
 </body>
 </html>

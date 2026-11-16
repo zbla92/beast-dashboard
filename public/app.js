@@ -232,13 +232,22 @@ function gl(label, size = 14) {
 }
 // Terminal / Chat is ONE global switch for this device (Mac, phone …): every Claude session shows the same way.
 const IS_PHONE = matchMedia('(max-width: 900px)').matches;
-const TERM = { open: false, active: null, frames: new Map(), lastUsed: new Map(), showList: false, listKey: '', view: {}, chatEv: {}, chatN: 40 };
+const TERM = { open: false, active: null, frames: new Map(), lastUsed: new Map(), showList: false, listKey: '', view: {}, chatEv: {}, chatN: 40, born: new Map() };
 let CLAUDE_UPGRADING = false;   // mise upgrade claude in flight (see updateClaude)
-const isChatSess = name => (claudeOf(name) || {}).mode === 'chat';
-const chatMode = name => { const cl = claudeOf(name); return !!cl && cl.mode === 'chat' && TERM.view[name] !== 'term'; };
+// A chat this tab just started (openTerm(name, { chat: true })) is opened before the state lists it: the server
+// refreshes its session list a tick later. Until then it counts as a chat, so the panel shows the chat at once
+// instead of a terminal (a white ttyd page) that the chat replaces seconds later. Once the state lists it, the state decides.
+const bornChat = name => Date.now() - (TERM.born.get(name) || 0) < 30000 && !S.runtime.sessions.some(s => s.name === name);
+const isChatSess = name => (claudeOf(name) || {}).mode === 'chat' || bornChat(name);
+const chatMode = name => { const cl = claudeOf(name); return (cl ? cl.mode === 'chat' : bornChat(name)) && TERM.view[name] !== 'term'; };
 // Focus: hide the session list in the terminal panel (screen sharing) — per device, remembered
 TERM.focus = localStorage.getItem('bd.focus') === '1' && !IS_PHONE;   // focus mode is a desktop thing; on the phone the list must always be reachable
 function setFocus(on) { TERM.focus = on; localStorage.setItem('bd.focus', on ? '1' : '0'); document.body.classList.toggle('focus', on); renderTermPanel(true); }
+// Full-width chat (Settings → Sessions): the chat spans the whole pane instead of the --chat-col column — per device,
+// remembered, and set before the first render so a wide chat never flashes narrow
+const chatWide = () => localStorage.getItem('bd.chatWide') === '1';
+function setChatWide(on) { localStorage.setItem('bd.chatWide', on ? '1' : '0'); document.body.classList.toggle('chat-wide', on); }
+document.body.classList.toggle('chat-wide', chatWide());
 function releaseHiddenFrame() {
   const a = document.activeElement;
   if (!a?.classList?.contains('termframe') || a.getClientRects().length) return;
@@ -249,6 +258,11 @@ function releaseHiddenFrame() {
 window.addEventListener('blur', () => setTimeout(releaseHiddenFrame, 0));
 function setMode(mode) { if (TERM.active && isChatSess(TERM.active)) TERM.view[TERM.active] = mode; renderTermPanel(true); renderChatPane(true); if (mode === 'term') { const f = TERM.frames.get(TERM.active); if (f) setTimeout(() => f.focus(), 50); } }
 // Chat mode for the active session: the conversation view in place of the tmux iframe (same tmux session underneath)
+function chatSelected(pane) {
+  const sel = getSelection(); if (!pane || !sel || sel.isCollapsed || !sel.rangeCount || !sel.toString()) return false;
+  const a = document.activeElement; if (a && pane.contains(a) && (a.tagName === 'TEXTAREA' || a.tagName === 'INPUT')) return false;
+  return pane.contains(sel.getRangeAt(0).commonAncestorContainer);
+}
 async function renderChatPane(force) {
   const pane = $('#term-chat'); if (!pane) return; const name = TERM.active; const on = TERM.open && name && chatMode(name);
   liveStream(liveWanted());
@@ -267,8 +281,10 @@ async function renderChatPane(force) {
   chatOffline(pane, !t); if (!t) { if (run.shown) updateFailed(pane); return; }
   cachedDone();
   if (document.body.classList.contains('recording')) return;   // never rebuild the reply box under a running recording; the next poll catches up
-  const cl = claudeOf(name) || {}; const key = [name, t.sig, t.total, cl.state, cl.lastTool, TERM.chatN, (PENDING[name] || []).length, queuedKey(name), (cl.status || '').split(' (')[0], t.pending || '', menuKey(cl.menu), liveKey(name), cl.ask ? cl.ask.rid : '', cl.model, cl.effort].join(':');
-  if (!force && TERM.chatEv.key === key) { const st = pane.querySelector('.ag-status'); if (st && cl.status) st.textContent = cl.status; return; }   // same turn: just tick Claude's status line
+  if (!opening && chatSelected(pane)) { TERM.chatEv.held = true; return; }
+  TERM.chatEv.held = false;
+  const cl = claudeOf(name) || {}; const key = [name, t.sig, t.total, cl.state, cl.lastTool, TERM.chatN, (PENDING[name] || []).length, queuedKey(name), t.pending || '', liveKey(name), cl.ask ? cl.ask.rid : '', cl.model, cl.effort].join(':');
+  if (!force && TERM.chatEv.key === key) { return; }
   TERM.chatEv.key = key;
   renderConversation(pane, name, t, { n: TERM.chatN, more: () => { TERM.chatN = Math.min(200, TERM.chatN * 2); renderChatPane(true); }, refresh: () => renderChatPane(false) });
 }
@@ -316,6 +332,7 @@ function paintLive() {
   }, 80);
 }
 function fillLive(el, turn) {
+  if (!turn && chatSelected(el)) return;
   const tx = el.querySelector('.ltext'), tl = el.querySelector('.ltools'), now = el.querySelector('.ag-now .mono');
   const text = turn ? turn.text : '', tools = turn ? turn.tools : [];
   if (tx._t !== text) { tx._t = text; tx.innerHTML = text ? mdLite(text) : ''; tx.classList.toggle('hidden', !text); }
@@ -386,6 +403,7 @@ function askCard(box, name, req, done) {
 }
 // Poll while a conversation is on screen (panel chat or session drawer): the transcript grows while Claude writes
 // text, and no hook fires for that — 2 s is fast enough to feel live and cheap (a tail read of one file).
+document.addEventListener('selectionchange', () => { if (TERM.chatEv.held && !chatSelected($('#term-chat'))) { TERM.chatEv.held = false; renderChatPane(false); } });
 setInterval(() => {
   if (document.hidden) return;
   if (TERM.open && TERM.active && chatMode(TERM.active)) renderChatPane(false);
@@ -414,9 +432,10 @@ document.addEventListener('visibilitychange', syncWatch);
 for (const ev of ['focus', 'blur', 'pagehide']) window.addEventListener(ev, syncWatch);
 document.addEventListener('visibilitychange', () => { if (document.hidden) liveStream(null); if (!document.hidden) { renderChatPane(false); if (UI.drawer && String(UI.drawer).startsWith('session:')) renderSessionDrawer(false); } });
 const FRAME_IDLE_MS = 10 * 60e3;   // hidden iframes are dropped after this: each one is a tmux client fighting over the pane size
-function openTerm(session) {
+function openTerm(session, o = {}) {   // o.chat: this tab just started it as a chat (see bornChat)
+  if (o.chat) TERM.born.set(session, Date.now());
   if (TERM.active) TERM.lastUsed.set(TERM.active, Date.now());
-  TERM.open = true; TERM.showList = false; ensureFrame(session); TERM.active = session; TERM.lastUsed.set(session, Date.now());
+  TERM.open = true; TERM.showList = false; TERM.active = session; TERM.lastUsed.set(session, Date.now());   // renderTermPanel builds the terminal if it is shown
   const cl = claudeOf(session); if (cl && (cl.state === 'needs-you' || cl.state === 'error')) api('claude-seen', { session }).catch(() => {});
   renderTermPanel(true); renderChatPane(true); renderRail();
   const f = TERM.frames.get(session); if (f && !chatMode(session)) setTimeout(() => f.focus(), 50);   // focus ONLY here, never on a state tick
@@ -484,7 +503,7 @@ function closeTermPanel(pop = true) { if (!TERM.open) return; if (TERM.active) T
 // fixed panel (the "content behind" scroll). Only the chat list, the session list and textareas may scroll.
 document.addEventListener('touchmove', e => {
   if (!TERM.open) return;
-  const ok = e.target.closest && e.target.closest('.cscroll, #term-list, .termside, .rail-list, textarea, .tsel, .chpath, .modal .box, .drawer, .sbody, .logbox, .peek-b, .recbar-text, .qchip-rows, #menu');
+  const ok = e.target.closest && e.target.closest('.cscroll, #term-list, .termside, .rail-list, textarea, .tsel, .chpath, .modal .box, .drawer, .sbody, .logbox, .recbar-text, .qchip-rows, #menu');
   if (!ok || (ok.id === 'menu' && ok.scrollHeight <= ok.clientHeight)) e.preventDefault();
 }, { passive: false });
 function termOrder() { return [...new Set([...termSessions().all.map(x => x.name), ...TERM.frames.keys()])]; }
@@ -591,12 +610,15 @@ const shortPrompt = s => s && (s.length > 40 ? s.slice(0, 39) + '…' : s);
 const chatTitle = cl => (cl && (cl.label || withoutLeadingPaths(cl.title) || shortPrompt(withoutLeadingPaths(cl.firstPrompt)))) || 'New chat';
 const sessTitle = s => isNewChat(s.name) ? chatTitle(s.claude) : (s.claude?.label || s.rename || (s.project && byId()[s.project]?.name) || s.name);
 const newSessionModal = (tab, text, opts) => FEAT.session ? FEAT.session.open(tab, text, opts) : newTerminalModal();
-function claudeOf(name) { const s = S.runtime.sessions.find(x => x.name === name); return s && s.claude || null; }
+function claudeOf(name) { const s = S.runtime.sessions.find(x => x.name === name); return s && s.claude || FEAT.specialists?.phantom(name) || null; }
+const isSpecRun = s => !!s.claude?.specialist;
+const sessCount = () => S.runtime.sessions.filter(s => !isSpecRun(s)).length;
 const isClaudeSession = s => s.name.startsWith('claude-') || s.current === 'claude' || !!s.claude;
 // Claude first, and within Claude: the ones that need you, then the ones working, then idle.
-function termSessions() {
+function termSessions(withRuns) {
   const P = byId(); const out = { claude: [], dev: [], other: [], all: [] };
   for (const s of S.runtime.sessions) {
+    if (!withRuns && isSpecRun(s)) continue;
     const pr = P[s.project]; const item = { name: s.name, pid: s.project, project: pr?.name || s.cwd?.split('/').pop() || '?', org: pr?.org || '', group: pr?.group, cpu: s.cpu, mem: s.mem, started: s.startedAt, cwd: s.cwd, current: s.current, attached: s.attached, ports: (s.ports || []).filter(p => !p.ephemeral), managed: s.managed, rename: s.rename || null, claude: s.claude || null };
     if (isClaudeSession(s)) out.claude.push({ ...item, account: s.claude?.account || (s.name.endsWith('-company') ? 'company' : 'personal') });
     else if (s.managed) out.dev.push({ ...item, label: s.label });
@@ -629,6 +651,7 @@ function instOf(it) {
   const n = it.name.match(/^claude-.*-(\d+)(-company)?$/);
   return { wt, n: n ? +n[1] : null, branch: cl.branch || null, label: wt ? '⎇ ' + wt.name : n ? '#' + n[1] : '#1' };
 }
+const instNum = (it, name) => instOf(it || { name: name || '' }).n;
 // Claude sessions grouped per project, in tmux order (the first session of a project fixes the group's position)
 function claudeGroups(list) {
   const groups = []; const by = new Map();
@@ -642,7 +665,7 @@ function plusClaude(ev, pid) { ev.stopPropagation(); const p = pid && byId()[pid
 // branch / worktree tag: a worktree gets its own colour and the path on hover
 const nice = n => n.startsWith('claude-') ? n.replace(/^claude-/, '').replace(/-company$/, ' (' + acctL('company') + ')') : n.startsWith('bd_') ? n.replace(/^bd_/, '').replace('__', ' · ') : n === 'shell' ? 'bash' : n.startsWith('sh-') ? n : n;
 function renderTermPanel(force) {
-  const el = $('#termpanel'); const live = S.runtime.sessions.length; $('#term-count').textContent = live;
+  const el = $('#termpanel'); const live = sessCount(); $('#term-count').textContent = live;
   if (TERM.open && !document.body.classList.contains('term-open')) TERM.pageY = window.scrollY;   // body goes position:fixed -> remember where the page was
   el.classList.toggle('hidden', !TERM.open); document.body.classList.toggle('term-open', TERM.open);
   document.body.classList.toggle('sess-list', TERM.open && TERM.showList); markTab();
@@ -653,11 +676,14 @@ function renderTermPanel(force) {
     el.append(h('aside', { class: 'termside' }, h('div', { class: 'termside-head' }, h('span', { class: 'termside-title' }, 'Sessions'), h('span', { class: 'sp' }), h('button', { class: 'btn sm', title: 'new session — new chat (the project is guessed) or resume a past conversation', onclick: () => newSessionModal() }, ico('plus', 13), 'Session')), h('div', { id: 'term-list' })),
       h('section', { class: 'termmain' }, h('div', { class: 'termbar', id: 'term-bar' }), h('div', { class: 'termframes', id: 'term-frames' }, h('div', { class: 'chatpane hidden', id: 'term-chat' }))));
   }
+  // The terminal iframe is built only when it is shown. A chat gets none: no 743 KB ttyd page (served uncached) on every
+  // open, no tmux client, no hidden xterm drawing everything the session prints. Chat → Terminal builds it here.
+  if (TERM.active && !chatMode(TERM.active)) ensureFrame(TERM.active);
   const S3 = termSessions(); const known = new Set(S.runtime.sessions.map(s => s.name));
-  const extra = [...TERM.frames.keys()].filter(k => !known.has(k));
+  const extra = [...TERM.frames.keys()].filter(k => !known.has(k) && !FEAT.specialists?.phantom(k));
   // The list and the bar are rebuilt only when something they show actually changed. Rebuilding them on every
   // 3-second state tick blurred the terminal iframe (the focus bug) and made the sidebar flicker.
-  const key = JSON.stringify([TERM.active, TERM.showList, TERM.view[TERM.active] || '', TERM.focus, S3.all.map(x => [x.name, x.claude?.mode, x.claude?.state, x.claude?.title, x.claude?.label, x.rename, x.claude?.firstPrompt, (x.claude?.projects || []).join(), x.claude?.draft, x.claude?.model, x.claude?.effort, x.claude?.branch, x.claude?.worktree?.name, x.claude?.version, x.claude?.wantVersion, (S.settings.muted || []).includes(x.name), Math.floor((x.cpu || 0) / 10), x.ports.map(p => p.port)]), S.claude?.installed, S.claude?.update?.version, CLAUDE_UPGRADING, extra, [...TERM.frames.keys()], S.runtime.sessions.filter(s => s.name === TERM.active).map(s => s.project + (gitOf(byId()[s.project] || {})?.dirty || 0) + '|' + (s.claude?.ctx ? Math.round(s.claude.ctx.used / 1000) + '/' + s.claude.ctx.window + '/' + s.claude.ctx.compactAt : '')), feat('termBarKey', TERM.active)]);
+  const key = JSON.stringify([TERM.active, TERM.showList, TERM.view[TERM.active] || '', TERM.focus, S3.all.map(x => [x.name, x.claude?.mode, x.claude?.state, x.claude?.title, x.claude?.label, x.rename, x.claude?.firstPrompt, (x.claude?.projects || []).join(), x.claude?.model, x.claude?.effort, x.claude?.branch, x.claude?.worktree?.name, x.claude?.version, x.claude?.wantVersion, (S.settings.muted || []).includes(x.name), Math.floor((x.cpu || 0) / 10), x.ports.map(p => p.port)]), S.claude?.installed, S.claude?.update?.version, CLAUDE_UPGRADING, extra, [...TERM.frames.keys()], S.runtime.sessions.filter(s => s.name === TERM.active).map(s => s.project + (gitOf(byId()[s.project] || {})?.dirty || 0) + '|' + (s.claude?.ctx ? Math.round(s.claude.ctx.used / 1000) + '/' + s.claude.ctx.window + '/' + s.claude.ctx.compactAt : '')), feat('termBarKey', TERM.active)]);
   const frames = $('#term-frames'); const chatOn = TERM.active && chatMode(TERM.active);
   for (const [k, f] of TERM.frames) { if (!f.isConnected) frames.append(f); f.classList.toggle('on', k === TERM.active && !chatOn); }
   $('#term-chat').classList.toggle('hidden', !chatOn);
@@ -709,23 +735,26 @@ function renderTermPanel(force) {
   list.append(...(S3.claude.length ? [h('div', { class: 'tsec' }, 'Claude instances', h('span', { class: 'n' }, S3.claude.length)), ...claudeRows] : []), ...section('Dev servers', S3.dev, 'dev'), ...section('Other tmux', S3.other, 'other'));
   // opened frames whose session vanished (or plain shells)
   if (extra.length) list.append(h('div', { class: 'tsec' }, 'Open tabs', h('span', { class: 'n' }, extra.length)), ...extra.map(k => h('div', { class: 'titem other' + (TERM.active === k ? ' on' : ''), onclick: () => { TERM.active = k; renderTermPanel(true); } }, h('span', { class: 'dot', style: k === 'shell' ? 'background:var(--accent)' : 'background:var(--dim)' }), h('div', { class: 'tt' }, h('div', { class: 'tn' }, k === 'shell' ? 'bash · ' + home(S.host.devRoot || '~') : k), h('div', { class: 'ts' }, k === 'shell' ? 'plain shell' : 'session ended')), h('button', { class: 'x', title: 'close tab', onclick: ev => { ev.stopPropagation(); dropFrame(k); } }, ico('x', 13)))));
-  if (!S.runtime.sessions.length && !TERM.frames.size) list.append(h('div', { class: 'note', style: 'padding:12px' }, 'No tmux sessions. Start a Claude session from a project card (', ico('sparkle', 13), ' Claude ', ico('chevronDown', 11), ') or a dev server (', ico('play', 12), '), or open a shell.'));
+  if (!sessCount() && !TERM.frames.size) list.append(h('div', { class: 'note', style: 'padding:12px' }, 'No tmux sessions. Start a Claude session from a project card (', ico('sparkle', 13), ' Claude ', ico('chevronDown', 11), ') or a dev server (', ico('play', 12), '), or open a shell.'));
+  list.append(...feat('railSection', 'list'));
   const bar = $('#term-bar'); bar.innerHTML = '';
   const barAdd = (...xs) => bar.append(...xs.filter(x => x != null && x !== false)); // Element.append() would render a literal "null" for sessions without a project
   const act = S.runtime.sessions.find(s => s.name === TERM.active); const cl = act && act.claude;
   const actAcc = act && (cl || isClaudeSession(act)) ? (cl?.account || (act.name.endsWith('-company') ? 'company' : 'personal')) : null;
   const accTag = () => actAcc ? h('span', { class: 'tacc ' + actAcc, title: 'Claude Code account: ' + acct(actAcc) }, acct(actAcc)) : null;
-  const mobName = act ? sessTitle(act) : (TERM.active || 'Sessions');
+  const mobName = act ? sessTitle(act) : (FEAT.specialists?.termTitle(TERM.active) || TERM.active || 'Sessions');
   const toList = () => { TERM.showList = true; renderTermPanel(true); retop(); };
   barAdd(h('button', { class: 'btn sm ghost mob icon', title: 'back to the sessions (they keep running)', onclick: toList }, ico('back', 17)),
-    h('button', { class: 'mob msess', title: 'switch session', onclick: toList }, act ? avatar(act.project, 'sm') : null, h('span', { class: 'nm' }, mobName), accTag(), instOf(act || { name: TERM.active || '' }).n ? h('span', { class: 'grp' }, '#' + instOf(act).n) : null, cl && IS_PHONE ? stateBadge(cl, true) : null));
-  const actName = act ? sessTitle(act) : TERM.active;
+    h('button', { class: 'mob msess', title: 'switch session', onclick: toList }, act ? avatar(act.project, 'sm') : FEAT.specialists?.termTile(TERM.active), h('span', { class: 'nm' }, mobName), accTag(), instNum(act, TERM.active) ? h('span', { class: 'grp' }, '#' + instNum(act, TERM.active)) : null, cl && IS_PHONE ? stateBadge(cl, true) : null));
+  const gone = !act && !!TERM.active && !FEAT.specialists?.phantom(TERM.active) && TERM.active !== 'shell';
+  const actName = act ? sessTitle(act) : (FEAT.specialists?.termTitle(TERM.active) || TERM.active);
   const isChatS = cl && cl.mode === 'chat'; const logOn = isChatS && TERM.view[TERM.active] === 'term';
   const updatePending = !!cl && (!!S.claude?.update || needsRestart(cl));
   if (TERM.active) barAdd(h('button', { class: 'btn sm ghost icon desk', title: 'back to the dashboard — every session keeps running  (Esc)', onclick: closeTermPanel }, ico('back', 15)),
     h('button', { class: 'btn sm ghost icon desk' + (TERM.focus ? ' on' : ''), title: TERM.focus ? 'show the rail again' : 'focus mode — hide the rail with every session (screen sharing)', onclick: () => setFocus(!TERM.focus) }, ico('sidebar', 15)),
-    h('span', { class: 'tid desk' }, act ? avatar(act.project, 'sm') : null,
-      h('span', { class: 'tname' + (act ? ' can-rename' : ''), title: act ? 'click to rename · ' + TERM.active : TERM.active, onclick: act ? () => renameDialog(TERM.active) : null }, actName, instOf(act || { name: TERM.active }).n ? h('span', { class: 'grp' }, ' #' + instOf(act).n) : null),
+    h('span', { class: 'tid desk' }, act ? avatar(act.project, 'sm') : FEAT.specialists?.termTile(TERM.active),
+      h('span', { class: 'tname' + (act ? ' can-rename' : ''), title: act ? 'click to rename · ' + TERM.active : TERM.active, onclick: act ? () => renameDialog(TERM.active) : null }, actName, instNum(act, TERM.active) ? h('span', { class: 'grp' }, ' #' + instNum(act, TERM.active)) : null),
+      gone ? h('span', { class: 'dim tgone' }, 'This session has ended.') : null,
       cl && (cl.worktree?.name || cl.branch) ? h('span', { class: 'tcrumb' + (cl.worktree?.name ? ' wt' : ''), title: cl.worktree?.name ? 'git worktree' + (cl.branch ? ' · branch ' + cl.branch : '') : 'branch' }, ico('chevronRight', 12), h('span', { class: 'tcrumb-b' }, cl.worktree?.name || cl.branch)) : null,
       IS_PHONE ? null : accTag()),
     cl && !IS_PHONE ? stateBadge(cl) : null,
@@ -749,7 +778,7 @@ async function restoreClaude(tmux) {
   } catch (e) { toast('Restore failed: ' + e.message, 'err'); }
 }
 async function startClaude(p, account, opts = {}, quiet) {
-  try { const r = await api('claude', { id: p.id, account, ...opts }); toast(r.existed ? `Attaching to ${r.name}` : `Started ${r.name} (${account}, chat)`, 'ok'); openTerm(r.name); }
+  try { const r = await api('claude', { id: p.id, account, ...opts }); toast(r.existed ? `Attaching to ${r.name}` : `Started ${r.name} (${account}, chat)`, 'ok'); openTerm(r.name, { chat: true }); }
   catch (e) { toast('Chat failed: ' + e.message, 'err'); }
 }
 async function claudeMenu(ev, p) {
@@ -789,7 +818,7 @@ function renderHeader() {
   const need = FEAT.inbox?.count ? FEAT.inbox.count() : S.runtime.sessions.filter(s => s.claude && s.claude.needsYou).length; const nb = $('#need-count'); if (nb) { nb.textContent = need; nb.classList.toggle('hidden', !need); }
   // phone tab bar badges
   const tbn = (id, n) => { const e = $(id); if (e) { e.textContent = n > 99 ? '99+' : n; e.classList.toggle('hidden', !n); } };
-  tbn('#tb-need', need); tbn('#tb-sess', S.runtime.sessions.length); tbn('#tb-tasks', (S.claude?.tasks || []).filter(t => t.status !== 'done').length);
+  tbn('#tb-need', need); tbn('#tb-sess', sessCount());
   document.title = (need ? `(${need}) ` : '') + 'Beast Dash';
 }
 
@@ -1045,8 +1074,8 @@ function ctxMeter(name, cl) {
   return h('button', { class: 'ctxm ' + ctxLvl(p), 'data-s': name, title: lines.filter(Boolean).join('\n'), onclick: ev => ctxMenu(ev, name) },
     ctxRing(p, 18, ctxMark(c)), h('b', null, fmtTok(c.used)), h('span', { class: 'of' }, '/ ' + fmtTok(c.window)), ...feat('ctxChip', cl));
 }
-const canCompact = cl => !!cl && ['idle', 'needs-you'].includes(cl.state) && (cl.mode === 'chat' || !cl.draft);
-const notIdleWhy = cl => cl.draft && cl.mode !== 'chat' ? 'Clear the text typed in the terminal first' : 'Wait until Claude is idle';
+const canCompact = cl => !!cl && cl.mode === 'chat' && ['idle', 'needs-you'].includes(cl.state);
+const notIdleWhy = () => 'Wait until Claude is idle';
 function ctxMenu(ev, name) {
   const cl = claudeOf(name); if (!cl) return;
   const c = cl.ctx; const ok = canCompact(cl); const why = ok ? '' : notIdleWhy(cl).toLowerCase();
@@ -1072,12 +1101,12 @@ function newChatHere(name) {
 const MODEL_OPTS = [['opus', 'Opus'], ['sonnet', 'Sonnet'], ['haiku', 'Haiku'], ['fable', 'Fable'], ['default', 'Default']];
 const EFFORT_OPTS = ['low', 'medium', 'high', 'xhigh', 'max'].map(e => [e, e]);
 const modelAlias = id => { const m = String(id || '').match(/opus|sonnet|haiku|fable/i); return m ? m[0].toLowerCase() : null; };
-const canSwitchModel = cl => !!cl && (cl.mode === 'chat' || canCompact(cl));
+const canSwitchModel = cl => !!cl && cl.mode === 'chat';
 const MODEL_SUB = { opus: 'deep work', sonnet: 'balanced, faster', haiku: 'quick and cheap', fable: 'frontier', default: 'account default' };
 const effortBar = lvl => { const i = EFFORT_OPTS.findIndex(([v]) => v === lvl); return h('span', { class: 'ebar' }, EFFORT_OPTS.map((_, k) => h('i', { class: k <= i ? 'on' : '' }))); };
 function modelPicker(name, cl) {
   const chat = cl.mode === 'chat'; const ok = canSwitchModel(cl);
-  const why = cl.draft ? 'Clear the text typed in the terminal first' : 'Wait until Claude is idle, then change it';
+  const why = 'Wait until Claude is idle, then change it';
   const set = async (body, what) => {
     try { await api('claude-model', { session: name, ...body }); toast(what, 'ok'); } catch (e) { toast('Change failed: ' + e.message, 'err'); }
   };
@@ -1153,13 +1182,6 @@ const portLinksOf = ports => ports?.length ? h('span', { class: 'ports' }, ports
 // what the session is doing, or a one-line recap of why it needs you. The whole card opens the terminal;
 // prompting, kill, mute, handoff and restart live in the terminal bar.
 const oneLine = (t, n = 160) => { t = String(t || '').replace(/```[\s\S]*?```/g, ' ').replace(/[*_`#>|]+/g, '').replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
-// "2 background agents — fork: Reading tests.py · 26m 28s" (what the pane's agent footer shows)
-function bgText(bg) {
-  if (!bg) return 'waiting on a background task';
-  const head = bg.n + ' background ' + bg.kind + (bg.n > 1 ? 's' : '') + ' running';
-  const a = bg.agents && bg.agents[0];
-  return a ? head + ' — ' + a.name + (a.doing ? ': ' + a.doing : '') + ' · ' + a.age + (bg.agents.length > 1 ? ' +' + (bg.agents.length - 1) : '') : head;
-}
 // mise install (Omarchy): Claude Code only says "Run: mise upgrade claude" — do that, then restart this session (it = null: just install).
 // One at a time: the download takes a while, and every extra click used to queue one more restart of the session.
 async function updateClaude(it) {
@@ -1183,20 +1205,10 @@ async function restartChatNow(it) {
   try { const r = await api('claude-restart', { session: it.name }); toast(r.version ? 'Restarted on Claude Code ' + r.version : 'Restarted', 'ok'); }
   catch (e) { toast('Restart failed: ' + e.message, 'err'); }
 }
-async function restartIdleTerms(btn, names) {
-  if (!confirm(`Restart Claude in ${names.length} idle terminal session${names.length > 1 ? 's' : ''}?\n\n${names.join('\n')}\n\nEach one gets /exit, then claude --resume on the same conversation, one after another (~10 s each).`)) return;
-  btn.disabled = true; let ok = 0;
-  for (const name of names) {
-    const cl = claudeOf(name);
-    if (!cl || !['idle', 'needs-you'].includes(cl.state) || cl.draft) continue;
-    try { await api('claude-restart', { session: name, ifIdle: true }); ok++; } catch (e) { toast(`${name}: ${e.message === 'busy' ? 'busy, skipped' : e.message}`, 'err'); }
-  }
-  toast(`Restarted ${ok} of ${names.length}`, ok ? 'ok' : 'err');
-}
 async function handoff(it) {
   const to = it.account === 'company' ? 'personal' : 'company';
   if (!await confirmBox({ title: `Hand off to ${to}?`, who: sessWho(it.name), ok: 'Hand off', text: [`Starts a ${to} session in the same folder with a handoff summary (recent prompts, last reply, files edited).`, 'This session stays as it is.'] })) return;
-  act('Hand off ' + it.project, api('handoff', { session: it.name })).then(r => { if (r && r.name) setTimeout(() => openTerm(r.name), 1500); });
+  act('Hand off ' + it.project, api('handoff', { session: it.name })).then(r => { if (r && r.name) setTimeout(() => openTerm(r.name, { chat: true }), 1500); });
 }
 function renderTermStrip() {
   const el = $('#termstrip'); if (!el) return;
@@ -1301,15 +1313,6 @@ function renderBanner() {
       h('span', { style: 'flex:1' }), busy ? null : update));
   }
   const newVer = cv && !cv.error && !cv.checking && cv.current && cv.using === cv.current ? cv.current : null;
-  const oldTerms = newVer ? S.runtime.sessions.filter(x => x.claude && x.claude.mode !== 'chat' && x.claude.sessionId && x.claude.version && x.claude.version !== newVer) : [];
-  if (oldTerms.length && localStorage.getItem('bd.dismissOldTerms') !== newVer) {
-    const idle = oldTerms.filter(x => ['idle', 'needs-you'].includes(x.claude.state) && !x.claude.draft);
-    const roll = S.host.chatRoll;
-    parts.push(h('div', { class: 'ban' }, h('span', null, h('b', null, gl(`✦ Claude Code ${newVer}`)), roll && roll.version === newVer && roll.done ? ` — ${roll.done} chat session${roll.done > 1 ? 's' : ''} moved over.` : '', ` ${oldTerms.length} terminal session${oldTerms.length > 1 ? 's' : ''} still run an older version${idle.length < oldTerms.length ? ` (${oldTerms.length - idle.length} busy or with a draft)` : ''}.`),
-      h('span', { style: 'flex:1' }),
-      idle.length ? h('button', { class: 'btn sm', title: idle.map(x => x.name).join('\n'), onclick: e => restartIdleTerms(e.currentTarget, idle.map(x => x.name)) }, gl(`↻ Restart ${idle.length} idle`)) : null,
-      h('button', { class: 'btn sm ghost', title: 'dismiss until the next version', onclick: () => { localStorage.setItem('bd.dismissOldTerms', newVer); renderBanner(); } }, gl('✕'))));
-  }
   if (ts && ts.online === false) parts.push(h('div', { class: 'ban err' }, h('b', null, gl('⚠ Tailscale is offline on the server')), ' (' + (ts.backend || '') + '). ' + (ts.health || []).join(' ')));
   // dev servers started from the dashboard that died with a non-zero exit in the last 15 minutes
   for (const c of (S.crashes || [])) { const p = byId()[c.project]; parts.push(h('div', { class: 'ban err' }, h('b', null, ico('play', 13), ` ${p ? p.name : c.project} · ${c.name.split('__')[1] || c.name} exited ${c.exitCode}`), h('span', { class: 'dim mono', style: 'font-size:11.5px' }, ` ${ago(c.endedAt)} ago · ${c.cmd || ''}`), h('span', { style: 'flex:1' }),
@@ -1508,7 +1511,7 @@ async function renderSessionDrawer(full = true) {
     if (req !== SESS.req || SESS.name !== name) return;
     chatOffline(body, !t); if (!t) return;
     if (document.body.classList.contains('recording')) return;   // same as the chat pane: not while recording
-    const key = [name, t.sig, t.total, cl.state, cl.lastTool, SESS.n, (PENDING[name] || []).length, queuedKey(name), (cl.status || '').split(' (')[0], t.pending || '', menuKey(cl.menu), liveKey(name), cl.model, cl.effort].join(':'); if (SESS.key === key) { const st = body.querySelector('.ag-status'); if (st && cl.status) st.textContent = cl.status; return; } SESS.key = key;
+    const key = [name, t.sig, t.total, cl.state, cl.lastTool, SESS.n, (PENDING[name] || []).length, queuedKey(name), t.pending || '', liveKey(name), cl.model, cl.effort].join(':'); if (SESS.key === key) return; SESS.key = key;
     renderConversation(body, name, t, { n: SESS.n, more: () => { SESS.n = Math.min(200, SESS.n * 2); renderSessionDrawer(); }, refresh: () => renderSessionDrawer(false) });
     return;
   }
@@ -1537,7 +1540,7 @@ async function renderSessionDrawer(full = true) {
         h('span', { class: 'chst s' + (f.tool === 'Write' ? 'A' : 'M') }, f.tool === 'Write' ? 'W' : 'E'), fileIcon(f.path), h('span', { class: 'chpath' }, r), h('span', { class: 'dim mono', style: 'font-size:11px' }, ago(f.at) + ' ago'), h('span', { class: 'caret' }, ico('chevronRight', 12)))); }
     return;
   }
-  SESS.key = [name, t.sig, t.total, cl.state, cl.lastTool, SESS.n, (PENDING[name] || []).length, queuedKey(name), (cl.status || '').split(' (')[0], t.pending || '', menuKey(cl.menu)].join(':');
+  SESS.key = [name, t.sig, t.total, cl.state, cl.lastTool, SESS.n, (PENDING[name] || []).length, queuedKey(name), t.pending || ''].join(':');
   renderConversation(body, name, t, drawerOpts);
 }
 // The conversation itself: turns, tool calls, and a reply box that grows with the text and stays above the keyboard.
@@ -1545,24 +1548,6 @@ async function renderSessionDrawer(full = true) {
 const queuedKey = name => (S.claude?.schedule || []).filter(j => j.session === name && j.whenFree && j.state === 'waiting').map(j => j.id).join(',');   // re-render the chat when its queue changes
 const followUp = () => FEAT.queue ? FEAT.queue.followUp() : 'steer';
 const PENDING = {};   // name -> [{ text, ts }] messages sent from here that the transcript hasn't shown yet
-const menuKey = mn => mn ? mn.options.join('|') + '#' + mn.cur : '';
-const menuLabel = l => l.replace(/^\d+\.\s+/, '');
-function menuButtons(name, mn, done) {
-  let busy = false;
-  const btns = mn.options.map((l, i) => h('button', { class: 'btn sm cmenu-opt' + (i === mn.cur ? ' cur' : ''), onclick: async () => {
-    if (busy) return; busy = true; for (const x of btns) x.disabled = true;
-    try { await api('choose', { session: name, index: i, label: l }); toast(menuLabel(l), 'ok'); } catch (e) { toast(e.message, 'err'); }
-    busy = false; for (const x of btns) x.disabled = false; if (done) done();
-  } }, menuLabel(l)));
-  return btns;
-}
-function menuCard(name, mn, done) {
-  return h('div', { class: 'turn assistant cmenu' },
-    h('div', { class: 'who' }, gl('⚠ Claude is asking')),
-    mn.text.length ? h('div', { class: 'cmenu-q' }, mn.text.join('\n')) : null,
-    h('div', { class: 'cmenu-opts' }, menuButtons(name, mn, done)),
-    h('div', { class: 'cmenu-esc' }, h('button', { class: 'btn sm ghost', onclick: () => api('key', { session: name, key: 'esc' }).then(() => { toast('Esc sent'); if (done) done(); }) }, 'Esc — cancel')));
-}
 // Unsent text is kept per chat (localStorage, so it survives switching chats, closing the panel and reloads).
 const draftKey = n => 'bd.draft.' + n;
 const loadDraft = n => { try { return localStorage.getItem(draftKey(n)) || ''; } catch { return ''; } };
@@ -1633,12 +1618,12 @@ function renderConversation(box, name, t, o) {
   const starts = m => !turnAt(lv) || m.at <= turnAt(lv) + 1500;
   const shownTurns = lv && lv.turn ? t.turns.filter(x => !(x.role === 'assistant' && (x.ts || 0) >= lv.turn.startedAt - 3000)) : t.turns;
   for (const turn of shownTurns) { let el = turn.h && old.get(turn.h); if (!el) { el = convTurn(turn, name); if (turn.h) el.dataset.h = turn.h; } el._turn = turn; items.push(el); }
-  if (!t.turns.length && !(PENDING[name] || []).length && !(claudeOf(name) || {}).menu) items.push(h('div', { class: 'dim', style: 'padding:24px 4px' }, 'New conversation — nothing said yet. Type your first message below.'));
+  if (!t.turns.length && !(PENDING[name] || []).length) items.push(h('div', { class: 'dim', style: 'padding:24px 4px' }, 'New conversation — nothing said yet. Type your first message below.'));
   const cl = claudeOf(name) || {};
   // busy: hooks / pane say so, or the transcript ends in a tool call that hasn't returned yet (Claude is running it)
   const busy = lv ? lv.state === 'working' || !!lv.turn : cl.state === 'working' || cl.state === 'background' || !!t.pending; const justSent = (PENDING[name] || []).length > 0;
   const jobs = (S.claude?.schedule || []).filter(j => j.session === name && j.state !== 'done' && j.state !== 'failed');
-  const compKey = [name, cl.state, menuKey(cl.menu), cl.model, cl.effort, canSwitchModel(cl), busy, justSent, jobs.map(j => j.id + j.state).join(','), followUp()].join('|');
+  const compKey = [name, cl.state, cl.model, cl.effort, canSwitchModel(cl), busy, justSent, jobs.map(j => j.id + j.state).join(','), followUp()].join('|');
   const keptComp = same && box.querySelector('.cbox2'); const C = keptComp && keptComp.dataset.k === compKey ? keptComp._c : composer(box, name, cl, conv, scroller, o, busy, justSent, jobs, prevDraft, compKey);
   const queued = (S.claude?.schedule || []).filter(j => j.session === name && j.whenFree && j.state === 'waiting');
   for (const m of inbox.filter(starts)) if (!(lastUser && lastUser.text.trim() === m.text.trim() && (lastUser.ts || 0) >= m.at - 5000)) items.push(h('div', { class: 'turn user pending' }, h('div', { class: 'who' }, gl('❯ you'), hhmm(m.at), h('span', { class: 'dim' }, ' · sent')), userBody(m.text)));
@@ -1647,13 +1632,11 @@ function renderConversation(box, name, t, o) {
   // interrupts Claude and puts your text back in the box. Esc in the box does the same.
   const since = (lv && ((lv.turn && lv.turn.startedAt) || (lv.state === 'working' && lv.since))) || t.since || (justSent ? PENDING[name][0].ts : null);
   let liveEl = null;
-  if (busy || justSent) items.push(liveEl = h('div', { class: 'turn assistant live' }, h('div', { class: 'who' }, gl('✦ claude'), h('span', { class: 'dim' }, cl.state === 'background' ? ' waiting on background agents' : busy ? ' working' : ' starting'), since ? h('span', { class: 'dim mono' }, h('span', { class: 'wtimer', 'data-since': since }, elapsedTxt(since))) : h('span', { class: 'dim mono' }, '…'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost stopb', title: cl.mode === 'chat' ? 'interrupt (Esc) — messages already sent stay with Claude and run next' : 'interrupt (Esc) — your message goes back into the box', onclick: C.stop }, gl('■ Stop'))), h('div', { class: 'ag-now' }, h('span', { class: 'spin' }), h('span', { class: 'mono' }, cl.state === 'background' ? bgText(cl.bg) : busy ? (cl.state === 'working' ? cl.lastTool || t.pending || 'thinking…' : t.pending || cl.lastTool || 'working…') : 'sending to Claude…')),
-    cl.state === 'working' && cl.status ? h('div', { class: 'ag-status mono' }, cl.status) : null));   // Claude's own status line: "✻ Cooking… (2m 10s · ↓ 3.1k tokens)"
+  if (busy || justSent) items.push(liveEl = h('div', { class: 'turn assistant live' }, h('div', { class: 'who' }, gl('✦ claude'), h('span', { class: 'dim' }, cl.state === 'background' ? ' waiting on background agents' : busy ? ' working' : ' starting'), since ? h('span', { class: 'dim mono' }, h('span', { class: 'wtimer', 'data-since': since }, elapsedTxt(since))) : h('span', { class: 'dim mono' }, '…'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost stopb', title: cl.mode === 'chat' ? 'interrupt (Esc) — messages already sent stay with Claude and run next' : 'interrupt (Esc) — your message goes back into the box', onclick: C.stop }, gl('■ Stop'))), h('div', { class: 'ag-now' }, h('span', { class: 'spin' }), h('span', { class: 'mono' }, cl.state === 'background' ? 'waiting on a background task' : busy ? (cl.state === 'working' ? cl.lastTool || t.pending || 'thinking…' : t.pending || cl.lastTool || 'working…') : 'sending to Claude…'))));
   if (liveEl && lv) { liveEl.insertBefore(h('div', { class: 'ltools' }), liveEl.children[1]); liveEl.insertBefore(h('div', { class: 'ttext ltext hidden' }), liveEl.children[2]); fillLive(liveEl, lv.turn); }
   if (lv && lv.error && !busy) items.push(h('div', { class: 'turn assistant' }, h('div', { class: 'who' }, gl('⚠ chat runner')), h('div', { class: 'mono dim' }, lv.error)));
   const ask = cl.mode === 'chat' ? (lv ? lv.pending[0] : cl.ask) : null;
   if (ask) items.push(askCard(box, name, ask, () => { for (const ms of [300, 1200]) setTimeout(o.refresh, ms); }));
-  if (cl.menu) items.push(menuCard(name, cl.menu, () => { for (const ms of [500, 1500, 3000]) setTimeout(o.refresh, ms); }));
   items.push(...feat('convTail', name, lv));
   syncChildren(conv, items);
   feat('conversation', name, conv, box);
@@ -1677,19 +1660,19 @@ function dropZone(box, el) {
   el.addEventListener('drop', ev => { if (!hasFiles(ev)) return; ev.preventDefault(); box.classList.remove('cdrop'); const c = box.querySelector('.cbox2'); if (c && c._c) c._c.attachFiles(ev.dataTransfer.files); });
 }
 function composer(box, name, cl, conv, scroller, o, busy, justSent, jobs, prevDraft, compKey) {
-  const stop = async () => { const chat = cl.mode === 'chat', last = chat ? null : (PENDING[name] || []).slice(-1)[0]; const waiting = chat ? waitingIn(liveOf(name)).length : 0; try { await api('key', { session: name, key: 'esc' }); } catch {} if (!chat) PENDING[name] = []; if (last && !ta.value.trim()) { ta.value = last.text; grow(); } ta.focus(); toast(waiting ? `stopped — ${waiting} waiting message${waiting > 1 ? 's go' : ' goes'} to Claude next` : last ? 'stopped — your text is back in the box' : 'stopped'); setTimeout(o.refresh, 600); };
+  const stop = async () => { if (cl.mode !== 'chat') { toast('stop it in its terminal'); return; } const waiting = waitingIn(liveOf(name)).length; try { await api('key', { session: name, key: 'esc' }); } catch {} ta.focus(); toast(waiting ? `stopped — ${waiting} waiting message${waiting > 1 ? 's go' : ' goes'} to Claude next` : 'stopped'); setTimeout(o.refresh, 600); };
   // reply box: textarea that grows to 6 lines; Enter sends, Shift+Enter = newline; Esc button interrupts Claude
-  const ta = h('textarea', { class: 'creply', rows: 1, placeholder: cl.menu ? 'pick an option above first' : cl.mode === 'chat' && cl.state === 'permission' ? 'answer above, or type a message…' : cl.state === 'permission' ? 'y / n, or type…' : 'Message Claude…', title: 'Enter sends · Shift+Enter = new line', name: 'chatsearch', autocomplete: 'off', autocapitalize: 'sentences', spellcheck: true });
+  const ta = h('textarea', { class: 'creply', rows: 1, placeholder: cl.mode === 'chat' && cl.state === 'permission' ? 'answer above, or type a message…' : cl.state === 'permission' ? 'y / n, or type…' : 'Message Claude…', title: 'Enter sends · Shift+Enter = new line', name: 'chatsearch', autocomplete: 'off', autocapitalize: 'sentences', spellcheck: true });
   ta.value = prevDraft;
   let syncAct = () => {};
   const grow = () => { ta.style.height = '0px'; ta.style.height = Math.min(Math.max(IS_PHONE ? 48 : 56, ta.scrollHeight), 10 * 24 + 12) + 'px'; saveDraft(name, ta.value); syncAct(); };   // every change goes through grow() -> the draft is saved
   const shellMode = () => cl.mode === 'chat' && !!FEAT.shell && FEAT.shell.is(ta.value);
   let shelling = false;
   const runShell = async () => { if (shelling) return; const v = ta.value; shelling = true; ta.value = ''; grow(); try { if (!(await FEAT.shell.run(name, v))) { if (!ta.value) { ta.value = v; grow(); } ta.focus(); } } finally { shelling = false; } };
-  const send = async () => { if (shellMode()) return runShell(); const typed = ta.value.trim(), v = FEAT.quotes ? FEAT.quotes.message(name, typed) : typed; if (!v) return; if ((claudeOf(name) || {}).menu) { toast('Claude is asking something — pick an option above first', 'err'); return; } const chips = FEAT.quotes?.take(name, typed); FEAT.plan2?.answersSent(chips); ta.value = ''; grow();
+  const send = async () => { if (shellMode()) return runShell(); const typed = ta.value.trim(), v = FEAT.quotes ? FEAT.quotes.message(name, typed) : typed; if (!v) return; const chips = FEAT.quotes?.take(name, typed); FEAT.plan2?.answersSent(chips); ta.value = ''; grow();
     const pm = { text: v, ts: Date.now() }; (PENDING[name] = PENDING[name] || []).push(pm);
-    conv.append(h('div', { class: 'turn user pending' }, h('div', { class: 'who' }, gl('❯ you'), h('span', { class: 'dim' }, ' sending…')), userBody(v))); scroller.scrollTop = scroller.scrollHeight;
-    try { const r = await api('send', { session: name, text: v }); if (r && r.id) pm.id = r.id; } catch (e) { toast(e.message, 'err'); PENDING[name] = PENDING[name].filter(x => x !== pm); ta.value = typed; grow(); FEAT.quotes?.restore(name, chips); FEAT.plan2?.answersBack(chips); }
+    const echo = h('div', { class: 'turn user pending' }, h('div', { class: 'who' }, gl('❯ you'), h('span', { class: 'dim' }, ' sending…')), userBody(v)); conv.append(echo); scroller.scrollTop = scroller.scrollHeight;
+    try { const r = await (FEAT.specialists?.sendCall(name, v) || api('send', { session: name, text: v })); if (r && r.id) pm.id = r.id; } catch (e) { toast(e.message, 'err'); echo.remove(); PENDING[name] = PENDING[name].filter(x => x !== pm); ta.value = typed; grow(); FEAT.quotes?.restore(name, chips); FEAT.plan2?.answersBack(chips); }
     for (const ms of [400, 1200, 2500, 5000]) setTimeout(o.refresh, ms); };
   ta.addEventListener('input', grow);
   const busyNow = cl.state === 'working' || cl.state === 'background' || cl.state === 'permission';
@@ -2217,7 +2200,7 @@ async function openTranscriptFile(hh) {
   const d = $('#drawer'); const title = hh.title || (hh.cwd || '').split('/').pop() || hh.sessionId.slice(0, 8);
   let busy = false; const once = fn => { if (busy) return; busy = true; fn().catch(() => {}).finally(() => { busy = false; }); };
   const head = h('div', { class: 'dh' }, h('div', { class: 'row1' }, h('h2', null, h('span', { class: 'sicon' }, gl('✦')), title, h('span', { class: 'badge tag acc ' + hh.account }, acct(hh.account)), h('span', { class: 'dim', style: 'font-size:12px;font-weight:500' }, 'past conversation · ' + ago(hh.mtime) + ' ago')),
-      h('button', { class: 'btn sm primary', title: 'continue this conversation as a chat (headless claude -p --resume) in that folder', onclick: () => once(() => act('Continue ' + title, api('claude-resume', { sessionId: hh.sessionId, cwd: hh.cwd, account: hh.account })).then(r => { closeDrawer(); if (r?.name) openTerm(r.name); })) }, ico('chat', 13), 'Continue in chat'),
+      h('button', { class: 'btn sm primary', title: 'continue this conversation as a chat (headless claude -p --resume) in that folder', onclick: () => once(() => act('Continue ' + title, api('claude-resume', { sessionId: hh.sessionId, cwd: hh.cwd, account: hh.account })).then(r => { closeDrawer(); if (r?.name) openTerm(r.name, { chat: true }); })) }, ico('chat', 13), 'Continue in chat'),
       h('button', { class: 'btn ghost close', onclick: closeDrawer }, gl('✕ Esc'))),
     h('div', { class: 'path' }, hh.cwd || '', ' · ', hh.sessionId));
   const body = h('div', { class: 'db sess' }); d.replaceChildren(head, body); body.append(h('div', { class: 'dim', style: 'padding:20px' }, 'loading…'));
@@ -2244,7 +2227,7 @@ async function openTranscriptFile(hh) {
 const LAYERS = { depth: 0, closing: false, modal: false, queue: [], fwd: false, pend: null, skip: 0, timer: 0, fwdTimer: 0, skipTimer: 0, reuse: false, back: false, restoring: 0, hist: [], boot: null };
 const modalOpen = () => !$('#modal').classList.contains('hidden');
 const OVERLAY_OPEN = { drawer: () => !!UI.drawer, modal: modalOpen, palette: () => PAL.open };   // the Code steps are judged by FEAT.code
-const VIEWS = ['home', 'projects', 'tasks', 'code'];
+const VIEWS = ['home', 'projects', 'tasks', 'code', 'bots'];
 function curLoc() { return { v: UI.view, t: TERM.open ? (IS_PHONE && TERM.showList ? '' : TERM.active || '') : null }; }
 const sameLoc = (a, b) => !!a && !!b && a.v === b.v && a.t === b.t;
 const isEntry = s => !!s && typeof s === 'object' && typeof s.depth === 'number' && typeof s.bd === 'string';
@@ -2801,6 +2784,7 @@ function settingsModal() {
         row('Auto-restore after reboot', 'claude --resume in the same folders as soon as the dashboard starts', sw(!!s.autoRestore, { id: 'set-autorestore' })),
         row('Continue after a usage limit', 'chat sessions only · sends "continue" a minute after the limit resets, if nothing was sent since', sw(!!s.autoResume, { id: 'set-autoresume' })),
         row('Messages while Claude works', 'chat sessions, this device · ' + (IS_PHONE ? 'the send button does this, the second button the other' : 'Enter does this, Alt+Enter the other'), h('span', { class: 'seg' }, [['steer', 'Send now'], ['queue', 'After the turn']].map(([v, l]) => h('button', { class: 'segb' + (followUp() === v ? ' on' : ''), title: v === 'steer' ? 'goes into the running turn — Claude reads it at its next step' : 'waits in the queue and goes out when the turn is over', onclick: ev => { FEAT.queue?.setFollowUp(v); for (const b of ev.currentTarget.parentElement.children) b.classList.toggle('on', b === ev.currentTarget); renderChatPane(true); } }, l)))),
+        row('Full-width chat', 'this device · the chat uses the whole pane instead of a centred column', sw(chatWide(), { onchange: e => setChatWide(e.target.checked) })),
         row('Update Claude Code automatically', 'checks every hour and installs a new release. If that fails, Home shows an Update button', sw(s.claudeAutoUpdate !== false, { id: 'set-claudeupdate' })),
         row('Move chats to a new Claude Code', 'when a new version passes the start check, chat sessions restart on it one by one (idle now, busy ones after their turn)', sw(s.chatAutoUpgrade !== false, { id: 'set-chatupgrade' }))),
       sect('Plans',
@@ -2854,7 +2838,7 @@ function runTaskMenu(ev, t) {
   const p = t.project && byId()[t.project]; if (!p) { toast('pick a project for this task first', 'err'); return taskModal(t); }
   const live = S.runtime.sessions.filter(s => s.claude?.mode === 'chat' && s.project === p.id);
   const others = (S.claude?.tasks || []).filter(x => x.project === p.id && x.status !== 'done' && x.id !== t.id);
-  const go = (account, session, ids) => act((ids ? ids.length + ' tasks' : 'Task') + ' → ' + p.name, api('task-run', { id: t.id, account, session, ids })).then(r => { if (r && r.session) setTimeout(() => openTerm(r.session), 1200); });
+  const go = (account, session, ids) => act((ids ? ids.length + ' tasks' : 'Task') + ' → ' + p.name, api('task-run', { id: t.id, account, session, ids })).then(r => { if (r && r.session) setTimeout(() => openTerm(r.session, { chat: true }), 1200); });
   const chain = [t.id, ...others.map(x => x.id)];
   openMenu(ev, [
     { header: 'Send the task as a prompt to…' },
@@ -2910,22 +2894,23 @@ function taskModal(t, projectId) {
 // ---------- views: home (stats · agents · running) / projects (cards + search) ----------
 function setView(v, keepQuery) {
   UI.view = v; localStorage.setItem('bd.view', v);
-  $('#view-home').classList.toggle('hidden', v !== 'home'); $('#view-projects').classList.toggle('hidden', v !== 'projects'); $('#view-tasks').classList.toggle('hidden', v !== 'tasks'); $('#view-code').classList.toggle('hidden', v !== 'code');
+  $('#view-home').classList.toggle('hidden', v !== 'home'); $('#view-projects').classList.toggle('hidden', v !== 'projects'); $('#view-tasks').classList.toggle('hidden', v !== 'tasks'); $('#view-code').classList.toggle('hidden', v !== 'code'); $('#view-bots').classList.toggle('hidden', v !== 'bots');
   for (const b of document.querySelectorAll('#nav .navb')) b.classList.toggle('on', b.dataset.view === v);
   if (v === 'home' && !keepQuery) { $('#search').value = ''; UI.q = ''; }
   render();
+  if (v === 'bots') FEAT.bots?.shown();
 }
 function render() {
   if (UI.menuOpen) return; // don't yank menus from under the cursor
-  $('#view-home').classList.toggle('hidden', UI.view !== 'home'); $('#view-projects').classList.toggle('hidden', UI.view !== 'projects'); $('#view-tasks').classList.toggle('hidden', UI.view !== 'tasks'); $('#view-code').classList.toggle('hidden', UI.view !== 'code');
+  $('#view-home').classList.toggle('hidden', UI.view !== 'home'); $('#view-projects').classList.toggle('hidden', UI.view !== 'projects'); $('#view-tasks').classList.toggle('hidden', UI.view !== 'tasks'); $('#view-code').classList.toggle('hidden', UI.view !== 'code'); $('#view-bots').classList.toggle('hidden', UI.view !== 'bots');
   for (const b of document.querySelectorAll('#nav .navb')) b.classList.toggle('on', b.dataset.view === UI.view);
   markTab();
   document.body.classList.toggle('view-projects', UI.view === 'projects'); document.body.dataset.view = UI.view;
-  const vt = $('#vtitle'); if (vt) vt.textContent = ({ home: 'Home', projects: 'Projects', tasks: 'Tasks', code: 'Code' })[UI.view] || '';
+  const vt = $('#vtitle'); if (vt) vt.textContent = ({ home: 'Home', projects: 'Projects', tasks: 'Tasks', code: 'Code', bots: 'Bots' })[UI.view] || '';
   renderHeader(); renderBanner(); renderTunnels(); renderRail();
-  if (UI.view === 'home') { renderStats(); renderFeatHome(); renderTermStrip(); renderRunning(); } else if (UI.view === 'tasks') renderTasks(); else if (UI.view !== 'code') renderMain();
+  if (UI.view === 'home') { renderStats(); renderFeatHome(); renderTermStrip(); renderRunning(); } else if (UI.view === 'tasks') renderTasks(); else if (UI.view === 'bots') FEAT.bots?.paint(); else if (UI.view !== 'code') renderMain();
   if (UI.drawer) renderDrawer(false);
-  if (TERM.open) { renderTermPanel(); renderChatPane(false); } else $('#term-count').textContent = S.runtime.sessions.length;
+  if (TERM.open) { renderTermPanel(); renderChatPane(false); } else $('#term-count').textContent = sessCount();
   gcFrames();
   if (PAL.open) renderPalette();
   feat('onState');
@@ -2941,10 +2926,21 @@ function renderFeatHome() {
 // ---------- rail (desktop): every live session in fixed tmux order, one click to open it ----------
 // Rebuilt only when something it shows changes (state, label, the open session, the minute), so hover never flickers.
 let railKey = '';
+// A project card collapses to its header (click, or Enter / Space), remembered per device. Collapsed, the header keeps
+// the most urgent state of its sessions and how many need you, and lights up when the open session is inside it.
+const RAIL = { collapsed: new Set((() => { try { return JSON.parse(localStorage.getItem('bd.rail.collapsed') || '[]'); } catch { return []; } })()) };
+const RAIL_URGENT = ['permission', 'error', 'needs-you', 'limit', 'working', 'background'];
+function toggleRailGroup(key) {
+  if (RAIL.collapsed.has(key)) RAIL.collapsed.delete(key); else RAIL.collapsed.add(key);
+  try { localStorage.setItem('bd.rail.collapsed', JSON.stringify([...RAIL.collapsed])); } catch {}
+  const had = document.activeElement?.closest?.('.rproj')?.dataset.g === key;   // the rebuild replaces the header: keep keyboard focus on it
+  railKey = ''; renderRail();
+  if (had) [...document.querySelectorAll('#rail-list .rproj')].find(x => x.dataset.g === key)?.focus();
+}
 function renderRail() {
   const el = $('#rail-list'); if (!el) return;
   const S3 = termSessions(); const act = TERM.open ? TERM.active : null; const min = Math.floor(Date.now() / 60000);
-  const key = JSON.stringify([act, min, S.projects.length, S3.all.map(x => [x.name, x.pid, x.claude?.state, x.claude?.needsYou, x.claude?.label, x.rename, x.claude?.title, x.claude?.firstPrompt, x.claude?.since, x.claude?.lastTool, x.claude?.model, x.claude?.worktree?.name, x.claude?.settled?.at, x.claude?.settled?.until, x.project, x.label, x.current, x.cwd, x.ports.map(p => p.port)]), feat('termBarKey', act)]);
+  const key = JSON.stringify([act, min, S.projects.length, [...RAIL.collapsed], S3.all.map(x => [x.name, x.pid, x.claude?.state, x.claude?.needsYou, x.claude?.label, x.rename, x.claude?.title, x.claude?.firstPrompt, x.claude?.since, x.claude?.lastTool, x.claude?.model, x.claude?.worktree?.name, x.claude?.settled?.at, x.claude?.settled?.until, x.project, x.label, x.current, x.cwd, x.ports.map(p => p.port)]), feat('termBarKey', act)]);
   if (key === railKey) return; railKey = key;
   const sub = it => {
     const cl = it.claude; if (!cl) return it.label ? it.label + (it.ports.length ? ' · :' + it.ports.map(p => p.port).join(' :') : '') : (it.current || 'bash') + ' · ' + home(it.cwd);
@@ -2971,7 +2967,15 @@ function renderRail() {
     for (const g of claudeGroups(og.items)) {
       const one = g.items.length === 1 ? g.items[0] : null;
       if (one && !(g.pid && (one.claude?.label || isNewChat(one.name)))) { rows.push(row(one, 'claude')); continue; }
-      rows.push(h('div', { class: 'rgrp-p' }, h('div', { class: 'rproj', title: g.items.length + ' Claude session' + (one ? '' : 's') + ' on ' + g.project }, avatar(g.pid, 'sm'), h('b', null, g.project), one ? null : h('em', null, '×' + g.items.length)), ...g.items.map(it => row(it, 'claude', true))));
+      const col = RAIL.collapsed.has(g.key);
+      const top = col ? RAIL_URGENT.find(s => g.items.some(x => x.claude?.state === s)) : null;
+      const need = col ? g.items.filter(x => x.claude?.needsYou).length : 0;
+      const toggle = () => toggleRailGroup(g.key);
+      const head = h('div', { class: 'rproj', 'data-g': g.key, role: 'button', tabindex: '0', 'aria-expanded': String(!col), title: (col ? 'Show' : 'Hide') + ' the ' + g.items.length + ' Claude session' + (one ? '' : 's') + ' on ' + g.project, onclick: toggle, onkeydown: ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggle(); } } },
+        h('span', { class: 'rcar' }, ico('chevronDown', 12)), avatar(g.pid, 'sm'), h('b', null, g.project), one ? null : h('em', null, '×' + g.items.length),
+        top ? h('i', { class: 'rgdot st-' + top, title: STATE_LABEL[top] || top }) : null,
+        need ? h('span', { class: 'rgneed', title: need + (need === 1 ? ' needs' : ' need') + ' you' }, need) : null);
+      rows.push(h('div', { class: 'rgrp-p' + (col ? ' col' : '') + (col && g.items.some(x => x.name === act) ? ' on' : '') }, head, ...(col ? [] : g.items.map(it => row(it, 'claude', true)))));
     }
     if (!og.org) { out.push(...rows); continue; }
     out.push(h('div', { class: 'rgrp-o', style: `--org:${orgColor(og.org)}` }, h('div', { class: 'rorg' }, h('i', null), og.org, h('em', null, og.items.length)), ...rows));
@@ -2979,6 +2983,7 @@ function renderRail() {
   if (S3.dev.length) out.push(h('div', { class: 'rsec' }, 'Dev servers'), ...S3.dev.map(it => row(it, 'dev')));
   if (S3.other.length) out.push(h('div', { class: 'rsec' }, 'Shells'), ...S3.other.map(it => row(it, 'other')));
   if (!out.length) out.push(h('div', { class: 'rempty' }, 'No sessions yet.'));
+  out.push(...feat('railSection', 'rail'));
   el.replaceChildren(...out);
 }
 
@@ -3052,7 +3057,7 @@ for (const b of document.querySelectorAll('#tabbar .tb')) b.onclick = () => {
   if (b.dataset.view) { if (TERM.open) closeTermPanel(false); else if (UI.view === b.dataset.view) window.scrollTo({ top: 0, behavior: 'smooth' }); goView(b.dataset.view); return; }
   if (b.dataset.act === 'sessions') { TERM.open = true; TERM.showList = true; renderTermPanel(true); navTo(); }
 };
-$('#btn-shell').onclick = () => { if (TERM.open) return closeTermPanel(); TERM.open = true; if (!TERM.active) { const c = S.runtime.sessions.find(x => x.name.startsWith('claude-')) || S.runtime.sessions[0]; if (c) { ensureFrame(c.name); TERM.active = c.name; } } renderTermPanel(); navTo(); };
+$('#btn-shell').onclick = () => { if (TERM.open) return closeTermPanel(); TERM.open = true; if (!TERM.active) { const c = S.runtime.sessions.find(x => x.name.startsWith('claude-')) || S.runtime.sessions[0]; if (c) TERM.active = c.name; } renderTermPanel(); navTo(); };
 $('#btn-settings').onclick = settingsModal;
 $('#btn-settings-rail').onclick = settingsModal;
 // ---------- downloads (~/Downloads on the server) ----------
@@ -3112,7 +3117,7 @@ document.addEventListener('keydown', e => {
   const typing = ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT' || ae.isContentEditable);
   if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); PAL.open ? closePalette() : openPalette(); return; }
   if (PAL.open) return;   // the palette handles its own keys
-  if (e.key === 'Escape') { if (!$('#modal').classList.contains('hidden')) $('#modal').classList.add('hidden'); else if (UI.menuOpen) closeMenu(); else if (UI.drawer) closeDrawer(); else if (TERM.open) closeTermPanel(); else if (UI.q) { $('#search').value = ''; UI.q = ''; renderMain(); } else if (UI.view === 'code' && FEAT.code?.back(true)) {} else if (UI.view === 'projects' || UI.view === 'tasks' || UI.view === 'code') goView('home'); } // drawer before term: the Changes drawer can sit on top of the terminal
+  if (e.key === 'Escape') { if (!$('#modal').classList.contains('hidden')) $('#modal').classList.add('hidden'); else if (UI.menuOpen) closeMenu(); else if (UI.drawer) closeDrawer(); else if (TERM.open) closeTermPanel(); else if (UI.q) { $('#search').value = ''; UI.q = ''; renderMain(); } else if (UI.view === 'code' && FEAT.code?.back(true)) {} else if (UI.view === 'projects' || UI.view === 'tasks' || UI.view === 'code' || UI.view === 'bots') goView('home'); } // drawer before term: the Changes drawer can sit on top of the terminal
   if (typing || !TERM.open || UI.drawer || UI.menuOpen || (IS_PHONE && TERM.showList) || document.body.classList.contains('recording') || !$('#modal').classList.contains('hidden')) return;
   const pane = $('#term-chat'); const reply = pane && !pane.classList.contains('hidden') && pane.dataset.chat === TERM.active && pane.querySelector('.creply');
   if (!reply || reply.disabled) return;
@@ -3229,7 +3234,7 @@ function firstState() {
   else if (t) { history.replaceState(history.state, '', location.pathname); openTerm(t); }
   else if (sess && q.get('view') !== 'code') { history.replaceState(history.state, '', location.pathname); openSession(sess, q.get('tab') || 'transcript'); }
   else if (['chat', 'resume'].includes(q.get('new'))) { history.replaceState(history.state, '', location.pathname); newSessionModal(q.get('new') === 'chat' ? 'new' : 'resume', q.get('text') || '', { project: q.get('project') || null, account: q.get('account') || null }); }
-  else if (['projects', 'home', 'tasks'].includes(q.get('view'))) { history.replaceState(history.state, '', location.pathname); setView(q.get('view')); retop(); }
+  else if (['projects', 'home', 'tasks', 'bots'].includes(q.get('view'))) { history.replaceState(history.state, '', location.pathname); setView(q.get('view')); retop(); }
   else if (q.get('newtask')) { history.replaceState(history.state, '', location.pathname); setView('tasks'); retop(); taskModal(null, q.get('newtask') === '1' ? null : q.get('newtask')); }
   else if (q.get('settings')) { history.replaceState(history.state, '', location.pathname); settingsModal(); }
   else if (q.get('downloads')) { history.replaceState(history.state, '', location.pathname); downloadsModal(); }

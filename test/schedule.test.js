@@ -28,3 +28,12 @@ test('a follow-up prompt fails at once when Claude is gone', async () => {
   assert.strictEqual(job.state, 'failed');
   schedule.remove(job.id);
 });
+
+test('a send refused for a credential value fails the job and leaves nothing waiting', async () => {
+  const { job } = schedule.add('claude-spec-held', Date.now() - 1000, ['one', 'two']);
+  const refused = async () => ({ ok: false, refused: true, status: 409, error: "this message contains one of the bot's credentials; set credentials in the bot's settings" });
+  await schedule.runOnce(idle, refused, exists);
+  assert.deepStrictEqual([job.state, job.idx, job.error], ['failed', 1, "this message contains one of the bot's credentials; set credentials in the bot's settings"]);
+  assert.ok(!schedule.all().some(j => j.session === 'claude-spec-held' && j.state !== 'failed'));
+  schedule.remove(job.id);
+});

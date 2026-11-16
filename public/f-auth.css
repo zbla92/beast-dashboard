@@ -1,0 +1,35 @@
+.au-hdr { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.au-hdr[hidden], .ausheet [hidden], .au-clip { display: none !important; }
+.au-hb { min-height: 36px; background: var(--signal); border-color: transparent; color: var(--on-signal); font-weight: 600; }
+.au-hb:hover { background-color: color-mix(in srgb, var(--signal) 88%, #fff); }
+.au-ban { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; flex: none; padding: 8px max(20px, 3vw); border-top: 1px solid var(--line); background: color-mix(in srgb, var(--amber) 9%, var(--panel)); font-size: var(--fs-md); color: var(--text); }
+.au-ban.ok { background: color-mix(in srgb, var(--green) 9%, var(--panel)); }
+.au-ban-t { flex: 1 1 160px; min-width: 0; font-weight: 600; }
+.au-ban-go { min-height: 44px; padding: 0 20px; }
+.au-ban-x { min-width: 44px; min-height: 44px; }
+.modal .box.ausheet { width: min(480px, 95vw); height: auto; max-height: 92vh; max-height: 92dvh; display: flex; flex-direction: column; gap: 10px; padding: 18px; overflow-y: auto; }
+.au-body { display: flex; flex-direction: column; gap: 12px; }
+.au-stline { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.au-state { font-size: var(--fs-md); font-weight: 600; }
+.au-state.err { color: var(--red); }
+.au-state.ok { color: var(--green); }
+.au-count { font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.au-steps { margin: 0; padding-left: 20px; color: var(--muted); font-size: var(--fs-sm); display: flex; flex-direction: column; gap: 2px; }
+.au-open { min-height: 52px; font-size: var(--fs-lg); text-decoration: none; }
+.au-copy, .au-submit, .au-again, .au-cancel, .au-paste { min-height: 44px; }
+.au-submit { font-size: var(--fs-lg); }
+.au-row { display: flex; gap: 8px; align-items: center; }
+.au-row .btn { flex: 1 1 auto; }
+.au-foot .btn { flex: 0 0 auto; }
+.au-foot .sp { flex: 1 1 auto; }
+.au-field { display: flex; gap: 8px; }
+.au-code { flex: 1 1 auto; min-width: 0; min-height: 48px; font-size: 16px; }
+.btn.sm.icon.au-x { min-width: 44px; width: 44px; min-height: 44px; }
+.au-submit:disabled { opacity: .45; }
+@media (max-width: 900px) {
+  .au-hdr { order: 4; flex-basis: 100%; }
+  .au-hb { flex: 1 1 auto; min-height: 44px; }
+  .au-ban { padding: 8px 10px; }
+  .modal:has(> .ausheet) { place-items: end stretch; }
+  .modal .box.ausheet { width: 100vw; max-height: 94vh; max-height: 94dvh; border-radius: var(--r-lg) var(--r-lg) 0 0; padding: 14px 14px calc(14px + env(safe-area-inset-bottom)); }
+}

@@ -142,12 +142,12 @@ T['desktop drawer'] = async b => {
 // ---------------- phone ----------------
 T['phone tabs'] = async b => {
   const { page, ctx, errors } = await setup(b, true);
-  await page.tap('#tabbar .tb[data-view="tasks"]'); await settle(page);
+  await page.tap('#tabbar .tb[data-view="bots"]'); await settle(page);
   await page.tap('#tabbar .tb[data-view="code"]'); await settle(page);
   check('on code', await where(page), { view: 'code' });
-  await back(page); check('back -> tasks', await where(page), { view: 'tasks' });
+  await back(page); check('back -> bots', await where(page), { view: 'bots' });
   await back(page); check('back -> home', await where(page), { view: 'home' });
-  await fwd(page); check('fwd -> tasks', await where(page), { view: 'tasks' });
+  await fwd(page); check('fwd -> bots', await where(page), { view: 'bots' });
   if (errors.length) results.push('  errors: ' + errors.join(' | '));
   await ctx.close();
 };
@@ -271,14 +271,14 @@ T['desktop Esc and nav'] = async b => {
 };
 T['phone close chat with the back arrow'] = async b => {
   const { page, ctx, errors } = await setup(b, true);
-  await page.tap('#tabbar .tb[data-view="tasks"]'); await settle(page);
+  await page.tap('#tabbar .tb[data-view="bots"]'); await settle(page);
   await page.tap('#tabbar .tb[data-act="sessions"]'); await settle(page);
   await (await page.$$('#term-list .titem'))[0].tap(); await settle(page);
   const A = (await where(page)).term;
   await page.tap('#term-bar .msess'); await settle(page);
   await (await page.$$('#term-list .titem'))[1].tap(); await settle(page);
   await page.evaluate(() => closeTermPanel()); await settle(page);   // the bar's back arrow
-  check('closed -> tasks, the page before the chats', await where(page), { view: 'tasks', term: null, depth: 1 });
+  check('closed -> bots, the page before the chats', await where(page), { view: 'bots', term: null, depth: 1 });
   await back(page); check('back -> home', await where(page), { view: 'home', term: null });
   await fwd(page); await fwd(page); check('fwd fwd -> A', await where(page), { term: A });
   if (errors.length) results.push('  errors: ' + errors.join(' | '));
@@ -299,9 +299,9 @@ T['phone code from a chat'] = async b => {
 };
 T['phone dialog Back'] = async b => {
   const { page, ctx, errors } = await setup(b, true);
-  await page.tap('#tabbar .tb[data-view="tasks"]'); await settle(page);
+  await page.tap('#tabbar .tb[data-view="bots"]'); await settle(page);
   await page.evaluate(() => settingsModal()); await settle(page);
-  await back(page); check('back closes the dialog', await where(page), { view: 'tasks', modal: false });
+  await back(page); check('back closes the dialog', await where(page), { view: 'bots', modal: false });
   await back(page); check('back -> home', await where(page), { view: 'home' });
   await back(page); check('then leaves', await where(page), { left: true });
   if (errors.length) results.push('  errors: ' + errors.join(' | '));
@@ -344,8 +344,8 @@ T['phone tab from a Code step'] = async b => {
   await page.waitForSelector('#view-code .cv-row');
   await (await page.$('#view-code .cv-row')).tap(); await settle(page);
   check('code list step', await where(page), { view: 'code', depth: 2 });
-  await page.tap('#tabbar .tb[data-view="tasks"]'); await settle(page);
-  check('tasks: the Code step entry was popped', await where(page), { view: 'tasks', depth: 2 });
+  await page.tap('#tabbar .tb[data-view="bots"]'); await settle(page);
+  check('bots: the Code step entry was popped', await where(page), { view: 'bots', depth: 2 });
   await back(page); check('back -> code', await where(page), { view: 'code' });
   results.push(`  step: ${await page.evaluate(() => FEAT.code.state.step)}`);
   await back(page); check('back -> home', await where(page), { view: 'home' });

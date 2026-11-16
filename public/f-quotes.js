@@ -256,17 +256,19 @@ FEAT.quotes = (() => {
   };
 
   const pill = () => ui.pill || (ui.pill = document.body.appendChild(h('button', { class: 'qpill hidden', type: 'button', tabindex: '-1', onmousedown: ev => ev.preventDefault(), oncontextmenu: ev => ev.preventDefault(), onclick: commit }, ico('chat', 14), 'Ask Claude')));
+  const sibling = el => { if (FEAT.specAsk) FEAT.specAsk.follow(el, ui.cur && ui.cur.text, ui.cur && ui.cur.name); };
   const position = () => {
     if (!ui.pill && !ui.cur) return;
     const el = pill();
-    if (!ui.cur || !ui.cur.range.startContainer.isConnected) { el.classList.add('hidden'); return; }
+    if (!ui.cur || !ui.cur.range.startContainer.isConnected) { el.classList.add('hidden'); sibling(null); return; }
     el.classList.remove('hidden');
     const vv = window.visualViewport, view = vv ? { left: vv.offsetLeft, top: vv.offsetTop, right: vv.offsetLeft + vv.width, bottom: vv.offsetTop + vv.height } : { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
     const sc = ui.cur.sc.getBoundingClientRect();
     const box = { left: sc.left, right: sc.right, bottom: sc.bottom, top: sc.top + (parseFloat(getComputedStyle(ui.cur.sc).getPropertyValue('--chat-inset')) || 0) };
     const pos = (TOUCH ? dockPos : pillPos)([...ui.cur.range.getClientRects()], view, box, el.offsetWidth, el.offsetHeight);
-    if (!pos) { el.classList.add('hidden'); return; }
+    if (!pos) { el.classList.add('hidden'); sibling(null); return; }
     el.style.left = pos.left + 'px'; el.style.top = pos.top + 'px';
+    sibling(el);
   };
   const schedule = () => { if (!ui.cur || ui.frame || ui.pressing) return; ui.frame = requestAnimationFrame(() => { ui.frame = 0; position(); }); };
   const watchScroller = () => { ui.ro = ui.ro || new ResizeObserver(schedule); ui.ro.disconnect(); if (ui.cur) ui.ro.observe(ui.cur.sc); };

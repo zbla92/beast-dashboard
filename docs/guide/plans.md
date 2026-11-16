@@ -211,7 +211,7 @@ ends the flags: every argument after it is text, even one that starts with `--`
 4. else exit 3 with the candidates listed.
 
 A session that has no live claim also claims the plan it acted on with a command that changes it
-(`start`, `done`, `fail`, `ask`, `answer`, `next`, `note`, `finish`), so a chat that works on a plan
+(`start`, `done`, `undo`, `fail`, `ask`, `answer`, `next`, `note`, `finish`), so a chat that works on a plan
 keeps it. A live claim is never taken away this way, not even with `--plan` on another plan.
 Read-only commands claim nothing.
 

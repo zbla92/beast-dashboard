@@ -12,8 +12,23 @@ const SOCK = arg('sock'), CWD = arg('cwd') || process.cwd(), SID = arg('session-
 let CLAUDE = arg('claude') || 'claude';
 const NAME = arg('name') || '';
 const FORK = arg('start') === 'fork' ? arg('fork-from') : null;
+const PERMISSION_MODES = ['bypassPermissions', 'acceptEdits', 'auto', 'manual', 'dontAsk', 'plan'];
+const PERMISSION = arg('permission-mode') || 'bypassPermissions';
+const ADD_DIRS = process.argv.flatMap((a, i) => a === '--add-dir' && process.argv[i + 1] ? [process.argv[i + 1]] : []);
+const EXIT_AFTER_RESULT = process.argv.includes('--exit-after-result');
+const START_MODEL = arg('model') || null, START_EFFORT = arg('effort') || null;
+const SETTINGS = arg('settings') || null, ACCESSES = arg('accesses') || null;
+const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}(\[1m\])?$/;
+if (!PERMISSION_MODES.includes(PERMISSION) || ADD_DIRS.some(d => !path.isAbsolute(d)) || (START_MODEL && !MODEL_ID.test(START_MODEL)) || (START_EFFORT && !['low', 'medium', 'high', 'xhigh', 'max'].includes(START_EFFORT))) {
+  process.stderr.write('headless-runner.js: bad --permission-mode, --add-dir, --model or --effort\n');
+  process.exit(2);
+}
+if ((SETTINGS && !path.isAbsolute(SETTINGS)) || (ACCESSES && !path.isAbsolute(ACCESSES))) {
+  process.stderr.write('headless-runner.js: --settings needs an absolute file and --accesses an absolute profile folder\n');
+  process.exit(2);
+}
 if (!SOCK || !/^[0-9a-f-]{36}$/.test(SID || '') || !['new', 'resume', 'fork'].includes(arg('start')) || (arg('start') === 'fork' && !/^[0-9a-f-]{36}$/.test(FORK || ''))) {
-  process.stderr.write('usage: headless-runner.js --sock <path> --cwd <dir> --session-id <uuid> --start new|resume|fork [--fork-from <uuid>] [--account personal|company] [--claude <bin>] [--name <tmux name>]\n');
+  process.stderr.write('usage: headless-runner.js --sock <path> --cwd <dir> --session-id <uuid> --start new|resume|fork [--fork-from <uuid>] [--account personal|company] [--claude <bin>] [--name <tmux name>] [--permission-mode <mode>] [--add-dir <dir>]... [--model <model>] [--effort <level>] [--exit-after-result] [--settings <file>] [--accesses <profile>]\n');
   process.exit(2);
 }
 
@@ -32,7 +47,7 @@ const SWEEP_MS = +process.env.BD_HL_SWEEP_MS || 4000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 let current = SID, childAt = 0;
 const MODELS = ['default', 'opus', 'sonnet', 'haiku', 'fable'], EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
-let chosenModel = null, chosenEffort = null;
+let chosenModel = START_MODEL, chosenEffort = START_EFFORT;
 const ctlWait = new Map();
 
 const dim = s => `\x1b[2m${s}\x1b[0m`;
@@ -45,7 +60,7 @@ const clock = () => new Date().toTimeString().slice(0, 8);
 
 function snapshot() {
   return { ev: 'snapshot', v: 2, sessionId: current, state: S.state, since: S.since, turn: S.turn, pending: [...pending.values()].map(p => p.req), inbox: inboxList(),
-    rate: S.rate, ctx: S.ctx, model: S.model, effort: S.effort, version: S.version, claude: CLAUDE, childAt, caps: S.caps, error: S.error, shells: shellList() };
+    rate: S.rate, ctx: S.ctx, model: S.model, effort: S.effort, version: S.version, claude: CLAUDE, childAt, caps: S.caps, error: S.error, shells: shellList(), addDirs: [...ADD_DIRS] };
 }
 function inboxList() { return inbox.map(m => ({ id: m.id, text: m.text, at: m.at })); }
 function emitInbox() { emit({ ev: 'inbox', inbox: inboxList() }); }
@@ -77,16 +92,27 @@ function follow(id) {
   emit(snapshot());
 }
 
+function accessesForRun() {
+  if (!ACCESSES) return { env: {}, prompt: null, error: null };
+  try { return { ...require('../lib/accesses').forRun(ACCESSES), error: null }; } catch (e) { return { env: {}, prompt: null, error: `accesses were not loaded: ${e.message}` }; }
+}
+
+function permissionArgs() {
+  return ['--permission-prompt-tool', 'stdio', ...(PERMISSION === 'bypassPermissions' ? ['--dangerously-skip-permissions'] : ['--permission-mode', PERMISSION]), ...(SETTINGS ? ['--settings', SETTINGS] : [])];
+}
+
 function startChild() {
   const fork = FORK && current === SID && !forked();
   if (FORK && !fork) hasConversation = true;
+  const acc = accessesForRun();
   const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--replay-user-messages',
-    '--permission-prompt-tool', 'stdio', '--dangerously-skip-permissions', ...(fork ? ['--resume', FORK, '--fork-session', '--session-id', SID] : [hasConversation ? '--resume' : '--session-id', current]),
-    ...(chosenModel ? ['--model', chosenModel] : []), ...(chosenEffort ? ['--effort', chosenEffort] : [])];
+    ...permissionArgs(), ...ADD_DIRS.flatMap(d => ['--add-dir', d]), ...(fork ? ['--resume', FORK, '--fork-session', '--session-id', SID] : [hasConversation ? '--resume' : '--session-id', current]),
+    ...(chosenModel ? ['--model', chosenModel] : []), ...(chosenEffort ? ['--effort', chosenEffort] : []), ...(acc.prompt ? ['--append-system-prompt', acc.prompt] : [])];
   line(dim(`[${clock()}] claude ${fork ? 'fork of ' + FORK + ' as' : hasConversation ? 'resume' : 'new session'} ${fork ? SID : current}  (${ACCOUNT}, ${CWD})`));
-  stderrTail = ''; heard = false; unheard = []; S.version = binVersion(CLAUDE); S.error = null; childAt = Date.now(); upgradeAfterTurn = false; sentWhileWorking = false; clearTimeout(upgradeTimer);
+  if (acc.error) line(dim(`[${clock()}] ${acc.error}`));
+  stderrTail = ''; heard = false; unheard = []; S.version = binVersion(CLAUDE); S.error = acc.error; childAt = Date.now(); upgradeAfterTurn = false; sentWhileWorking = false; clearTimeout(upgradeTimer);
   const resumed = hasConversation;
-  const p = spawn(CLAUDE, args, { cwd: CWD, env: childEnv(), stdio: ['pipe', 'pipe', 'pipe'] });
+  const p = spawn(CLAUDE, args, { cwd: CWD, env: { ...childEnv(), ...acc.env }, stdio: ['pipe', 'pipe', 'pipe'] });
   child = p;
   let buf = '';
   p.stdout.setEncoding('utf8');
@@ -141,6 +167,7 @@ function ended(p, reason) {
   endTurn('exited', reason);
   setState('exited');
   if (stopping) finish();
+  else if (EXIT_AFTER_RESULT) exitWhenQuiet();
 }
 
 function endTurn(subtype, reason) {
@@ -221,11 +248,13 @@ function onChildLine(l, old) {
     for (const rid of pending.keys()) emit({ ev: 'resolved', rid });
     pending.clear();
     line(dim(`[${clock()}] done (${o.subtype}${o.terminal_reason && o.terminal_reason !== 'completed' ? ', ' + o.terminal_reason : ''}, ${Math.round(ms / 100) / 10}s)`));
-    emit({ ev: 'result', subtype: o.subtype, reason: o.terminal_reason || null, ms });
+    const text = typeof o.result === 'string' ? o.result : null;
+    emit({ ev: 'result', subtype: o.subtype, reason: o.terminal_reason || null, ms, text: text === null ? null : text.slice(0, MAX_TEXT), truncated: !!text && text.length > MAX_TEXT, isError: !!o.is_error });
     setState('idle');
     endAt = Date.now(); clearTimeout(sweepTimer); sweepTimer = setTimeout(sweep, SWEEP_MS);
     const late = sentWhileWorking; sentWhileWorking = false;
-    if (upgradeAfterTurn && !late) { clearTimeout(upgradeTimer); upgradeTimer = setTimeout(upgradeIfIdle, 1500); }
+    if (upgradeAfterTurn && !late && !EXIT_AFTER_RESULT) { clearTimeout(upgradeTimer); upgradeTimer = setTimeout(upgradeIfIdle, 1500); }
+    if (EXIT_AFTER_RESULT) exitWhenQuiet();
     return;
   }
   if (o.type === 'rate_limit_event' && o.rate_limit_info) {
@@ -414,6 +443,19 @@ function restart() {
   setTimeout(() => { try { old.kill('SIGKILL'); } catch {} }, 3000).unref();
 }
 
+const EXIT_MS = +process.env.BD_HL_EXIT_MS || 2000;
+let exitTimer = null;
+function exitWhenQuiet() {
+  clearTimeout(exitTimer);
+  exitTimer = setTimeout(() => {
+    exitTimer = null;
+    if (stopping) return;
+    const busy = restarting || S.turn || pending.size || inbox.length || queued.length || sentWhileWorking || shells.some(e => e.state === 'running') || (child && S.state !== 'idle') || Date.now() - lastOut < EXIT_MS;
+    if (busy) return exitWhenQuiet();
+    line(dim(`[${clock()}] the run is done, ending this session`));
+    shutdown();
+  }, EXIT_MS);
+}
 function quiet() { return child && !restarting && S.state === 'idle' && !S.turn && !pending.size; }
 function upgradeIfIdle() {
   upgradeTimer = null;
@@ -426,17 +468,19 @@ function upgrade(bin) {
   CLAUDE = bin;
   emit(snapshot());
   if (restarting) { upgradeAfterTurn = false; return 'now'; }
-  if (!child) { upgradeAfterTurn = false; return 'next-start'; }
+  if (!child || EXIT_AFTER_RESULT) { upgradeAfterTurn = false; return 'next-start'; }
   if (!quiet()) { upgradeAfterTurn = true; return 'after-turn'; }
   upgradeAfterTurn = true; upgradeIfIdle();
   return 'now';
 }
+const isDir = p => { try { return fs.statSync(p).isDirectory(); } catch { return false; } };
 const executable = p => { try { fs.accessSync(p, fs.constants.X_OK); return fs.statSync(p).isFile(); } catch { return false; } };
 
-const SHELL_MS = +process.env.BD_HL_SHELL_MS || 600000, SHELL_OUT = 64 * 1024, SHELL_PRIV = 30000, SHELL_KEEP = 5, MAX_CMD = 10000;
+const SHELL_MS = +process.env.BD_HL_SHELL_MS || 600000, SHELL_OUT = 64 * 1024, SHELL_PRIV = 30000, SHELL_KEEP = 5, MAX_CMD = 10000, SHELL_QUIET = 1500, MAX_INPUT = 4096;
 const shells = [];
 let shellSeq = 0;
-const pubShell = e => ({ id: e.id, cmd: e.cmd, state: e.state, code: e.code, at: e.at, end: e.end, out: e.out, cut: e.cut, signal: e.signal });
+const shellWaiting = e => e.state === 'running' && e.stdinOpen && !e.why && (e.typed || (Date.now() - e.lastOut >= SHELL_QUIET && !e.out.endsWith('\n')));
+const pubShell = e => ({ id: e.id, cmd: e.cmd, state: e.state, code: e.code, at: e.at, end: e.end, out: e.out, cut: e.cut, signal: e.signal, stdin: e.state === 'running' && e.stdinOpen ? 'open' : 'closed', waiting: shellWaiting(e) });
 function shellList() { return shells.map(pubShell); }
 const shellBin = () => { const s = process.env.SHELL; return s && path.isAbsolute(s) && executable(s) ? s : '/bin/bash'; };
 const signalGroup = (e, sig) => { try { process.kill(-e.proc.pid, sig); } catch {} };
@@ -451,7 +495,23 @@ function shellText(e, st, s) {
   st.cut += Math.max(0, v.length - SHELL_PRIV); st.text = v.slice(-SHELL_PRIV);
   if (o.length > SHELL_OUT) e.cut = true;
   e.out = o.slice(-SHELL_OUT); e.chunk = (e.chunk + s).slice(-SHELL_OUT);
-  if (!e.flush) e.flush = setTimeout(() => { e.flush = null; const chunk = e.chunk; e.chunk = ''; if (chunk) emit({ ev: 'shell-out', id: e.id, chunk }); }, 250);
+  e.lastOut = Date.now(); quietLater(e);
+  if (!e.flush) e.flush = setTimeout(() => flushShell(e), 250);
+}
+function quietLater(e) {
+  clearTimeout(e.quiet);
+  e.quiet = setTimeout(() => { if (e.state === 'running') emit({ ev: 'shell', shell: pubShell(e) }); }, SHELL_QUIET + 20);
+}
+function flushShell(e) {
+  clearTimeout(e.flush); e.flush = null;
+  const chunk = e.chunk; e.chunk = '';
+  if (chunk) emit({ ev: 'shell-out', id: e.id, chunk });
+}
+function echoInput(e, text) {
+  flushShell(e);
+  const o = e.out + text + '\n';
+  if (o.length > SHELL_OUT) e.cut = true;
+  e.out = o.slice(-SHELL_OUT);
 }
 function shellData(e, k, d) {
   if (e.state !== 'running') return;
@@ -462,7 +522,7 @@ function shellData(e, k, d) {
 function endShell(e, why) {
   if (e.state !== 'running') return;
   for (const k of ['stdout', 'stderr']) { const h = e[k].held; e[k].held = ''; shellText(e, e[k], strip(h)); }
-  clearTimeout(e.timer); clearTimeout(e.kill); clearTimeout(e.flush); e.flush = null; e.chunk = '';
+  clearTimeout(e.timer); clearTimeout(e.kill); clearTimeout(e.flush); clearTimeout(e.quiet); e.flush = null; e.chunk = '';
   e.state = why || e.why || 'done'; e.code = Number.isInteger(e.exit) ? e.exit : null; e.end = Date.now();
   e.signal = e.state === 'done' ? e.sig || null : null;
   if (e.proc) { try { e.proc.stdout.destroy(); e.proc.stderr.destroy(); } catch {} }
@@ -478,14 +538,22 @@ function killShell(e, why) {
   signalGroup(e, 'SIGTERM');
   e.kill = setTimeout(() => signalGroup(e, 'SIGKILL'), 3000);
 }
+function shellInput(e, text, eof) {
+  if (!e.proc || !e.stdinOpen || e.why) return 'the command is not waiting for input';
+  if (eof) { e.stdinOpen = false; e.proc.stdin.end(); } else { echoInput(e, text); e.typed = true; e.proc.stdin.write(text + '\n'); }
+  emit({ ev: 'shell', shell: pubShell(e) });
+  return null;
+}
 function startShell(cmd) {
-  const e = { id: `s-${++shellSeq}`, cmd, state: 'running', code: null, at: Date.now(), end: null, out: '', cut: false, chunk: '', flush: null, why: null, exit: null, sig: null, signal: null, kill: null, proc: null, timer: null,
+  const e = { id: `s-${++shellSeq}`, cmd, state: 'running', code: null, at: Date.now(), end: null, out: '', cut: false, chunk: '', flush: null, why: null, exit: null, sig: null, signal: null, kill: null, proc: null, timer: null, quiet: null, lastOut: Date.now(), stdinOpen: true, typed: false,
     stdout: { held: '', text: '', cut: 0 }, stderr: { held: '', text: '', cut: 0 } };
   shells.push(e);
   line(clean(`$ ${short(cmd, 400)}`));
   emit({ ev: 'shell', shell: pubShell(e) });
-  try { e.proc = spawn(shellBin(), ['-lc', cmd], { cwd: CWD, env: { ...childEnv(), TERM: 'dumb', NO_COLOR: '1' }, stdio: ['ignore', 'pipe', 'pipe'], detached: true }); } catch (err) { failShell(e, err); return e.id; }
+  quietLater(e);
+  try { e.proc = spawn(shellBin(), ['-lc', cmd], { cwd: CWD, env: { ...childEnv(), TERM: 'dumb', NO_COLOR: '1' }, stdio: ['pipe', 'pipe', 'pipe'], detached: true }); } catch (err) { failShell(e, err); return e.id; }
   const p = e.proc;
+  p.stdin.on('error', () => { e.stdinOpen = false; });
   p.stdout.setEncoding('utf8'); p.stderr.setEncoding('utf8');
   p.stdout.on('data', d => shellData(e, 'stdout', d));
   p.stderr.on('data', d => shellData(e, 'stderr', d));
@@ -505,7 +573,7 @@ function onClientOp(c, m) {
     case 'send': {
       if (stopping) return fail('runner is stopping');
       const text = typeof m.text === 'string' ? m.text : '';
-      if (!text.trim() || text.length > MAX_SEND) return fail('text must be 1..100000 chars');
+      if (!text.trim() || text.length > MAX_SEND) return fail(`text must be 1..${MAX_SEND} chars`);
       return c.write(JSON.stringify({ ev: 'ack', cid: m.cid, id: send(text) }) + '\n');
     }
     case 'interrupt': interrupt(); return ack();
@@ -520,6 +588,14 @@ function onClientOp(c, m) {
       const e = shells.find(x => x.id === m.id && x.state === 'running');
       if (!e) return fail('no such running command');
       killShell(e, 'stopped'); return ack();
+    }
+    case 'shell-input': {
+      const e = shells.find(x => x.id === m.id && x.state === 'running');
+      if (!e) return fail('no such running command');
+      const eof = m.eof === true, text = typeof m.text === 'string' ? m.text : '';
+      if (!eof && (text.length > MAX_INPUT || /[\x00-\x1f\x7f]/.test(text))) return fail('text must be at most 4096 chars without control characters');
+      const err = shellInput(e, text, eof);
+      return err ? fail(err) : ack();
     }
     case 'shell-drop': {
       const e = shells.find(x => x.id === m.id);
@@ -545,7 +621,11 @@ function onClientOp(c, m) {
         if (typeof m.claude !== 'string' || !path.isAbsolute(m.claude) || !executable(m.claude)) return fail('claude must be an absolute path to an executable file');
         CLAUDE = m.claude; upgradeAfterTurn = false; clearTimeout(upgradeTimer);
       }
-      restart(); return ack();
+      if (m.addDirs !== undefined) {
+        if (!Array.isArray(m.addDirs) || m.addDirs.length > 40 || m.addDirs.some(d => typeof d !== 'string' || !path.isAbsolute(d) || !isDir(d))) return fail('addDirs must be a list of at most 40 existing absolute folders');
+        ADD_DIRS.splice(0, ADD_DIRS.length, ...new Set(m.addDirs));
+      }
+      restart(); if (EXIT_AFTER_RESULT) exitWhenQuiet(); return ack();
     }
     case 'model': {
       if (!MODELS.includes(m.model)) return fail('model must be one of ' + MODELS.join(', '));

@@ -16,11 +16,40 @@ FEAT.shell = (() => {
     pre.classList.toggle('full', open);
     more.classList.toggle('hidden', ls.length <= SHOW);
     more.textContent = open ? 'show less' : `show all (${ls.length} lines)`;
+    const wait = el.querySelector('.shwait');
+    if (wait) wait.classList.toggle('hidden', !e.waiting);
+  }
+
+  const LOGIN = /\bclaude(?:-personal|-company)?\b[^\n;&|]*\bauth\s+login\b/;
+  const loginAccount = (cmd, name) => /claude-company|\.claude-company|CLAUDE_CONFIG_DIR=\S*company/.test(cmd) ? 'company' : ((claudeOf(name) || {}).account || 'personal');
+  const input = (name, body) => api('hl-shell-input', { session: name, ...body }).catch(x => toast(x.message, 'err'));
+
+  function waitPanel(e, name) {
+    const old = document.querySelector(`.shin[data-id="${CSS.escape(e.id)}"]`);
+    const keep = old ? old.value : '', refocus = !!old && document.activeElement === old;
+    const field = h('input', { class: 'txt shin', type: 'text', 'data-id': e.id, placeholder: 'Type a line…', autocomplete: 'off', autocorrect: 'off', autocapitalize: 'off', spellcheck: 'false', enterkeyhint: 'send', 'aria-label': 'Input for the running command' });
+    field.value = keep;
+    const send = () => { const text = field.value; field.value = ''; input(name, { id: e.id, text }); };
+    field.addEventListener('keydown', ev => { ev.stopPropagation(); if (ev.key === 'Enter' && !ev.isComposing) { ev.preventDefault(); send(); } });
+    if (refocus) requestAnimationFrame(() => { if (field.isConnected) { field.focus(); field.setSelectionRange(field.value.length, field.value.length); } });
+    return h('div', { class: 'shwait' },
+      h('div', { class: 'shwl' }, 'Waiting for input'),
+      h('div', { class: 'shrow' }, field,
+        h('button', { class: 'btn sm primary shbtn', onclick: send }, 'Send'),
+        h('button', { class: 'btn sm ghost shbtn', title: 'close the input (Ctrl+D)', onclick: () => input(name, { id: e.id, eof: true }) }, 'End input (^D)')),
+      h('div', { class: 'shnote' }, "Programs that need a real terminal (password prompts, full-screen tools) won't work here — use + Terminal."));
+  }
+
+  function loginHint(e, name) {
+    const account = loginAccount(e.cmd, name);
+    return h('div', { class: 'shhint' },
+      h('span', null, 'Sign in with the Authenticate button instead — it keeps the login alive until you paste the code'),
+      FEAT.auth && FEAT.auth.open ? h('button', { class: 'btn sm primary shbtn', onclick: () => FEAT.auth.open(account) }, 'Authenticate') : null);
   }
 
   function card(e, name) {
     const act = e.state === 'running'
-      ? h('button', { class: 'btn sm ghost danger', title: 'stop the command', onclick: () => api('hl-shell-stop', { session: name, id: e.id }).catch(x => toast(x.message, 'err')) }, ico('stop', 13), h('span', { class: 'shl' }, 'Stop'))
+      ? h('button', { class: 'btn sm ghost danger shstop', title: 'stop the command', onclick: () => api('hl-shell-stop', { session: name, id: e.id }).catch(x => toast(x.message, 'err')) }, ico('stop', 13), h('span', { class: 'shl' }, 'Stop'))
       : h('button', { class: 'btn sm ghost', title: 'remove it — Claude will not see this output', onclick: () => api('hl-shell-drop', { session: name, id: e.id }).catch(x => toast(x.message, 'err')) }, ico('x', 13));
     const chip = h('span', { class: 'shchip' + (bad(e) ? ' bad' : '') + (e.state === 'running' ? ' run' : '') }, chipText(e), e.state === 'running' ? h('span', { class: 'wtimer', 'data-since': e.at }, ' · ' + elapsedTxt(e.at)) : e.end ? ' · ' + durTxt(e.end - e.at) : null);
     const more = h('button', { class: 'shmore hidden', onclick: ev => { const cur = find(e.id) || e; if (all.has(e.id)) all.delete(e.id); else all.add(e.id); paint(ev.currentTarget.closest('.shcard'), cur); } });
@@ -28,6 +57,8 @@ FEAT.shell = (() => {
       h('div', { class: 'who' }, gl('❯ you · shell'), hhmm(e.at), chip, h('span', { class: 'sp' }), act),
       h('pre', { class: 'mcode small shcmd' }, '! ' + e.cmd),
       h('pre', { class: 'mcode small shout hidden' }), more,
+      e.state === 'running' && LOGIN.test(e.cmd) ? loginHint(e, name) : null,
+      e.state === 'running' && e.waiting && e.stdin === 'open' ? waitPanel(e, name) : null,
       h('div', { class: 'shnote' }, 'Claude sees this with your next message'));
     paint(el, e);
     return el;
@@ -53,7 +84,7 @@ FEAT.shell = (() => {
       if (!s.shells) s.shells = [];
       if (ev === 'shell') { const i = s.shells.findIndex(x => x.id === o.shell.id); if (i < 0) s.shells.push(o.shell); else s.shells[i] = o.shell; return; }
       const e = s.shells.find(x => x.id === o.id); if (!e) return;
-      e.out = (e.out || '') + o.chunk;
+      e.out = (e.out || '') + o.chunk; e.waiting = false;
       if (e.out.length > CAP) { e.out = e.out.slice(-CAP); e.cut = true; }
       for (const el of document.querySelectorAll(`.shcard[data-id="${CSS.escape(o.id)}"]`)) paint(el, e);
     },

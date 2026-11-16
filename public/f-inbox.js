@@ -8,23 +8,43 @@
 
   // sessions waiting for you, in tmux (alphabetical) order; "Seen" hides one until its state changes
   const waiting = () => {
-    const out = termSessions().claude.filter(it => WAIT.has(it.claude?.state) && !it.claude.settled).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    const out = termSessions(true).claude.filter(it => WAIT.has(it.claude?.state) && !it.claude.settled && !(it.claude.specialist && (it.claude.state === 'needs-you' || it.claude.state === 'error'))).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
     return out.filter(it => IBX.seen.get(it.name) !== it.claude.since);
   };
   const lineOf = it => {
     const cl = it.claude;
-    if (cl.state === 'permission' && cl.menu) return cl.menu.text.filter(Boolean).slice(-3).join('\n') || 'Claude is asking';
     if (cl.state === 'permission') return 'Wants to run: ' + (cl.lastTool || '?') + (cl.lastMessage ? '\n' + cl.lastMessage : '');
     if (cl.state === 'limit') return cl.limitText || (acct(it.account) + ' account hit its usage limit');
     return cl.lastMessage || cl.title || (cl.state === 'error' ? 'Error: open the chat' : 'Finished');
   };
+
+  const specRuns = () => (FEAT.specialists && FEAT.specialists.unseenRuns ? FEAT.specialists.unseenRuns() : []);
+  const runPreview = r => r.state === 'stopped' ? (r.error || 'The run was stopped') : r.state === 'error' ? (r.error || 'The run failed') : (String(r.preview || '').split('\n').filter(l => l.trim()).slice(0, 3).join('\n') || 'Finished');
+
+  function renderRuns() {
+    if (!IBX.runs) return 0;
+    const runs = specRuns();
+    const key = Math.floor(Date.now() / 60000) + runs.map(r => r.runId).join(',');
+    if (IBX.runsKey !== key) {
+      IBX.runsKey = key;
+      IBX.runs.replaceChildren(...runs.map(r => h('div', { class: 'ibx-row ibx-spec st-' + (r.state === 'done' ? 'done' : 'error'), 'data-run': r.runId },
+        h('div', { class: 'ibx-head' }, h('div', { class: 'ibx-id' }, h('span', { class: 'ibx-proj' }, r.title), h('span', { class: 'badge tag' }, 'specialist')), h('span', { class: 'sp' }),
+          h('span', { class: 'ibx-spst ' + r.state }, r.state === 'error' ? 'failed' : r.state === 'stopped' ? 'stopped' : 'done', r.endedAt ? ' · ' + ago(r.endedAt) : '')),
+        h('div', { class: 'ibx-sptask' }, oneLine(r.task, 200)),
+        h('div', { class: 'ibx-msg' }, runPreview(r)),
+        h('div', { class: 'ibx-acts' }, h('span', { class: 'sp' }),
+          h('button', { class: 'btn ghost ibx-btn', title: 'dismiss', onclick: () => FEAT.specialists.dismissRun(r.runId) }, 'Dismiss'),
+          h('button', { class: 'btn primary ibx-btn', title: 'open the run', onclick: () => { close(); FEAT.specialists.openRun(r); } }, 'Open run')))));
+    }
+    return runs.length;
+  }
 
   // does the inbox still own #modal? (another dialog may have replaced its content, or the modal got hidden)
   const owns = () => { const m = $('#modal'); return !!(IBX.modal && m && m.firstChild === IBX.modal && !m.classList.contains('hidden')); };
   const markOpen = on => { document.body.classList.toggle('ibx-open', on); markTab(); };
   function release() {
     markOpen(false);
-    IBX.open = false; IBX.rows.clear(); IBX.modal = null; IBX.list = null;
+    IBX.open = false; IBX.rows.clear(); IBX.modal = null; IBX.list = null; IBX.runs = null; IBX.runsKey = '';
     if (IBX.esc) { document.removeEventListener('keydown', IBX.esc, true); IBX.esc = null; }
     if (IBX.mo) { IBX.mo.disconnect(); IBX.mo = null; }
   }
@@ -46,7 +66,7 @@
       const v = ta.value.trim(); if (!v) return;
       if (claudeOf(name)?.mode === 'chat' && FEAT.shell && FEAT.shell.is(v)) { if (shelling) return; shelling = true; ta.value = ''; grow(); try { if (await FEAT.shell.run(name, v)) sentTag.classList.remove('hidden'); else if (!ta.value) { ta.value = v; grow(); } } finally { shelling = false; } return; }
       // never type Enter-terminated text into a permission menu (Enter would confirm the highlighted "Yes")
-      if (claudeOf(name)?.state === 'permission') { toast(claudeOf(name)?.menu ? 'Claude is asking something: pick an option above' : 'Still at the permission prompt: use Allow / Deny', 'err'); return; }
+      if (claudeOf(name)?.state === 'permission') { toast('Still at the permission prompt: use Allow / Deny', 'err'); return; }
       ta.value = ''; grow();
       (PENDING[name] = PENDING[name] || []).push({ text: v, ts: Date.now() });
       try {
@@ -82,7 +102,7 @@
     const title = h('span', { class: 'ibx-proj' }), tag = h('span', { class: 'badge tag acc' }), av = h('span', { class: 'ibx-av' });
     const head = h('div', { class: 'ibx-head' }, av, h('div', { class: 'ibx-id' }, title, tag), h('span', { class: 'sp' }), badge);
     row.el = h('div', { class: 'ibx-row', 'data-name': name }, head, msg, more, permBtns, h('div', { class: 'ibx-reply' }, ta), h('div', { class: 'ibx-acts' }, mic, sentTag, h('span', { class: 'sp' }), seenBtn, chatBtn, sendBtn));
-    Object.assign(row, { ta, grow, badge, msg, more, title, tag, av, sentTag, pid: null, text: null, permBtns, ynBtns: [allowBtn, denyBtn, tellBtn], menu: '', answered: null, setPermDisabled: d => { for (const b of row.permBtns.querySelectorAll('button')) b.disabled = d; } });
+    Object.assign(row, { ta, grow, badge, msg, more, title, tag, av, sentTag, pid: null, text: null, permBtns, answered: null, setPermDisabled: d => { for (const b of row.permBtns.querySelectorAll('button')) b.disabled = d; } });
     return row;
   }
 
@@ -102,8 +122,6 @@
       row.more.classList.toggle('hidden', t.length < 170 && t.split('\n').length < 3);
     }
     row.sentTag.classList.toggle('hidden', !IBX.sent.has(it.name));
-    const mk = menuKey(cl.menu);
-    if (row.menu !== mk) { row.menu = mk; row.permBtns.replaceChildren(...(cl.menu ? menuButtons(it.name, cl.menu, () => { IBX.sent.set(it.name, cl.state); row.sentTag.classList.remove('hidden'); }) : row.ynBtns)); }
   }
 
   function render() {
@@ -122,8 +140,10 @@
     if (cur.length !== order.length || order.some((e, i) => e !== cur[i])) IBX.list.replaceChildren(...order);
     for (const row of IBX.rows.values()) if (!row.grown && row.el.isConnected) { row.grown = true; row.grow(); }
     const empty = IBX.list.parentNode.querySelector('.ibx-empty');
-    empty.classList.toggle('hidden', order.length > 0);
-    IBX.count.textContent = items.length ? items.length + ' waiting' : '';
+    const nruns = renderRuns();
+    empty.classList.toggle('hidden', order.length > 0 || nruns > 0);
+    const total = items.length + nruns;
+    IBX.count.textContent = total ? total + ' waiting' : '';
   }
 
   function openInbox() {
@@ -132,10 +152,12 @@
     IBX.esc = e => { if (!alive()) return; if (e.key === 'Escape' && !document.body.classList.contains('recording')) { e.preventDefault(); e.stopPropagation(); close(); } };
     document.addEventListener('keydown', IBX.esc, true);
     IBX.list = h('div', { class: 'ibx-list' });
+    IBX.runs = h('div', { class: 'ibx-list ibx-runs' });
+    IBX.runsKey = '';
     IBX.count = h('span', { class: 'dim', style: 'font-size:13px' });
     const box = h('div', { class: 'box ibx', onmousedown: e => { if (e.target.closest('button')) e.preventDefault(); } },
       h('div', { class: 'sh' }, h('h3', null, 'Inbox'), IBX.count, h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', onclick: close }, ico('x', 15))),
-      h('div', { class: 'ibx-body' }, IBX.list, h('div', { class: 'ibx-empty hidden' }, 'Nothing is waiting for you.')));
+      h('div', { class: 'ibx-body' }, IBX.list, IBX.runs, h('div', { class: 'ibx-empty hidden' }, 'Nothing is waiting for you.')));
     IBX.modal = box; m.replaceChildren(box); m.onclick = e => { if (e.target === m && owns()) close(); };
     try { IBX.mo = new MutationObserver(() => alive()); IBX.mo.observe(m, { childList: true, attributes: true, attributeFilter: ['class'] }); } catch {}
     render();
@@ -144,7 +166,7 @@
   FEAT.inbox = {
     open: openInbox,
     close,
-    count: () => waiting().length,   // app.js: tab title, Inbox badge, phone tab bar
+    count: () => waiting().length + specRuns().length,   // app.js: tab title, Inbox badge, phone tab bar
     // Home hero (app.js puts data-slot="hero" tiles above the agents): who waits for you, one line each; a row opens
     // that session, the button opens the Inbox with a reply box per session. Same node every time — only its rows change.
     homeTiles() {
@@ -167,10 +189,11 @@
       return banner;
     },
     paletteItems() {
-      const n = waiting().length;
+      const n = waiting().length + specRuns().length;
       return [{ kind: 'action', label: 'Inbox', sub: n ? `${n} need${n === 1 ? 's' : ''} you` : 'nothing waiting', icon: '✓', hay: 'inbox reply needs you waiting permission', run: openInbox, rank: n ? 1 : 28 }];
     },
     deepLink(q) { if (!q.get('inbox')) return false; history.replaceState(null, '', location.pathname); openInbox(); return true; },
     onState() { if (alive()) render(); },
+    refresh() { if (alive()) render(); },
   };
 })();

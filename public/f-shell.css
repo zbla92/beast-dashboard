@@ -19,6 +19,13 @@
 .shcard .shout.hidden, .shcard .shmore.hidden { display: none; }
 .shmore { align-self: flex-start; border: 0; background: none; color: var(--muted); font: inherit; font-size: var(--fs-sm); padding: 4px 0 0; cursor: pointer; }
 .shmore:hover { color: var(--text); }
+.shwait, .shhint { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; padding: 10px; border-radius: 8px; background: color-mix(in srgb, var(--cyan) 8%, transparent); }
+.shwait.hidden { display: none; }
+.shhint { flex-direction: row; align-items: center; flex-wrap: wrap; font-size: var(--fs-sm); color: var(--text); }
+.shwl { font-size: var(--fs-sm); font-weight: 600; color: var(--cyan); }
+.shrow { display: flex; flex-wrap: wrap; gap: 8px; }
+.shrow .shin { flex: 1 1 200px; min-width: 0; min-height: 44px; font-family: var(--mono); }
+.btn.sm.shbtn, .btn.sm.shstop { min-height: 44px; min-width: 44px; padding: 0 14px; }
 .shnote { margin-top: 4px; font-size: var(--fs-xs); color: var(--dim); }
 @media (max-width: 900px) {
   .turn.user.shell.shcard { width: 100%; max-width: 100%; }

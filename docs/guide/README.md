@@ -7,6 +7,7 @@
 - [Everyday use](everyday-use.md) — Home, rail, projects, tasks, typing in a session, tunnels, menubar
 - [Configuration](configuration.md) — settings, process probe, project icons, Sleep button, Android emulator, voice input
 - [Plans](plans.md) — plans outside repos: the `plan` command, the file format, the hook and the API
+- [Bots](bots.md) — standing agents with their own chat, memory, credentials and calls: the model, the icon rule, teaching and the API (formerly Specialists)
 - [Agent rules](agent-rules.md) — a ready `CLAUDE.md` block: uploads, models, plans, when to stop and ask
 - [How it fits together](architecture.md) — the code layout
 - [What's new](whats-new.md) — the changes by version and the upgrade note
