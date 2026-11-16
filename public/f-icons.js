@@ -57,7 +57,7 @@ FEAT.icons = (() => {
     }
     async function ask() {
       setBusy(true); say('Starting Claude…');
-      try { const r = await api('icon-ask', { kind: t.kind, id: t.id, account: savedAcct() }); close(); started(r, `an icon for ${info.name}`); openTerm(r.name); }
+      try { const r = await api('icon-ask', { kind: t.kind, id: t.id, account: savedAcct() }); close(); started(r, `an icon for ${info.name}`); openTerm(r.name, { chat: true }); }
       catch (e) { say('Could not start Claude: ' + e.message, true); setBusy(false); }
     }
     async function reset() {
