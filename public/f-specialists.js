@@ -125,6 +125,7 @@ FEAT.specialists = (() => {
   }
 
   const fallbackTile = (p, px) => h('span', { class: 'sp-tile', style: `width:${px}px;height:${px}px;background:${p.iconColor || `hsl(${hue(p.name)} 40% 45%)`}` }, p.iconGlyph || p.name.slice(0, 1).toUpperCase());
+  const botMark = () => window.BOT_ICON?.svg ? window.BOT_ICON.svg('robot', 15) : null;
   const tile = (p, size = 'sm') => window.BOT_ICON?.tile ? window.BOT_ICON.tile(p, TILE_PX[size]) : fallbackTile(p, TILE_PX[size]);
 
   function repaint() {
@@ -227,8 +228,8 @@ FEAT.specialists = (() => {
     }
     const add = h('button', { class: 'rail-add', title: 'New bot', 'aria-label': 'New bot', onclick: () => create() }, ico('plus', 16));
     const head = kind === 'rail'
-      ? h('div', { class: 'rail-head sp-head' }, h('span', { class: 'rail-t' }, 'Bots ', h('span', { class: 'n' }, V.list.length)), add)
-      : h('div', { class: 'tsec sp-head' }, 'Bots', h('span', { class: 'n' }, V.list.length), h('span', { class: 'sp' }), add);
+      ? h('div', { class: 'rail-head sp-head' }, h('span', { class: 'rail-t' }, botMark(), 'Bots ', h('span', { class: 'n' }, V.list.length)), add)
+      : h('div', { class: 'tsec sp-head' }, botMark(), 'Bots', h('span', { class: 'n' }, V.list.length), h('span', { class: 'sp' }), add);
     const empty = !V.list.length ? h('div', { class: kind === 'rail' ? 'rempty' : 'note sp-empty' }, V.ok ? 'No bots yet.' : 'Bots are not available.') : null;
     return [head, ...rows, empty];
   }

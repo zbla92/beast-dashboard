@@ -1,4 +1,5 @@
 .sp-head { margin-top: 14px; }
+.sp-head svg { flex: none; align-self: center; }
 .sp-head .rail-t { cursor: default; }
 .sp-head .rail-t:hover { color: var(--muted); }
 .rrow.k-spec .rnm em { text-transform: none; }
