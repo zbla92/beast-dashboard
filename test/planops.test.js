@@ -159,6 +159,16 @@ test('plan-step unticks and ticks through bin/plan, reopening and finishing the 
   assert.strictEqual(e.meta(REL).status, 'finished');
 });
 
+test('plan-step ticks and unticks an inserted task id with a letter', async t => {
+  const e = lifecycle(t);
+  const file = path.join(e.dir(REL), 'plan.md');
+  fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/^(- \[x\] T1 .*\n)/m, '$1- [ ] T1a Inserted step · Sonnet\n'));
+  assert.deepStrictEqual(await e.ops.step({ id: REL, task: 'T1a', done: true }), { status: 200, body: { ok: true, id: REL } });
+  assert.strictEqual(taskOf(e, REL, 'T1a').status, 'done');
+  assert.deepStrictEqual(await e.ops.step({ id: REL, task: 'T1a', done: false }), { status: 200, body: { ok: true, id: REL } });
+  assert.strictEqual(taskOf(e, REL, 'T1a').status, 'todo');
+});
+
 test('ticking a task that is already done answers 200, writes nothing and keeps its gate', async t => {
   const e = lifecycle(t);
   const gate = taskOf(e, 'demo-docs/old-cleanup', 'T1').gate;
