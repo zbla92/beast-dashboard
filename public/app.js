@@ -805,7 +805,7 @@ function renderHeader() {
   const need = FEAT.inbox?.count ? FEAT.inbox.count() : S.runtime.sessions.filter(s => s.claude && s.claude.needsYou).length; const nb = $('#need-count'); if (nb) { nb.textContent = need; nb.classList.toggle('hidden', !need); }
   // phone tab bar badges
   const tbn = (id, n) => { const e = $(id); if (e) { e.textContent = n > 99 ? '99+' : n; e.classList.toggle('hidden', !n); } };
-  tbn('#tb-need', need); tbn('#tb-sess', sessCount()); tbn('#tb-tasks', (S.claude?.tasks || []).filter(t => t.status !== 'done').length);
+  tbn('#tb-need', need); tbn('#tb-sess', sessCount());
   document.title = (need ? `(${need}) ` : '') + 'Beast Dash';
 }
 

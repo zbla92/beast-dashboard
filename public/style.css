@@ -1167,7 +1167,7 @@ body.recording .ckeys > :not(.mic) { pointer-events: none; opacity: .4; }
   .topbtns .btn.icon { width: 40px; height: 40px; }
   .mobi { display: inline-flex !important; }
   /* bottom tab bar */
-  .tabbar { position: fixed; z-index: 40; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(6, 1fr); height: calc(var(--tab-h) + env(safe-area-inset-bottom)); padding: 0 4px env(safe-area-inset-bottom);
+  .tabbar { position: fixed; z-index: 40; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(5, 1fr); height: calc(var(--tab-h) + env(safe-area-inset-bottom)); padding: 0 4px env(safe-area-inset-bottom);
     background: color-mix(in srgb, var(--bg2) 90%, transparent); backdrop-filter: saturate(160%) blur(18px); -webkit-backdrop-filter: saturate(160%) blur(18px); border-top: 1px solid var(--line); }
   .tb { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border: 0; background: none; color: var(--dim); font-size: var(--fs-2xs); font-weight: 500; cursor: pointer; }
   .tb svg { width: 23px; height: 23px; }
