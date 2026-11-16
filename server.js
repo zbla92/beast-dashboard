@@ -80,7 +80,7 @@ const isChat = name => typeof name === 'string' && claude.get(name)?.mode === 'c
 const sessionSend = (name, text) => {
   const held = credentialRefusal(name, [text]);
   if (held) return { ok: false, refused: true, status: held.status, error: held.error };
-  return isChat(name) ? chatSend(name, text) : claude.send(name, text, true);
+  return isChat(name) ? chatSend(name, text) : { ok: false, error: 'not a chat session' };
 };
 async function uploadCwd(params) {
   const session = params.get('session');
@@ -175,7 +175,7 @@ async function rollNext(gen) {
   ROLL.waiting = rollQueue.length;
   if (rollQueue.length) rollTimer = setTimeout(rollNext, name ? 2000 : 15000, gen); else pushState(false);
 }
-const SWITCHING = new Set(); const SWITCHED = new Map();
+const SWITCHING = new Set();
 const pathVersion = () => claudever.status().current || CLAUDE_VERSION;
 const chatBinFor = () => { const st = claudever.status(); return st.using && path.isAbsolute(st.bin || '') ? st.bin : null; };
 const isBotChat = name => !!specialists.botOfThread(name);
@@ -188,10 +188,9 @@ const isBotSession = name => { const rec = claude.get(name); return !!((rec && r
 const BOT_STAYS = specialists.BOT_STAYS;
 const botFolder = cwd => specialists.inBotRoot(cwd);
 async function restartChat(name) {
-  SWITCHING.add(name); SWITCHED.set(name, Date.now());
+  SWITCHING.add(name);
   try {
     const r = await actions.restartClaude(name, claude.get(name), chatBinFor()).catch(e => ({ ok: false, error: e.message }));
-    SWITCHED.set(name, Date.now());
     if (!r.ok) return r;
     const { live, ...rest } = r;
     return { ...rest, version: headless.liveVersion(live, pathVersion()) };
@@ -497,13 +496,11 @@ async function decorateClaude(snap) {
   // a Claude session is anything named claude-* (dashboard / `cs` helper) or whose foreground process is `claude` (started by hand)
   const isClaude = s => s.name.startsWith('claude-') || s.current === 'claude' || !!claude.get(s.name);
   const cl = snap.sessions.filter(isClaude).map(s => s.name);
-  for (const s of snap.sessions) if (s.paneCmd === 'claude' && isChat(s.name) && !SWITCHING.has(s.name) && !(Date.now() - (SWITCHED.get(s.name) || 0) < 15000)) claude.clearChat(s.name);
-  await claude.refreshPeeks(cl);
   headless.watch(cl.filter(isChat));
   for (const n of cl) if (isChat(n)) { const L = headless.live(n); if (L && !L.stale && L.v >= 2) claude.followChat(n, L.sessionId); }
   claude.reconcile(names);
   claude.refreshTitles();
-  for (const s of snap.sessions) if (isClaude(s)) { s.claude = claude.info(s.name, s.activity); s.claude.usage = usage.bySession(s.claude.sessionId); s.claude.ctx = ctxOf(s); liveModel(s); s.claude.cache = usage.cacheOf(s.claude); Object.assign(s.claude, await whereIs(s)); if (s.claudeVersion) s.claude.version = s.claudeVersion; const st = settle.of(s.name); if (st && !settle.wake(s.name, s.claude.state, s.claude.since || 0)) { s.claude.settled = st; s.claude.needsYou = false; } }
+  for (const s of snap.sessions) if (isClaude(s)) { s.claude = claude.info(s.name); s.claude.usage = usage.bySession(s.claude.sessionId); s.claude.ctx = ctxOf(s); liveModel(s); s.claude.cache = usage.cacheOf(s.claude); Object.assign(s.claude, await whereIs(s)); if (s.claudeVersion) s.claude.version = s.claudeVersion; const st = settle.of(s.name); if (st && !settle.wake(s.name, s.claude.state, s.claude.since || 0)) { s.claude.settled = st; s.claude.needsYou = false; } }
   if (Date.now() - lastUsageScan > 30000) { lastUsageScan = Date.now(); usage.scan().then(() => pushState(false)); }
 }
 // Where a Claude session actually works: its branch, and whether that is a git worktree apart from the project
@@ -1107,32 +1104,6 @@ async function api(req, res, url) {
       }
       const r = await restartChat(name); return json(res, r.ok ? 200 : 500, r);
     }
-    case 'claude-switch': {
-      const name = String(b.session || ''); const rec = claude.get(name);
-      if (b.to !== 'chat') return json(res, 400, { error: 'to?' });
-      if (!rec || !(await actions.sessionExists(name))) return json(res, 404, { error: 'no such session' });
-      if (SWITCHING.has(name)) return json(res, 409, { error: 'busy' });
-      if (rec.mode === 'chat') return json(res, 409, { error: 'already a chat' });
-      const sid = rec.sessionId;
-      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(sid || '')) return json(res, 409, { error: 'no conversation id' });
-      const tr = headless.locateTranscript(rec.cwd, headless.recordAccount(rec), sid); if (!tr) return json(res, 409, { error: 'conversation file not found' });
-      const cwd = tr.dir; const account = tr.account; if (!fs.existsSync(cwd)) return json(res, 409, { error: 'the session folder is gone' });
-      SWITCHING.add(name); SWITCHED.set(name, Date.now());
-      try {
-        const pane = await actions.paneInfo(name);
-        if (!pane || pane.windows !== 1 || pane.panes !== 1) return json(res, 409, { error: 'only for a session with one window and one pane' });
-        if (pane.cmd !== 'claude' || !pane.shell) return json(res, 409, { error: 'claude is not running under a shell in this session' });
-        await claude.refreshPeeks([name]); const inf = claude.info(name);
-        if (!['idle', 'needs-you'].includes(inf.state)) return json(res, 409, { error: 'busy' });
-        if (inf.draft) return json(res, 409, { error: 'clear the prompt box first' });
-        if (!(await actions.exitClaude(name))) return json(res, 500, { error: 'claude did not exit' });
-        const r = await headless.respawn(name, cwd, account, sid);
-        if (!r.ok) return json(res, 500, r);
-        claude.markChat(name, { cwd, account, sessionId: sid, transcriptPath: tr.file });
-        SWITCHED.set(name, Date.now()); setTimeout(tick, 1000); setTimeout(tick, 3000);
-        return json(res, 200, { ok: true, name, mode: 'chat' });
-      } finally { SWITCHING.delete(name); }
-    }
     case 'chat-move': {
       const name = String(b.session || ''); const rec = claude.get(name);
       if (!rec || rec.mode !== 'chat' || !(await actions.sessionExists(name))) return json(res, 404, { error: 'no such chat session' });
@@ -1143,14 +1114,14 @@ async function api(req, res, url) {
       if (SWITCHING.has(name)) return json(res, 409, { error: 'busy' });
       const sid = rec.sessionId; const account = rec.account === 'company' ? 'company' : 'personal';
       const tr = headless.findTranscript(rec.cwd, account, sid, rec.transcriptPath); if (!tr) return json(res, 409, { error: rec.firstPrompt ? 'conversation file not found' : 'send the first message before moving this chat' });
-      SWITCHING.add(name); SWITCHED.set(name, Date.now());
+      SWITCHING.add(name);
       try {
         const L = await headless.status(name);
         if (L ? (L.state !== 'idle' || L.turn || (L.pending || []).length || hookBusy(name)) : !['idle', 'needs-you', 'error', 'ended'].includes(claude.info(name).state)) return json(res, 409, { error: 'busy' });
         const r = await headless.respawn(name, cwd, account, sid);
         if (!r.ok) return json(res, 500, r);
         claude.markChat(name, { cwd, account, sessionId: sid, transcriptPath: tr.file });
-        SWITCHED.set(name, Date.now()); setTimeout(tick, 1000); setTimeout(tick, 3000);
+        setTimeout(tick, 1000); setTimeout(tick, 3000);
         return json(res, 200, { ok: true, name, cwd });
       } finally { SWITCHING.delete(name); }
     }
@@ -1278,7 +1249,7 @@ async function api(req, res, url) {
       if (SWITCHING.has(b.session)) return json(res, 409, { error: 'busy' });
       const held = credentialRefusal(b.session, [b.text]); if (held) return json(res, held.status, { ok: false, error: held.error });
       if (isChat(b.session)) { if (b.enter === false) return json(res, 400, { error: 'chat sessions take whole messages' }); const r = await chatSend(b.session, b.text); setTimeout(tick, 300); return json(res, r.ok ? 200 : 400, r); }
-      const r = await claude.send(b.session, b.text, b.enter !== false); setTimeout(tick, 400); return json(res, r.ok ? 200 : 400, r);
+      return json(res, 400, { error: 'not a chat session' });
     }
     case 'plan-answer': { const r = await planOps.answer(b); return json(res, r.status, r.body); }
     case 'plan-finish': { const r = await planOps.finish(b); return json(res, r.status, r.body); }
@@ -1300,13 +1271,7 @@ async function api(req, res, url) {
         }
         setTimeout(tick, 300); return json(res, 200, { ok: true });
       }
-      await claude.refreshPeeks([b.session]); const cl = claude.info(b.session);
-      if (!cl || !['idle', 'needs-you'].includes(cl.state) || cl.draft) return json(res, 409, { error: 'only when Claude is idle and nothing is typed in the terminal' });
-      for (const cmd of [b.model != null ? '/model ' + b.model : null, b.effort != null ? '/effort ' + b.effort : null].filter(Boolean)) {
-        const r = await claude.send(b.session, cmd, true); if (!r.ok) return json(res, 409, r);
-        await new Promise(r => setTimeout(r, 700));
-      }
-      setTimeout(tick, 400); return json(res, 200, { ok: true });
+      return json(res, 400, { error: 'only chat sessions can switch model' });
     }
     case 'hl-answer': {
       if (!isChat(b.session)) return json(res, 404, { error: 'not a chat session' });
@@ -1334,17 +1299,16 @@ async function api(req, res, url) {
       const r = await headless.shellInput(b.session, b.id, text, eof);
       return json(res, r.ok ? 200 : 409, r);
     }
-    case 'choose': { if (isChat(b.session)) return json(res, 400, { error: 'chat sessions answer through hl-answer' }); const r = await claude.choose(String(b.session || ''), b.index, b.label); setTimeout(tick, 400); return json(res, r.ok ? 200 : 409, r); }
     case 'answer': {
       if (isChat(b.session)) {
         const q = claude.info(b.session).ask;
         if (!q || q.kind !== 'permission' || (Number.isFinite(b.since) && b.since !== q.at) || (b.choice !== 'allow' && b.choice !== 'deny')) return json(res, 409, { ok: false, error: 'that question is no longer open — open the app' });
         const r = await headless.answer(b.session, q.rid, b.choice); setTimeout(tick, 300); return json(res, r.ok ? 200 : 409, r);
       }
-      const r = await claude.answer(String(b.session || ''), Number.isFinite(b.since) ? b.since : null, b.choice); setTimeout(tick, 400); return json(res, r.ok ? 200 : r.status || 409, r); }
+      return json(res, 400, { error: 'not a chat session' }); }
     case 'key': {
       if (isChat(b.session)) { if (b.key !== 'esc') return json(res, 400, { error: 'chat sessions only take esc (stop)' }); const r = await headless.interrupt(b.session); setTimeout(tick, 300); return json(res, r.ok ? 200 : 400, r); }
-      const r = await claude.key(String(b.session || ''), String(b.key || '')); setTimeout(tick, 400); return json(res, r.ok ? 200 : 400, r); }
+      return json(res, 400, { error: 'not a chat session' }); }
     case 'push-subscribe': { const r = push.subscribe(b.subscription, b.label); pushState(true); return json(res, r.ok ? 200 : 400, r); }
     case 'push-unsubscribe': { const r = push.unsubscribe(b.endpoint); pushState(true); return json(res, 200, r); }
     case 'push-test': { const r = await push.notify({ title: 'Beast Dash', body: 'Push works. Claude sessions will buzz you here when they need you.', url: '/', tag: 'test' }); return json(res, 200, r); }

@@ -254,13 +254,12 @@ test('sendToSession sends to the active session when it runs the plan, else to t
   assert.strictEqual(two.calls.api[0][1].session, 'claude-a');
 });
 
-test('sendToSession refuses with a toast when nothing live runs the plan, at a permission prompt, or with a typed draft', async () => {
+test('sendToSession refuses with a toast when nothing live runs the plan, or at a permission prompt', async () => {
   const cases = [
     [[], { sessions: [] }, 'No live session runs this plan'],
     [[sess('claude-a', { state: 'ended' })], { sessions: ['claude-a'] }, 'No live session runs this plan'],
     [[sess('claude-a', null)], { sessions: ['claude-a'] }, 'No live session runs this plan'],
     [[sess('claude-a', { state: 'permission' })], { sessions: ['claude-a'] }, 'Claude is at a permission prompt — answer it first'],
-    [[sess('claude-a', { state: 'idle', draft: 'half typed' })], { sessions: ['claude-a'] }, 'Something is typed in the terminal — send or clear it first'],
   ];
   for (const [sessions, plan, msg] of cases) {
     const { p, calls } = sendBoot(sessions, 'claude-a');

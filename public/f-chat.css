@@ -77,8 +77,8 @@
 .tqa, .ttodo { align-self: flex-start; min-width: min(100%, 320px); border: 1px solid var(--chat-bubble-edge); border-radius: 16px; background: var(--chat-bubble); box-shadow: var(--hl-soft); }
 .turn.user .tqa { background: none; }
 
-.turn.assistant > .trow, .turn.assistant > .tgroup, .turn.live .ltools, .turn.live .ag-now, .turn.live .ag-status { margin-left: 3px; padding-left: 12px; border-left: 1px solid var(--line2); border-radius: 0; }
-.turn.assistant > .trow + .trow, .turn.assistant > .trow + .tgroup, .turn.assistant > .tgroup + .trow, .turn.assistant > .tgroup + .tgroup, .turn.live .ltools + .ltext.hidden + .ag-now, .turn.live .ag-now + .ag-status { margin-top: -8px; }
+.turn.assistant > .trow, .turn.assistant > .tgroup, .turn.live .ltools, .turn.live .ag-now { margin-left: 3px; padding-left: 12px; border-left: 1px solid var(--line2); border-radius: 0; }
+.turn.assistant > .trow + .trow, .turn.assistant > .trow + .tgroup, .turn.assistant > .tgroup + .trow, .turn.assistant > .tgroup + .tgroup, .turn.live .ltools + .ltext.hidden + .ag-now { margin-top: -8px; }
 .tr-sum, .tg-sum { gap: 8px; padding: 5px 6px; border-radius: 8px; font-size: 13.5px; line-height: 1.45; }
 .tr-sum:hover, .tg-sum:hover { background: var(--fill); }
 .ti { width: 18px; height: 18px; background: none; color: var(--chat-tool); }
@@ -117,7 +117,6 @@
 .turn.live .ag-now .spin { display: none; }
 .turn.live .ag-now .mono, .ltool .mono { min-width: 0; font-size: 12px; }
 .turn.live .ag-now .mono:not(.ag-t), .ltool:not(.dim) .mono { padding: 2px 8px; font-family: var(--mono); border: 1px solid var(--line); border-radius: 7px; background: var(--chat-pill); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.turn.live .ag-status { font-size: var(--fs-xs); color: var(--dim); }
 .turn.live .ltools { gap: 5px; }
 .ltool .spin { width: 11px; height: 11px; }
 .ltool .ic { color: var(--chat-tool); }

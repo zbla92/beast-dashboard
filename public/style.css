@@ -312,12 +312,9 @@ input[type=checkbox] { accent-color: var(--accent); }
 .tsempty { color: var(--dim); font-size: var(--fs-md); padding: 4px 0; }
 
 .ag-tag { flex: none; font-family: var(--mono); font-size: var(--fs-xs); font-weight: 500; color: var(--muted); background: var(--fill2); border-radius: var(--r-sm); padding: 0 6px; line-height: 18px; }
-.ag-status {  font-size: var(--fs-xs); color: var(--muted); margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ag-status.mono { font-family: var(--sans); }
 /* older card bits still produced in a few places */
 .ag-now { display: flex; align-items: center; gap: 8px; min-width: 0; color: color-mix(in srgb, var(--st-work) 85%, var(--text)); }
 .ag-now .mono { font-family: var(--sans); font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.peek-b { margin: 4px 0 0; font-family: var(--mono); font-size: var(--fs-xs); line-height: 1.4; color: var(--muted); background: var(--bg); border-radius: var(--r-sm); padding: 6px 8px; max-height: 170px; overflow: hidden; white-space: pre-wrap; word-break: break-word; }
 .qk.yes { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); } .qk.no { color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, transparent); }
 .spin { width: 10px; height: 10px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--st-work) 25%, transparent); border-top-color: var(--st-work); animation: rot .9s linear infinite; flex: none; }
 @keyframes rot { to { transform: rotate(360deg); } }

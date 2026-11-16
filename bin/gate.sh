@@ -137,8 +137,6 @@ r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: appli
 [ "$r" = 404 ] && ok "POST worktree-remove unknown project -> 404" || fail "POST worktree-remove unknown project -> $r"
 r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"serial":"bad serial;rm"}' "$B/api/emu-input")"
 [ "$r" = 400 ] && ok "POST emu-input bad serial -> 400" || fail "POST emu-input bad serial -> $r"
-r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"session":"claude-gate-nope","to":"chat"}' "$B/api/claude-switch")"
-[ "$r" = 404 ] && ok "POST claude-switch unknown session -> 404" || fail "POST claude-switch unknown session -> $r"
 r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"session":"claude-gate-nope","target":{"kind":"root"}}' "$B/api/chat-move")"
 [ "$r" = 404 ] && ok "POST chat-move unknown session -> 404" || fail "POST chat-move unknown session -> $r"
 r=""; for d in '{"text":"x","cwd":"/etc"}' '{"text":"x","cwd":"relative/dir"}' '{"text":"x","cwd":"/nope/gate-gone"}' '{"empty":true,"cwd":7}'; do r="$r $(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d "$d" "$B/api/chat-new")"; done
