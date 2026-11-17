@@ -1,6 +1,6 @@
 .modal .box.bsbox { width: min(680px, 95vw); height: min(680px, 90vh); display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-5); }
 .bsbox > .sh { flex: none; gap: var(--sp-3); }
-.bsbox > .sh > h3 { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xl); }
+.modal .box.bsbox > .sh > h3 { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xl); }
 .bsbox > .sh > .sp { display: none; }
 .bs-tile { flex: none; width: 28px; height: 28px; display: grid; place-items: center; border-radius: var(--r); background: var(--fill2); color: #fff; font-weight: 600; font-size: var(--fs-sm); }
 .bs-tabs { flex: none; display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--line); scrollbar-width: none; }
@@ -12,14 +12,15 @@
 .bs-sec { flex: 1 1 auto; min-height: 0; flex-direction: column; display: flex; }
 .bs-sec.hidden { display: none; }
 .bs-pane { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: var(--sp-4); }
-.bs-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--sp-3); overscroll-behavior: contain; padding-right: 2px; }
-.bs-icons { display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 6px; }
-.bs-ic { min-height: 40px; display: grid; place-items: center; padding: 4px; border: 1px solid var(--line); border-radius: var(--r); background: none; color: var(--text); font: inherit; font-size: var(--fs-xs); cursor: pointer; overflow-wrap: anywhere; }
-.bs-ic:hover { background: var(--fill2); }
+.bs-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding-top: 2px; overscroll-behavior: contain; padding-right: 2px; }
+.bs-icons { display: grid; grid-template-columns: repeat(auto-fill, minmax(46px, 1fr)); gap: 6px; }
+.bs-ic { min-height: 42px; display: grid; place-items: center; padding: 4px; border: 1px solid var(--line); border-radius: var(--r); background: var(--fill); color: var(--muted); transition: background .12s, border-color .12s, color .12s; font: inherit; font-size: var(--fs-xs); cursor: pointer; overflow-wrap: anywhere; }
+.bs-ic:hover { background: var(--fill2); color: var(--text); }
+.bs-ic.on { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent2); }
 .bs-ic.on, .bs-sw.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .bs-keyname { font-size: 10px; line-height: 1.1; color: var(--muted); }
 .bs-glyph { font-size: var(--fs-lg); }
-.bs-swatches { display: flex; flex-wrap: wrap; gap: 6px; }
+.bs-swatches { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px; }
 .bs-sw { min-width: 28px; height: 28px; padding: 0 8px; border: 1px solid var(--line); border-radius: 50%; background: none; color: var(--muted); font: inherit; font-size: var(--fs-xs); cursor: pointer; }
 .bs-sw[data-color="auto"] { border-radius: var(--r); }
 .bs-sw:not([data-color="auto"]) { width: 28px; padding: 0; }
