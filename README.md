@@ -93,6 +93,10 @@ A file path in a reply opens a preview. Code blocks copy in one tap.
 <tr><td width="33%">🗺 <b>Plans</b><br><sub>agents keep multi-step work outside your repos, you watch it live</sub></td><td width="33%">📎 <b>Uploads by project</b><br><sub>one project's files stay out of another's session</sub></td><td width="33%">📜 <b>Agent rules</b><br><sub>a ready <code>CLAUDE.md</code> block for how agents should work</sub></td></tr>
 </table>
 
+### Bots
+
+A bot is a standing agent with a name, its own chat, memory and settings. Ask one from its chat, or from any other chat or script with `bd-bot <name> "<task>"`; only its answer comes back. Credentials for other providers live in its settings. Teach it by telling it in its chat: "remember ...". See [Bots](docs/guide/bots.md).
+
 One Node process. **Zero npm dependencies.** No accounts, no cloud. Nothing leaves your tailnet.
 
 ## Try it
@@ -118,6 +122,7 @@ To update: `git pull && ./install.sh`, then reload the page.
 [Access & phone](docs/guide/access.md) ·
 [Claude Code](docs/guide/claude-code.md) ·
 [Plans](docs/guide/plans.md) ·
+[Bots](docs/guide/bots.md) ·
 [Agent rules](docs/guide/agent-rules.md) ·
 [Everyday use](docs/guide/everyday-use.md) ·
 [Configuration](docs/guide/configuration.md) ·

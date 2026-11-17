@@ -13,7 +13,7 @@
     try {
       const r = await api('chat-fork', { session: name });
       toast(`Forked: ${r.label}`, 'ok');
-      openTerm(r.name);
+      openTerm(r.name, { chat: true });
     } catch (e) { toast('Fork failed: ' + e.message, 'err'); }
   }
 

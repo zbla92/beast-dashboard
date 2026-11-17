@@ -9,7 +9,9 @@ On a project card, **✦ Claude ▾** has *New chat* (type the first message), t
 chats already running there (click to open), *Resume last chat in this folder* and *Chat in a git
 worktree…* (a new branch and folder under `.claude/worktrees`, so two agents never edit the same
 files). Two Claude Code logins are supported: the default `~/.claude`, and a second one kept in
-`~/.claude-company`. What they are called on the cards is
+`~/.claude-company`, or in the folder `BD_COMPANY_DIR` names if yours lives elsewhere (e.g. `~/.claude-work`: run
+`systemctl --user edit beast-dash`, add `Environment=BD_COMPANY_DIR=%h/.claude-work` under `[Service]`, restart, then
+re-run `node bin/install-hooks.js`). What they are called on the cards is
 yours — ⚙ Settings → *Claude accounts* (e.g. "Me" / "Work"). The second one is optional; if the
 folder doesn't exist, nothing mentions it. Sessions are listed in a fixed order (by org, then project)
 that never changes with their state. Git worktrees are not listed as
@@ -64,18 +66,18 @@ like one you started. The folder defaults to the current one and must be inside 
 defaults to the login the shell runs under (`CLAUDE_CONFIG_DIR`). The port comes from `BEAST_DASH_PORT`, which every
 session the dashboard starts has. `./install.sh` links the command into `~/.local/bin`, and `--remove` takes it out.
 
-To hand a task to a [specialist](specialists.md) and get back only its answer, use `bd-ask`:
+To hand a task to a [bot](bots.md) and get back only its answer, use `bd-ask`:
 
 ```bash
-bd-ask --list
-bd-ask writer "Reply to this message: ..."
-bd-ask writer - --file ~/notes/thread.txt < task.txt
-bd-ask --continue <runId> "Shorter, please"
+bd-bot --list
+bd-bot writer "Reply to this message: ..."
+bd-bot writer - --file ~/notes/thread.txt < task.txt
+bd-bot --continue <runId> "Shorter, please"
 ```
 
-It prints the final text on stdout and nothing else, so the specialist's work stays out of the caller's context. A run that
-outlives `--timeout` (default 900 s) keeps going; `bd-ask --wait <runId>` picks it up. `--no-wait` prints the run id only.
-Exit codes: 0 ok, 1 run error, 2 usage, 3 dashboard unreachable, 4 timed out. `./install.sh` links it next to `bd-chat`.
+It prints the final text on stdout and nothing else, so the bot's work stays out of the caller's context. A run that
+outlives `--timeout` (default 900 s) keeps going; `bd-bot --wait <runId>` picks it up. `--no-wait` prints the run id only.
+Exit codes: 0 ok, 1 run error, 2 usage, 3 dashboard unreachable, 4 timed out. `./install.sh` links both names next to `bd-chat`.
 
 Don't start a chat any other way. A `claude-chat-*` tmux session made by hand, or by loading the dashboard's `lib/`
 code in another process, runs the chat runner, but the dashboard never records it as a chat and shows it as a plain

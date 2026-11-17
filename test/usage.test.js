@@ -7,7 +7,7 @@ const path = require('node:path');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'bd-usage-'));
 fs.mkdirSync(path.join(tmp, 'lib'));
-for (const f of ['usage.js', 'util.js']) fs.copyFileSync(path.join(__dirname, '..', 'lib', f), path.join(tmp, 'lib', f));
+for (const f of ['usage.js', 'util.js', 'accounts.js']) fs.copyFileSync(path.join(__dirname, '..', 'lib', f), path.join(tmp, 'lib', f));
 process.env.HOME = path.join(tmp, 'home');
 for (const k of ['CLAUDE_CODE_AUTO_COMPACT_WINDOW', 'DISABLE_AUTO_COMPACT', 'DISABLE_COMPACT']) delete process.env[k];
 const dir = path.join(tmp, 'home', '.claude', 'projects', 'proj');

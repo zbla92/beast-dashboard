@@ -25,8 +25,10 @@ TMP="$(mktemp -d /tmp/bd-gate-XXXX)"
 (cd "$REPO" && tar --exclude=./state --exclude=./state-backups --exclude=./.git --exclude=./whisper/.venv -cf - .) | (cd "$TMP" && tar -xf -)
 mkdir -p "$TMP/state" && printf '{"port": %s, "autoExpose": false}\n' "$PORT" > "$TMP/state/settings.json"
 cp "$REPO/state/claude-sessions.json" "$TMP/state/" 2>/dev/null   # read-only copy: lets /api/subagents resolve the live sessions' transcripts
+node -e 'const fs=require("fs"),f=process.argv[1],s=(()=>{try{return JSON.parse(fs.readFileSync(f,"utf8"))}catch{return {}}})();const r=(tmux,n,specialist)=>({tmux,account:"personal",sessionId:"00000000-0000-4000-8000-00000000000"+n,cwd:process.argv[2],transcriptPath:null,state:"idle",since:Date.now(),firstSeen:Date.now(),mode:"chat",specialist});s["claude-spec-gate-bot"]=r("claude-spec-gate-bot",1,"gate-bot");s["claude-chat-gate-plain"]=r("claude-chat-gate-plain",2,null);s["claude-spec-gate-writer"]=r("claude-spec-gate-writer",3,"gate-writer");s["claude-spec-gate-lost"]=r("claude-spec-gate-lost",4,null);fs.writeFileSync(f,JSON.stringify(s))' "$TMP/state/claude-sessions.json" "$TMP"
 PLANS="$TMP/plans-store"; cp -r "$TMP/test/fixtures/plans/store" "$PLANS"
-(cd "$TMP" && BD_TEST=1 BEAST_PLANS_DIR="$PLANS" BD_SPECIALISTS_DIR="$TMP/specialists" exec node server.js > "$TMP/server.log" 2>&1) & PID=$!
+SKH="$TMP/skills-home"; mkdir -p "$SKH/.claude"
+(cd "$TMP" && BD_TEST=1 BEAST_PLANS_DIR="$PLANS" BD_SPECIALISTS_DIR="$TMP/specialists" BD_SKILLS_HOME="$SKH" BD_PROVIDERS_FILE="$TMP/providers.json" FAKE_AUTH_DIR="$TMP/fake-auth" exec node server.js > "$TMP/server.log" 2>&1) & PID=$!
 cleanup() { kill "$PID" 2>/dev/null; sleep 0.3; kill -9 "$PID" 2>/dev/null; rm -rf "$TMP"; rm -f /tmp/gate-$$.*; }
 trap cleanup EXIT
 B="http://127.0.0.1:$PORT"
@@ -135,8 +137,6 @@ r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: appli
 [ "$r" = 404 ] && ok "POST worktree-remove unknown project -> 404" || fail "POST worktree-remove unknown project -> $r"
 r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"serial":"bad serial;rm"}' "$B/api/emu-input")"
 [ "$r" = 400 ] && ok "POST emu-input bad serial -> 400" || fail "POST emu-input bad serial -> $r"
-r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"session":"claude-gate-nope","to":"chat"}' "$B/api/claude-switch")"
-[ "$r" = 404 ] && ok "POST claude-switch unknown session -> 404" || fail "POST claude-switch unknown session -> $r"
 r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"session":"claude-gate-nope","target":{"kind":"root"}}' "$B/api/chat-move")"
 [ "$r" = 404 ] && ok "POST chat-move unknown session -> 404" || fail "POST chat-move unknown session -> $r"
 r=""; for d in '{"text":"x","cwd":"/etc"}' '{"text":"x","cwd":"relative/dir"}' '{"text":"x","cwd":"/nope/gate-gone"}' '{"empty":true,"cwd":7}'; do r="$r $(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d "$d" "$B/api/chat-new")"; done
@@ -165,8 +165,34 @@ r="$(sp specialist/run/claude-spec-gate-nope-261111-0930/send '{"text":"x"}') $(
 [ "$r" = "404 404" ] && ok "POST specialist run send unknown -> 404, unknown route -> 404" || fail "POST specialist run send / unknown route -> $r"
 r="$(sp specialist/gate-writer '{"title":"x"}' -H 'Origin: https://evil.example')"
 [ "$r" = 403 ] && ok "POST specialist from a foreign Origin -> 403" || fail "POST specialist foreign Origin -> $r"
+jq1() { node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1]));const v=('"$1"');process.stdout.write(String(v))' /tmp/gate-$$.body 2>/dev/null; }
+r="$(sp specialist/gate-writer '{"instructions":"# Gate writer\n\nGate edit.\n"}')"
+[ "$r" = 200 ] && ok "POST specialist instructions -> 200, committed to the bot history" || fail "POST specialist instructions -> $r $(head -c 200 /tmp/gate-$$.body)"
+r="$(get /api/specialist/gate-writer/train/history | cut -d' ' -f1) $(jq1 'j.commits.map(c=>c.source).join(",")')"
+START="$(jq1 'j.commits[j.commits.length-1].id')"; UPC="$(jq1 'j.commits[0].id')"
+[ "$r" = "200 profile,start" ] && ok "GET train history -> profile and start commits" || fail "GET train history -> $r $(head -c 200 /tmp/gate-$$.body)"
+r="$(get "/api/specialist/gate-writer/train/commit/$UPC" | cut -d' ' -f1) $(get /api/specialist/gate-writer/train/commit/0123456789abcdef | cut -d' ' -f1) $(get /api/specialist/gate-writer/train/commit/nothex | cut -d' ' -f1)"
+[ "$r" = "200 404 400" ] && ok "GET train commit -> 200, unknown sha -> 404, bad sha -> 400" || fail "GET train commit -> $r"
+r="$(sp specialist/gate-writer/train/undo "{\"commit\":\"$START\"}") $(sp specialist/gate-writer/train/undo '{"commit":"0123456789abcdef"}') $(sp specialist/gate-writer/train/undo "{\"commit\":\"$UPC\"}")"
+[ "$r" = "400 404 201" ] && ! grep -q "Gate edit" "$TMP/specialists/gate-writer/CLAUDE.md" && ok "POST train undo start -> 400, unknown -> 404, profile edit -> 201 and the text is gone" || fail "POST train undo -> $r"
+r="$(sp specialist/gate-writer/accesses '{"name":"GATE_TOKEN","value":"gate-s3cret-value","note":"gate"}') $(sp specialist/gate-writer/accesses '{"name":"bad name","value":"x"}') $(sp specialist/gate-writer/accesses '{"name":"GATE_X","value":"x","extra":1}')"
+[ "$r" = "200 400 400" ] && ! grep -q 'gate-s3cret-value' /tmp/gate-$$.body && ok "POST accesses -> 200, bad name / unknown field -> 400" || fail "POST accesses -> $r"
+r="$(get /api/specialist/gate-writer/accesses | cut -d' ' -f1) $(jq1 'j.accesses.map(a=>a.name).join(",")') $(stat -c %a "$TMP/specialists/gate-writer/.secrets" "$TMP/specialists/gate-writer/.secrets/accesses.json" | tr '\n' ' ')"
+[ "$r" = "200 GATE_TOKEN 700 600 " ] && ! grep -q 'gate-s3cret-value' /tmp/gate-$$.body && [ "$(get /api/specialist/gate-writer | cut -d' ' -f1)" = 200 ] && ! grep -q 'gate-s3cret-value' /tmp/gate-$$.body && ! git -C "$TMP/specialists/gate-writer" log -p --all 2>/dev/null | grep -q 'gate-s3cret-value' && ok "GET accesses -> names only, .secrets 0700 / 0600, value not in the API or git" || fail "GET accesses -> $r"
+held() { local r; r="$(sp "$1" "$2")"; echo "$r $(grep -c 'contains one of the bot' /tmp/gate-$$.body) $(grep -c 'gate-s3cret-value' /tmp/gate-$$.body)"; }
+r="$(held hl-shell '{"session":"claude-spec-gate-writer","cmd":"curl -H gate-s3cret-value x"}'), $(held hl-answer '{"session":"claude-spec-gate-writer","rid":"r1","decision":"deny","message":"use gate-s3cret-value"}'), $(held hl-answer '{"session":"claude-spec-gate-writer","rid":"r1","decision":"allow","answers":{"Which one?":"gate-s3cret-value"}}'), $(held hl-shell '{"session":"claude-spec-gate-writer","cmd":"echo hi"}')"
+[ "$r" = "409 1 0, 409 1 0, 409 1 0, 409 0 0" ] && ok "POST hl-shell / hl-answer on a bot chat holding a credential value -> 409, value not echoed; a plain command passes the check" || fail "POST hl-shell / hl-answer credential check -> $r"
+r="$(sp specialist/gate-writer/accesses/GATE_TOKEN/delete '') $(sp specialist/gate-writer/accesses/GATE_TOKEN/delete '') $(get /api/specialist/gate-nope/train/history | cut -d' ' -f1)"
+[ "$r" = "200 404 404" ] && ok "POST accesses delete -> 200, again -> 404; unknown specialist train history -> 404" || fail "POST accesses delete / unknown -> $r"
+r="$(sp specialist '{"name":"gate-scout","provider":"openai"}') $(sp specialist '{"name":"gate-scout","provider":"grok","model":"x"}') $(sp specialist '{"name":"gate-scout","provider":"openai","model":"gpt-5"}')"
+[ "$r" = "400 400 201" ] && ok "POST specialist openai without model / reserved provider -> 400, with model -> 201" || fail "POST specialist provider -> $r $(head -c 200 /tmp/gate-$$.body)"
+r="$(sp specialist/gate-scout/ask '{"text":"x"}')"
+[ "$r" = 409 ] && grep -q '"no key for openai: ' /tmp/gate-$$.body && [ "$(get /api/specialist/gate-scout | cut -d' ' -f1)" = 200 ] && grep -q '"keyError":"no key for openai: ' /tmp/gate-$$.body && [ ! -e "$TMP/providers.json" ] && ok "POST specialist ask without a key -> 409 no key, GET shows keyError" || fail "POST specialist ask without a key -> $r $(head -c 200 /tmp/gate-$$.body)"
+GSK="$SKH/.claude/skills/specialist-gate-writer/SKILL.md"
+r="$(sp specialist/gate-writer/skill/sync '{"force":true}') $(jq1 'j.ok&&j.skill.name==="specialist-gate-writer"&&j.skill.accounts.map(a=>a.account+":"+a.state).join(",")') $(sp specialist/gate-writer/skill/sync '{"force":1}') $(sp specialist/gate-nope/skill/sync '{}')"
+[ "$r" = "200 personal:ok 400 404" ] && grep -q '^<!-- beast-dash generated skill · specialist: gate-writer · sha256: [0-9a-f]\{64\} -->$' "$GSK" && [ ! -e "$SKH/.claude-company" ] && ok "POST specialist skill/sync -> SKILL.md in the test home only, bad force -> 400, unknown -> 404" || fail "POST specialist skill/sync -> $r $(head -c 200 /tmp/gate-$$.body)"
 r="$(sp specialist/gate-writer/archive '')"
-[ "$r" = 200 ] && grep -q '"archivedAs":"_archive/gate-writer-' /tmp/gate-$$.body && [ -d "$TMP/specialists/_archive" ] && [ "$(get /api/specialist/gate-writer | cut -d' ' -f1)" = 404 ] && ok "POST specialist archive -> moved to _archive" || fail "POST specialist archive -> $r $(head -c 200 /tmp/gate-$$.body)"
+[ "$r" = 200 ] && [ ! -e "$GSK" ] && grep -q '"archivedAs":"_archive/gate-writer-' /tmp/gate-$$.body && [ -d "$TMP/specialists/_archive" ] && [ "$(get /api/specialist/gate-writer | cut -d' ' -f1)" = 404 ] && ok "POST specialist archive -> moved to _archive" || fail "POST specialist archive -> $r $(head -c 200 /tmp/gate-$$.body)"
 out="$(BEAST_DASH_PORT=1 "$TMP/bin/bd-ask" --list 2>&1)"; rc=$?
 [ $rc = 3 ] && [[ "$out" == *"cannot reach the dashboard"* ]] && ok "bd-ask with no dashboard -> exit 3" || fail "bd-ask unreachable -> rc=$rc $out"
 r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"id":"gate-tab-1","session":"claude-gate-nope"}' "$B/api/watching")"
@@ -179,6 +205,25 @@ r="$(hlpost hl-shell '{"session":"claude-gate-nope","cmd":"   "}') $(hlpost hl-s
 [ "$r" = "400 400 400 400" ] && ok "POST hl-shell / -stop / -drop bad input -> 400" || fail "POST hl-shell bad input -> $r"
 r="$(hlpost hl-shell-stop '{"session":"claude-gate-nope","id":"s-1"}') $(hlpost hl-shell-drop '{"session":"claude-gate-nope","id":"s-1"}')"
 [ "$r" = "400 400" ] && ok "POST hl-shell-stop / -drop non-chat session -> 400" || fail "POST hl-shell-stop / -drop non-chat session -> $r"
+r="$(hlpost send '{"session":"claude-spec-gate-bot","text":"hi"}') $(jq1 'j.error')"
+[ "$r" = "400 chat runner is not reachable" ] && ok "POST send to a claude-spec session that is no bot's thread goes straight to its runner" || fail "POST send unknown bot name chat -> $r"
+GL="$TMP/specialists/gate-lost"
+r="$(sp specialist '{"name":"gate-lost"}')"
+mkdir -p "$GL/.bd/runs" && chmod 700 "$GL/.bd" "$GL/.bd/runs" && printf '{"account":"personal","seq":0}\n' > "$GL/.bd/thread.json" && printf 'gate outside edit\n' > "$GL/style.md"
+r="$r $(hlpost send '{"session":"claude-spec-gate-lost","text":"hi"}')"
+[ "${r%% *}" = 201 ] && git -C "$GL" log --format=%s 2>/dev/null | grep -q '^Changes made outside training$' && ok "POST send to a bot's own thread goes through its teaching turn even when the record names no bot" || fail "POST send bot thread -> $r $(jq1 'j.error') $(git -C "$GL" log --format=%s 2>/dev/null | head -3 | tr '\n' '|')"
+r="$(hlpost schedule "{\"session\":\"claude-spec-gate-lost\",\"at\":$(( $(date +%s) * 1000 + 3600000 )),\"prompts\":[\"use gate-lost-s3cret-value\"]}")"; GJ="$(jq1 'j.job.id')"
+r="$r $(sp specialist/gate-lost/accesses '{"name":"GATE_LOST","value":"gate-lost-s3cret-value"}') $(hlpost schedule-now "{\"id\":\"$GJ\"}") $(jq1 'j.error')"
+json /api/state >/dev/null
+[ "$r" = "200 200 409 this message contains one of the bot's credentials; set credentials in the bot's settings" ] && [ "$(jq_ 'd.claude.schedule.some(j=>j.session==="claude-spec-gate-lost")')" = false ] && ok "POST schedule-now of a job holding a bot credential -> 409 and the job is not queued again" || fail "POST schedule-now credential -> $r"
+r="$(hlpost claude-resume "{\"cwd\":\"$GL\"}") $(jq1 'j.error') $(hlpost claude-resume "{\"cwd\":\"$TMP/specialists\"}")"
+[ "$r" = "409 a bot chat stays with its bot 409" ] && ok "POST claude-resume in a bot folder or the specialists root -> 409" || fail "POST claude-resume bot folder -> $r $(head -c 200 /tmp/gate-$$.body)"
+r="$(hlpost send '{"session":"claude-chat-gate-plain","text":"hi"}') $(jq1 'j.error')"
+[ "$r" = "400 chat runner is not reachable" ] && ok "POST send to a plain chat goes straight to its runner" || fail "POST send plain chat -> $r"
+r="$(hlpost handoff '{"session":"claude-spec-gate-bot"}') $(jq1 'j.error'), $(hlpost chat-fork '{"session":"claude-spec-gate-bot"}') $(jq1 'j.error')"
+[ "$r" = "409 a bot chat stays with its bot, 409 a bot chat stays with its bot" ] && ok "POST handoff / chat-fork of a bot chat -> 409" || fail "POST handoff / chat-fork bot chat -> $r"
+r="$(hlpost hl-shell-input '{"session":"claude-gate-nope","id":"s-1","text":"a\u0003b"}') $(hlpost hl-shell-input '{"session":"claude-gate-nope","id":"s-1","text":"a\nb"}') $(hlpost hl-shell-input '{"session":"claude-gate-nope","id":"s-1","text":"a\tb"}') $(hlpost hl-shell-input '{"session":"claude-gate-nope","id":"s-1","text":5}') $(hlpost hl-shell-input '{"session":"claude-gate-nope","id":"../x","text":"a"}') $(hlpost hl-shell-input '{"session":"claude-gate-nope","id":"s-1","text":"ok"}')"
+[ "$r" = "400 400 400 400 400 400" ] && ok "POST hl-shell-input control chars / bad id / non-chat session -> 400" || fail "POST hl-shell-input -> $r"
 gop() { local id="$1" d="$2"; shift 2; curl -s -m 30 -o /tmp/gate-$$.body -w '%{http_code}' -X POST -H 'content-type: application/json' "$@" -d "$d" "$B/api/git/$id/op"; }
 json /api/git/gate-nope/branches 404
 json /api/git/gate-nope/log 404
@@ -206,6 +251,41 @@ if [ -n "$GITP" ]; then
     r="$(gop "$GITP" '{"op":"nope"}' -H "$h")"; [ "$r" = 403 ] && ok "POST git op with $h -> 403" || fail "POST git op with $h -> $r"
   done
 fi
+
+echo "== auth (fake claude)"
+ap() { local ep="$1" d="$2"; shift 2; curl -s -m 15 -o /tmp/gate-$$.body -w '%{http_code}' -X POST -H 'content-type: application/json' "$@" -d "$d" "$B/api/auth/$ep"; }
+aq() { curl -s -m 5 -o /tmp/gate-$$.body "$B/api/state"; jq_ "(a=>($1))(d.claude.auth.personal)"; }
+awaitq() { for _ in $(seq 1 60); do [ "$(aq "$1")" = true ] && return 0; sleep 0.25; done; return 1; }
+[ "$(aq '["loggedIn","expiresAt","checkedAt","failed","needsLogin","retry","login"].every(k=>k in a)&&a.loggedIn===null&&a.checkedAt===null&&a.needsLogin===false&&Array.isArray(a.retry)&&a.login===null')" = true ] && ok "state claude.auth.personal: not checked at boot" || fail "claude.auth.personal shape $(head -c 300 /tmp/gate-$$.body | tr -d '\n')"
+[ -e "$TMP/fake-auth/status.log" ] && fail "claude auth status ran without a reason" || ok "claude auth status did not run at boot"
+r="$(ap check '{"account":"personal"}')"; [ "$r" = 200 ] && [ "$(jq_ 'd.ok&&d.auth.loggedIn===false&&d.auth.needsLogin===true&&d.auth.checkedAt>0')" = true ] && ok "POST auth/check -> logged out, needsLogin" || fail "POST auth/check logged out -> $r $(head -c 200 /tmp/gate-$$.body)"
+for d in '{"account":"nope"}' '{}' '{"account":"../personal"}'; do r="$(ap start "$d")"; [ "$r" = 400 ] && ok "POST auth/start $d -> 400" || fail "POST auth/start $d -> $r"; done
+for h in "Origin: https://evil.example" "Sec-Fetch-Site: cross-site"; do
+  r="$(ap start '{"account":"personal"}' -H "$h")"; [ "$r" = 403 ] && ok "POST auth/start with $h -> 403" || fail "POST auth/start with $h -> $r"
+  r="$(ap code '{"account":"personal","id":"x","code":"GOOD-fake-code-1234"}' -H "$h")"; [ "$r" = 403 ] && ok "POST auth/code with $h -> 403" || fail "POST auth/code with $h -> $r"
+done
+[ "$(aq 'a.login===null')" = true ] && ok "blocked start left no login" || fail "blocked start started a login"
+r="$(ap start '{"account":"personal"}')"; AID="$(jq_ 'd.ok&&d.login&&d.login.id')"
+[ "$r" = 200 ] && [ -n "$AID" ] && ok "POST auth/start -> 200 with a login id" || fail "POST auth/start -> $r $(head -c 200 /tmp/gate-$$.body)"
+awaitq 'a.login&&a.login.state==="waiting"&&/^https:\/\/claude\.com\/cai\/oauth\/authorize\?/.test(a.login.url)' && ok "login waiting with the oauth url" || fail "login not waiting $(head -c 300 /tmp/gate-$$.body)"
+for c in '"short"' '"has a space in it"' '"ctl\u0003char-code"' '"tab\tin-the-code"' '42'; do
+  r="$(ap code "{\"account\":\"personal\",\"id\":\"$AID\",\"code\":$c}")"; [ "$r" = 400 ] && ok "POST auth/code $c -> 400" || fail "POST auth/code $c -> $r"; done
+r="$(ap code '{"account":"nope","id":"x","code":"GOOD-fake-code-1234"}')"; [ "$r" = 400 ] && ok "POST auth/code unknown account -> 400" || fail "POST auth/code unknown account -> $r"
+r="$(ap code '{"account":"personal","id":"wrong","code":"GOOD-fake-code-1234"}')"; [ "$r" = 409 ] && [ "$(jq_ 'd.error')" = "Login expired, start again" ] && ok "POST auth/code wrong id -> 409 Login expired" || fail "POST auth/code wrong id -> $r $(head -c 200 /tmp/gate-$$.body)"
+r="$(ap code "{\"account\":\"personal\",\"id\":\"$AID\",\"code\":\"BAD-gate-secret-7777\"}")"; [ "$r" = 200 ] && ok "POST auth/code bad code -> 200" || fail "POST auth/code bad code -> $r"
+awaitq 'a.login&&a.login.state==="error"&&/^Login failed:/.test(a.login.message)' && ok "bad code -> error with the Login failed line" || fail "bad code state $(head -c 300 /tmp/gate-$$.body)"
+grep -q 'BAD-gate-secret' /tmp/gate-$$.body "$TMP/server.log" && fail "the pasted code shows in state or the server log" || ok "the pasted code is in neither state nor the server log"
+r="$(ap start '{"account":"personal"}')"; AID="$(jq_ 'd.login&&d.login.id')"
+awaitq 'a.login&&a.login.state==="waiting"' || fail "second login not waiting"
+r="$(ap code "{\"account\":\"personal\",\"id\":\"$AID\",\"code\":\"  GOOD-fake-code-1234 \"}")"; [ "$r" = 200 ] && ok "POST auth/code good code -> 200" || fail "POST auth/code good code -> $r"
+awaitq 'a.login&&a.login.state==="ok"&&a.loggedIn===true&&a.needsLogin===false&&a.failed===null' && ok "good code -> ok, logged in" || fail "good code state $(head -c 300 /tmp/gate-$$.body)"
+r="$(ap check '{"account":"personal"}')"; [ "$r" = 200 ] && [ "$(jq_ 'd.ok&&d.auth.loggedIn===true')" = true ] && ok "POST auth/check -> logged in" || fail "POST auth/check -> $r $(head -c 200 /tmp/gate-$$.body)"
+r="$(ap check '{"account":"nope"}')"; [ "$r" = 400 ] && ok "POST auth/check unknown account -> 400" || fail "POST auth/check unknown account -> $r"
+ap start '{"account":"personal"}' >/dev/null; r="$(ap cancel '{"account":"personal"}')"
+[ "$r" = 200 ] && [ "$(aq 'a.login===null')" = true ] && ok "POST auth/cancel -> login gone" || fail "POST auth/cancel -> $r"
+r="$(ap retry '{"session":"claude-gate-nope"}')"; [ "$r" = 409 ] && ok "POST auth/retry with nothing to retry -> 409" || fail "POST auth/retry nothing -> $r"
+r="$(ap retry '{"session":"bad name;x"}')"; [ "$r" = 400 ] && ok "POST auth/retry bad session -> 400" || fail "POST auth/retry bad session -> $r"
+r="$(ap nope '{}')"; [ "$r" = 404 ] && ok "POST auth/nope -> 404" || fail "POST auth/nope -> $r"
 
 echo "== guards"
 r="$(curl -s -m 5 "$B/api/transcribe?warm=1")"

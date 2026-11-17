@@ -150,7 +150,7 @@
         if (!message) toast(`Empty chat opened in ${c.name} (${ST.acct})`, 'ok');
         else if (!r.sent) { saveDraft(r.name, message); toast('Chat started, but the first message did not arrive (' + (r.error || 'runner not ready') + '). It is in the chat box — press Send.', 'err'); }
         else toast(`Chat started in ${c.name} (${ST.acct})`, 'ok');
-        finish(); openTerm(r.name);
+        finish(); openTerm(r.name, { chat: true });
       } catch (e) {
         status.classList.remove('hidden'); status.textContent = 'Could not start the chat: ' + e.message;
         G.busy = false; sendBtn.disabled = false; clipBtn.disabled = false; renderSend();

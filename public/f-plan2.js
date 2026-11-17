@@ -177,7 +177,6 @@
     if (!isLive(target)) { toast(NOT_LIVE, 'err'); return false; }
     const cl = claudeOf(target);
     if (cl.state === 'permission') { toast('Claude is at a permission prompt — answer it first', 'err'); return false; }
-    if (cl.mode !== 'chat' && cl.draft) { toast('Something is typed in the terminal — send or clear it first', 'err'); return false; }
     try { await api('send', { session: target, text }); } catch (e) { toast(e.message, 'err'); return false; }
     toast('Sent to ' + sessLabel(target), 'ok');
     return true;

@@ -34,7 +34,7 @@ then offers to replace your version on each run; answer no to keep it.
   folder or of another project's folder. It stops most accidents, not all. See [Uploaded files](claude-code.md#uploaded-files).
 - **Plans:** turn on ⚙ Settings → Plans. That links the `plan` command and adds the hook that tells a session about its
   plan. See [Plans](plans.md).
-- **New sessions:** `./install.sh` links the `bd-chat` and `bd-ask` commands. See [From an agent or a script](claude-code.md#from-an-agent-or-a-script).
+- **New sessions:** `./install.sh` links the `bd-chat`, `bd-bot` and `bd-ask` commands. See [From an agent or a script](claude-code.md#from-an-agent-or-a-script).
 - **Models:** nothing enforces the table. It is guidance the agent follows.
 
 ## The block
@@ -80,8 +80,11 @@ Use a plan for work with more than about 3 tasks or with parallel agents. If the
 - Never start one yourself: no `tmux new-session` for Claude, no `claude` in a background shell, no loading the dashboard's `lib/` code. The dashboard does not see such a session as a chat.
 - If `bd-chat` is missing, ask the user to open the chat from the dashboard.
 
-### Specialists
-- When the user asks for a specialist by name, or a task clearly matches one in `bd-ask --list` (for example drafting a message in the user's voice), run `bd-ask <name> "<task>"` instead of doing it in this session. It prints only the specialist's answer; pass it on and paste back only what is needed. `bd-ask --help` shows the rest.
+### Bots
+- When the user names a bot, or a task clearly matches one in `bd-bot --list` (for example drafting a message in the user's voice), use it. The last column of the list says how.
+- `skill` or `both`: load its skill, `specialist-<name>`, and do the work in this session, following the profile it points to. You keep the whole conversation and the files, so nothing gets lost in a summary. Read only the profile paths the skill names and never change the profile.
+- `agent`, or `both` when the work needs the bot's own credentials or tools, another provider or an independent view: run `bd-bot <name> "<task>"`. Pass the original material, not your summary of it: the text verbatim (`-` reads the task from stdin, `--source <file>` adds a file's text) and every file it needs with `--file`. It prints only the bot's answer; pass it on and paste back only what is needed.
+- Corrections or follow-ups to that answer go to the same call with `bd-bot --continue <runId> "<text>"`, never a fresh call. `bd-bot --help` shows the rest (`bd-ask` is the same command).
 
 ### Before calling work done
 - The project's checks pass.

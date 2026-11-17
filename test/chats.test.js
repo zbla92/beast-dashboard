@@ -240,3 +240,36 @@ test('once live state arrived, api writes go through', async () => {
   await t.ctx.api('settings', { a: 1 });
   assert.deepStrictEqual(t.calls, [['/api/settings', 'POST']]);
 });
+
+const selectionSrc = appSrc.slice(appSrc.indexOf('function chatSelected('), appSrc.indexOf('async function renderChatPane('));
+
+const bootSelection = ({ text = 'picked', collapsed = false, ancestor, active = null } = {}) => {
+  const sel = { isCollapsed: collapsed, rangeCount: 1, toString: () => text, getRangeAt: () => ({ commonAncestorContainer: ancestor }) };
+  const ctx = { getSelection: () => sel, document: { activeElement: active } };
+  vm.createContext(ctx);
+  vm.runInContext(selectionSrc, ctx);
+  return ctx;
+};
+
+const paneOf = (...inside) => ({ contains: n => inside.includes(n) });
+
+test('a selection inside the chat pane holds the rebuild', () => {
+  const answer = {};
+  assert.strictEqual(bootSelection({ ancestor: answer }).chatSelected(paneOf(answer)), true);
+});
+
+test('a collapsed or empty selection does not hold the rebuild', () => {
+  const answer = {};
+  assert.strictEqual(bootSelection({ ancestor: answer, collapsed: true }).chatSelected(paneOf(answer)), false);
+  assert.strictEqual(bootSelection({ ancestor: answer, text: '' }).chatSelected(paneOf(answer)), false);
+});
+
+test('a selection outside the chat pane does not hold the rebuild', () => {
+  assert.strictEqual(bootSelection({ ancestor: {} }).chatSelected(paneOf({})), false);
+});
+
+test('a selection in the composer does not hold the rebuild', () => {
+  const box = { tagName: 'TEXTAREA' };
+  const t = bootSelection({ ancestor: {}, active: box });
+  assert.strictEqual(t.chatSelected(paneOf(box, t.getSelection().getRangeAt(0).commonAncestorContainer)), false);
+});

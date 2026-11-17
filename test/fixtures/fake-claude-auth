@@ -1,0 +1,47 @@
+#!/usr/bin/env node
+'use strict';
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+const dir = process.env.FAKE_AUTH_DIR || path.join(os.tmpdir(), `bd-fake-claude-auth-${process.getuid()}`);
+const account = process.env.CLAUDE_CONFIG_DIR ? 'company' : 'personal';
+const file = path.join(dir, account + '.json');
+const GOOD = process.env.FAKE_AUTH_GOOD || 'GOOD-fake-code-1234';
+const read = () => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return { loggedIn: false }; } };
+const [cmd, sub] = process.argv.slice(2);
+
+if (cmd === 'auth' && sub === 'status') {
+  fs.mkdirSync(dir, { recursive: true });
+  fs.appendFileSync(path.join(dir, 'status.log'), account + '\n');
+  const s = read();
+  process.stdout.write(JSON.stringify({ loggedIn: !!s.loggedIn, authMethod: s.loggedIn ? 'claude.ai' : 'none', apiProvider: 'firstParty', configDirectory: process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), loginExpiresAt: s.expiresAt || null, email: s.loggedIn ? 'test@example.com' : null, orgName: null, subscriptionType: s.loggedIn ? 'max' : null }, null, 2) + '\n');
+  process.exit(s.loggedIn ? 0 : 1);
+}
+
+if (cmd === 'auth' && sub === 'login') {
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, account + '.pid'), String(process.pid));
+  const url = `https://claude.com/cai/oauth/authorize?code=true&client_id=fake-client&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&state=s${process.pid}`;
+  process.stdout.write(`Opening browser to sign in…\r\nIf the browser didn't open, visit: \x1b]8;;${url}\x1b\\${url}\x1b]8;;\x1b\\\r\nPaste code here if prompted > `);
+  const pending = { buf: '' };
+  process.stdin.setEncoding('utf8');
+  process.stdin.on('data', d => {
+    pending.buf += d;
+    const i = pending.buf.search(/[\r\n]/);
+    if (i < 0) return;
+    const code = pending.buf.slice(0, i).trim();
+    process.stdout.write(`\x1b[2K\rPaste code here if prompted > ${code}\r\n`);
+    if (code === GOOD) {
+      fs.writeFileSync(file, JSON.stringify({ loggedIn: true, expiresAt: new Date(Date.now() + 30 * 86400e3).toISOString() }));
+      process.stdout.write('Login successful.\r\n');
+      process.exit(0);
+    }
+    process.stdout.write(`\x1b[31mLogin failed: That code wasn't accepted (${code}). It may be incomplete, expired, already used, or from an earlier sign-in attempt. Sign in again to get a new code.\x1b[39m\r\n`);
+    process.exit(1);
+  });
+  return;
+}
+
+process.stderr.write(`fake-claude-auth: unsupported ${process.argv.slice(2).join(' ')}\n`);
+process.exit(2);
