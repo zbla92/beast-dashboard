@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Beast Dash Whisper: speech-to-text, on demand. Loaded but not started: the dashboard kickstarts it when the mic is
+     pressed and it exits by itself after a minute without work. Template: bin/whisper-unit.sh fills it in. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.beastdash.whisper</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__REPO__/whisper/run.sh</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>HOME</key><string>__HOME__</string>
+  </dict>
+  <key>RunAtLoad</key><false/>
+  <key>KeepAlive</key><false/>
+  <key>ProcessType</key><string>Interactive</string>
+  <key>StandardOutPath</key><string>__HOME__/Library/Logs/beast-dash/whisper.log</string>
+  <key>StandardErrorPath</key><string>__HOME__/Library/Logs/beast-dash/whisper.log</string>
+</dict>
+</plist>
