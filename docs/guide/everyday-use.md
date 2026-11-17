@@ -19,9 +19,10 @@
 - **Terminals** — the terminal panel with a session list. Inside a terminal: `Ctrl+Shift+←/→` switch,
   `Ctrl+Shift+↑` back.
 - **⌘K / Ctrl+K** — jump to any session or project, start Claude, run actions, search conversations.
-- **⛶ Full screen** (header, desktop) — the page's own full screen. In it a short Esc closes dialogs,
-  Downloads and previews, and reaches terminals, instead of leaving full screen; hold Esc to leave. The
-  browser's own full screen (F11, ⌃⌘F) keeps Esc for itself. Chrome and Edge, over HTTPS or localhost.
+- **Full screen** (desktop Chrome / Edge over HTTPS) — when the window is full screen, the first
+  click hands Esc to the page: a short Esc closes dialogs, Downloads and previews and says *Press Esc
+  again to leave full screen*; a second Esc within a few seconds leaves. In a terminal Esc goes to the
+  terminal as usual (hold Esc to leave).
 
 - **Tunnels** (⚙ → Tunnels) — loopback-only ports of running projects are forwarded onto the
   Tailscale IP automatically; *Rebuild all* after a resume; manual expose for anything else.
