@@ -21,7 +21,8 @@ FEAT.shell = (() => {
   }
 
   const LOGIN = /\bclaude(?:-personal|-company)?\b[^\n;&|]*\bauth\s+login\b/;
-  const loginAccount = (cmd, name) => /claude-company|\.claude-company|CLAUDE_CONFIG_DIR=\S*company/.test(cmd) ? 'company' : ((claudeOf(name) || {}).account || 'personal');
+  const viaConfigDir = cmd => { const m = /CLAUDE_CONFIG_DIR=(["']?)([^\s"';&|]*)\1/.exec(cmd); return !!(m && m[2]) && m[2].replace(/\/+$/, '').split('/').pop() !== '.claude'; };
+  const loginAccount = (cmd, name) => /claude-company|\.claude-company/.test(cmd) || viaConfigDir(cmd) ? 'company' : ((claudeOf(name) || {}).account || 'personal');
   const input = (name, body) => api('hl-shell-input', { session: name, ...body }).catch(x => toast(x.message, 'err'));
 
   function waitPanel(e, name) {

@@ -85,7 +85,7 @@ function writeFileAtomic(f, text) {
 
 function accountDirs(home) {
   const dirs = [path.join(home, '.claude')];
-  const company = require('../lib/accounts').companyDir({ ...process.env, HOME: home });
+  const company = require('../lib/accounts').companyDirIn(home);
   if (fs.existsSync(company)) dirs.push(company);
   return dirs;
 }
