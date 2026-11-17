@@ -205,9 +205,15 @@ svg.ico { flex: none; vertical-align: -.17em; }
 .badge.acc { font-size: var(--fs-2xs); line-height: 16px; padding: 0 6px; }
 .badge.acc.company { color: var(--blue); border-color: color-mix(in srgb, var(--blue) 35%, transparent); }
 .badge.acc.personal { color: var(--green); border-color: color-mix(in srgb, var(--green) 32%, transparent); }
-textarea, input.txt, .txt { width: 100%; background: var(--bg); border: 1px solid var(--line2); border-radius: var(--r); color: var(--text); padding: 9px 11px; font: inherit; font-size: var(--fs-md); outline: 0; transition: border-color .15s, box-shadow .15s; }
+textarea, .txt { width: 100%; background: var(--bg); border: 1px solid var(--line2); border-radius: var(--r); color: var(--text); padding: 9px 11px; font: inherit; font-size: var(--fs-md); outline: 0; transition: border-color .15s, box-shadow .15s, background .15s; }
 textarea { font-family: var(--mono); font-size: var(--fs-sm); min-height: 120px; resize: vertical; }
-textarea:focus, .txt:focus { border-color: color-mix(in srgb, var(--accent) 65%, transparent); }
+textarea:focus { border-color: color-mix(in srgb, var(--accent) 65%, transparent); }
+.txt { background: rgba(8,8,10,.42); line-height: 1.4; }
+.txt:where(input, select) { min-height: 38px; padding: 0 12px; }
+.txt:where(textarea) { padding: 9px 12px; }
+.txt:hover { border-color: color-mix(in srgb, var(--text) 28%, transparent); }
+.txt:focus { border-color: var(--accent); background: rgba(8,8,10,.6); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+.txt::placeholder { color: var(--dim); opacity: 1; }
 select { background: var(--panel2); border: 1px solid var(--line2); color: var(--text); border-radius: var(--r-sm); padding: 6px 10px; font: inherit; font-size: var(--fs-md); }
 input[type=checkbox] { accent-color: var(--accent); }
 .seg { display: inline-flex; flex: none; gap: 2px; padding: 3px; border-radius: var(--r); background: var(--fill); border: 0; }

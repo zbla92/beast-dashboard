@@ -1,0 +1,28 @@
+input.txt[readonly], input.txt:disabled, select.txt:disabled { color: var(--dim); background: var(--fill); cursor: default; }
+input.txt:disabled, select.txt:disabled { cursor: not-allowed; }
+input.txt:disabled:hover, input.txt[readonly]:hover { border-color: var(--line2); }
+select.txt, select.txt:focus { padding-right: 34px; appearance: none; -webkit-appearance: none; text-overflow: ellipsis; cursor: pointer; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23979ba4' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; }
+select.txt option { background: var(--glass-solid); color: var(--text); }
+input.txt.sm { padding: 0 10px; }
+input.txt[type=time]::-webkit-calendar-picker-indicator { opacity: .55; cursor: pointer; }
+input.txt[type=time]::-webkit-calendar-picker-indicator:hover { opacity: .9; }
+input[type=checkbox]:not(.sw input) { appearance: none; -webkit-appearance: none; flex: none; width: 18px; height: 18px; margin: 0; border: 1px solid var(--line2); border-radius: 5px; background: rgba(8,8,10,.42) center / 12px no-repeat; cursor: pointer; vertical-align: middle; transition: background-color .15s, border-color .15s, box-shadow .15s; }
+input[type=checkbox]:not(.sw input):hover { border-color: color-mix(in srgb, var(--text) 40%, transparent); }
+input[type=checkbox]:not(.sw input):checked { border-color: var(--accent); background-color: var(--accent); background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230c0d12' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 12.5 4.5 4.5L19 7'/%3E%3C/svg%3E"); }
+input[type=checkbox]:not(.sw input):focus-visible { outline: 0; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent); }
+.modal label.sw, .sw { display: inline-block; width: 40px; height: 24px; margin: 0; }
+.sw i { background: var(--fill2); box-shadow: inset 0 0 0 1px var(--line2); transition: background .2s, box-shadow .2s; }
+.sw i::after { top: 3px; left: 3px; width: 18px; height: 18px; background: var(--muted); box-shadow: 0 1px 3px rgba(0,0,0,.35); transition: transform .2s var(--ease), background .2s; }
+.sw input:checked + i { background: var(--accent); box-shadow: none; }
+.sw input:checked + i::after { transform: translateX(16px); background: #fff; }
+.sw input:focus-visible + i { outline: 0; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent); }
+.sr-c .txt { width: 240px; }
+.sr-c .txt.sm { width: 104px; }
+@media (max-width: 900px) {
+  .sr-c .txt, .sr-c .txt.sm { width: 100%; }
+  .sr-c .qh .txt.sm { width: 104px; }
+}
+@media (pointer: coarse) {
+  .txt:where(input, select) { min-height: 44px; }
+}
+.txt.lfilt { min-height: 0; }
