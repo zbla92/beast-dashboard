@@ -2756,7 +2756,7 @@ function tabRecent(el, p) {
 function settingsModal() {
   const s = S.settings; const m = $('#modal'); m.classList.remove('hidden');
   // iOS-style grouped settings: a titled group of rows, label + hint on the left, the control on the right
-  const sect = (title, ...rows) => h('section', { class: 'sg' }, h('div', { class: 'sg-t' }, title), h('div', { class: 'sg-b' }, ...rows.filter(Boolean)));
+  const sect = (id, title, icon, tint, ...rows) => h('section', { class: 'sg sm-pane', 'data-sec': id, 'data-title': title, 'data-icon': icon, 'data-tint': tint }, h('div', { class: 'sg-t' }, h('span', { class: 'sg-ic', style: `--tint:${tint}` }, ico(icon, 16)), title), h('div', { class: 'sg-b' }, ...rows.filter(Boolean)));
   const row = (label, hint, ctl, cls = '') => h('div', { class: 'sr ' + cls }, h('div', { class: 'sr-l' }, h('div', { class: 'sr-k' }, label), hint ? h('div', { class: 'sr-h' }, hint) : null), h('div', { class: 'sr-c' }, ctl));
   const sw = (checked, attrs = {}) => h('label', { class: 'sw' }, h('input', { type: 'checkbox', checked, ...attrs }), h('i'));
   const txt = (k, extra = {}) => { const i = h('input', { class: 'txt', value: s[k] ?? '', ...extra }); i.dataset.k = k; return i; };
@@ -2767,47 +2767,61 @@ function settingsModal() {
   const wsLast = r => !r ? '' : ' · last ' + new Date(r.at).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' }) + ' ' + (r.ok == null ? 'sending…' : r.ok ? 'ok' : 'failed' + (r.error ? ': ' + r.error : ''));
   const wsRow = a => { if (!(S.host.accounts || ['personal']).includes(a)) return null; const c = s.windowStart?.[a] || {}; return row('Start the 5-hour window', 'one tiny message at the start time if no window is running, then at every reset until the end time' + wsLast(S.claude?.windowStart?.[a]), h('span', { class: 'qh' }, sw(!!c.on, { 'data-ws': a }), h('input', { class: 'txt sm', type: 'time', value: c.start || '07:00', 'data-ws-start': a }), h('span', { class: 'dim' }, '–'), h('input', { class: 'txt sm', type: 'time', value: c.end || '22:00', 'data-ws-end': a }))); };
   const qf = h('input', { class: 'txt sm', type: 'time', value: n.quietFrom || '', 'data-q': 'quietFrom' }); const qt = h('input', { class: 'txt sm', type: 'time', value: n.quietTo || '', 'data-q': 'quietTo' });
-  const box = h('div', { class: 'box settings' },
-    h('div', { class: 'sh' }, h('h3', null, 'Settings'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', onclick: () => m.classList.add('hidden') }, ico('x', 15))),
-    h('div', { class: 'sbody' },
-      sect('Tools',
+  const panes = [
+      sect('tools', 'Tools', 'hammer', 'var(--amber)',
         row('Tunnels', `${S.runtime.exposures.length} loopback ports forwarded onto ${S.host.tsIp || 'the tailscale IP'} (socat) so your laptop reaches them without ssh -L`, h('button', { class: 'btn sm', onclick: () => { m.classList.add('hidden'); UI.showTunnels = true; renderTunnels(); window.scrollTo(0, 0); } }, 'Open')),
         row('Auto-expose', 'forward every loopback-bound project port automatically', h('label', { class: 'sw' }, auto, h('i'))),
         row('Projects', `rescan ${home(S.host.devRoot || '~')} for new folders`, h('button', { class: 'btn sm', onclick: () => act('Rescan', api('rescan', {})) }, 'Rescan')),
         row('State backup', 'nightly tar of sessions, labels, push subscriptions, settings, schedule — 7 kept', h('a', { href: '/api/backup', class: 'btn sm' }, 'Download')),
         row('Cached app on this device', 'app files kept here so it opens without waiting for the network · clear it if the app looks broken', h('button', { class: 'btn sm', onclick: () => clearDevice().then(() => location.reload()) }, 'Clear'))),
-      sect('Notifications',
+      sect('notifications', 'Notifications', 'bell', 'var(--pink)',
         ncb('done', 'Session finished'), ncb('permission', 'Needs permission'), ncb('error', 'Session error'), ncb('limit', 'Usage limit hit'), ncb('crash', 'Dev server died'), ncb('system', 'Server too hot / out of memory / runaway process / battery low'), ncb('digest', 'Monday weekly digest'), row('Morning summary', '08:00 — tasks to review, sessions that need you, yesterday\'s spend', sw(n.daily !== false, { 'data-n': 'daily' })),
         row('Quiet hours', 'no push between these times', h('span', { class: 'qh' }, qf, h('span', { class: 'dim' }, '–'), qt)),
         row('Sound', 'ding on this device when a session needs you', sw(SOUND.on, { onchange: e => { SOUND.on = e.target.checked; localStorage.setItem('bd.sound', SOUND.on ? '1' : '0'); if (SOUND.on) ding('done'); } })),
         row('Push', PUSH.supported ? `${S.host.pushSubs || 0} device(s) subscribed · ` + (PUSH.sub ? 'enabled here' : 'not enabled on this device') : 'needs HTTPS (service worker) — open via https://' + (S.host.tsName || '<magicdns-name>'),
           PUSH.supported ? h('span', { class: 'qh' }, PUSH.sub ? h('button', { class: 'btn sm', onclick: () => disablePush().then(() => m.classList.add('hidden')) }, 'Disable') : h('button', { class: 'btn sm primary', onclick: () => enablePush().then(() => m.classList.add('hidden')) }, 'Enable'), h('button', { class: 'btn sm ghost', onclick: () => api('push-test', {}).then(r => toast(`test sent to ${r.sent || 0} device(s)`)) }, 'Test')) : null),
         (s.muted || []).length ? row('Muted sessions', s.muted.join(', '), h('span', { class: 'dim', style: 'font-size:11.5px' }, 'bell in the terminal bar')) : null),
-      s.sleepButton ? sect('Power',
+      s.sleepButton ? sect('power', 'Power', 'power', 'var(--red)',
         row('Sleep', 'suspend the server now — it wakes itself ' + (S.host.nextWake ? 'on ' + new Date(S.host.nextWake).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) + ' (Mon–Fri 07:00)' : 'at 07:00 on weekdays'), h('button', { class: 'btn sm', onclick: sleepModal }, gl('☾ Sleep…')))) : null,
-      sect('Sessions',
+      sect('sessions', 'Sessions', 'terminal', 'var(--green)',
         row('Auto-restore after reboot', 'claude --resume in the same folders as soon as the dashboard starts', sw(!!s.autoRestore, { id: 'set-autorestore' })),
         row('Continue after a usage limit', 'chat sessions only · sends "continue" a minute after the limit resets, if nothing was sent since', sw(!!s.autoResume, { id: 'set-autoresume' })),
         row('Messages while Claude works', 'chat sessions, this device · ' + (IS_PHONE ? 'the send button does this, the second button the other' : 'Enter does this, Alt+Enter the other'), h('span', { class: 'seg' }, [['steer', 'Send now'], ['queue', 'After the turn']].map(([v, l]) => h('button', { class: 'segb' + (followUp() === v ? ' on' : ''), title: v === 'steer' ? 'goes into the running turn — Claude reads it at its next step' : 'waits in the queue and goes out when the turn is over', onclick: ev => { FEAT.queue?.setFollowUp(v); for (const b of ev.currentTarget.parentElement.children) b.classList.toggle('on', b === ev.currentTarget); renderChatPane(true); } }, l)))),
         row('Full-width chat', 'this device · the chat uses the whole pane instead of a centred column', sw(chatWide(), { onchange: e => setChatWide(e.target.checked) })),
         row('Update Claude Code automatically', 'checks every hour and installs a new release. If that fails, Home shows an Update button', sw(s.claudeAutoUpdate !== false, { id: 'set-claudeupdate' })),
         row('Move chats to a new Claude Code', 'when a new version passes the start check, chat sessions restart on it one by one (idle now, busy ones after their turn)', sw(s.chatAutoUpgrade !== false, { id: 'set-chatupgrade' }))),
-      sect('Plans',
+      sect('plans', 'Plans', 'checkSquare', 'var(--purple)',
         row('Plans', 'Agents keep plans outside repos; show them on sessions', sw(!!s.plans, { id: 'set-plans' }))),
-      sect('Claude accounts',
+      sect('accounts', 'Claude accounts', 'sparkle', 'var(--indigo)',
         row(acct('personal') + ' (~/.claude)', 'name shown on cards and badges', h('input', { class: 'txt', value: s.accountLabels?.personal ?? 'Personal', 'data-acct': 'personal' })),
         wsRow('personal'),
         row(acct('company') + ' (~/.claude-company)', 'second login via CLAUDE_CONFIG_DIR — leave as is if you only use one', h('input', { class: 'txt', value: s.accountLabels?.company ?? 'Company', 'data-acct': 'company' })),
         wsRow('company')),
-      sect('Connection',
+      sect('connection', 'Connection', 'link', 'var(--cyan)',
         row('SSH host alias', 'as in ~/.ssh/config on your laptop · used for VS Code links and copied ssh commands', txt('sshHost', { placeholder: 'myserver' })),
         row('SSH user', 'empty if the alias sets it', txt('sshUser')),
         row('Public host for port links', `empty = ${S.host.tsIp || 'tailscale IP'}${S.host.tsName ? ' · "' + S.host.tsName + '" if MagicDNS works' : ''}`, txt('publicHost', { placeholder: S.host.tsIp || '' })),
         row('Dev root', 'folder scanned for projects', txt('devRoot')),
         row('Scan depth', '', txt('scanDepth', { type: 'number', class: 'txt sm' }))),
-      hidden.length ? sect('Hidden projects', ...hidden.map(id => row(id, '', h('button', { class: 'btn sm', onclick: () => api('project', { id, hidden: false }).then(() => { m.classList.add('hidden'); toast('unhidden'); }) }, 'Unhide')))) : null),
+      hidden.length ? sect('hidden', 'Hidden projects', 'eyeOff', 'var(--dim)', ...hidden.map(id => row(id, '', h('button', { class: 'btn sm', onclick: () => api('project', { id, hidden: false }).then(() => { m.classList.add('hidden'); toast('unhidden'); }) }, 'Unhide')))) : null
+  ].filter(Boolean);
+  const KEY = 'bd.settingsSection';
+  const title = h('h3', null, 'Settings');
+  const back = h('button', { class: 'btn sm ghost icon sm-back', title: 'back', 'aria-label': 'back', onclick: () => { box.classList.remove('sm-open'); title.textContent = 'Settings'; } }, ico('arrowLeft', 15));
+  const items = panes.map(p => h('button', { class: 'sm-item', 'data-sec': p.dataset.sec, style: `--tint:${p.dataset.tint}`, onclick: () => { show(p.dataset.sec, true); try { localStorage.setItem(KEY, p.dataset.sec); } catch {} } }, h('span', { class: 'sm-ico' }, ico(p.dataset.icon, 16)), h('span', { class: 'sm-nm' }, p.dataset.title), h('span', { class: 'sm-go' }, ico('chevronRight', 14))));
+  const show = (id, open) => {
+    const cur = panes.find(x => x.dataset.sec === id) || panes[0];
+    for (const x of panes) x.classList.toggle('on', x === cur);
+    for (const i of items) i.classList.toggle('on', i.dataset.sec === cur.dataset.sec);
+    title.textContent = open && IS_PHONE ? cur.dataset.title : 'Settings';
+    box.classList.toggle('sm-open', !!open);
+  };
+  const box = h('div', { class: 'box settings setmodal' },
+    h('div', { class: 'sh' }, back, title, h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', onclick: () => m.classList.add('hidden') }, ico('x', 15))),
+    h('div', { class: 'sbody sm-wrap' }, h('nav', { class: 'sm-nav', 'aria-label': 'Settings sections' }, items), h('div', { class: 'sm-main' }, panes)),
     h('div', { class: 'foot' }, h('button', { class: 'btn ghost', onclick: () => m.classList.add('hidden') }, 'Cancel'), h('button', { class: 'btn primary', onclick: async () => { const patch = { autoExpose: auto.checked, autoRestore: !!box.querySelector('#set-autorestore')?.checked, autoResume: !!box.querySelector('#set-autoresume')?.checked, chatAutoUpgrade: !!box.querySelector('#set-chatupgrade')?.checked, claudeAutoUpdate: !!box.querySelector('#set-claudeupdate')?.checked, plans: !!box.querySelector('#set-plans')?.checked, notify: { ...(s.notify || {}) } }; for (const i of box.querySelectorAll('input[data-n]')) patch.notify[i.dataset.n] = i.checked; for (const i of box.querySelectorAll('input[data-q]')) patch.notify[i.dataset.q] = i.value; for (const i of box.querySelectorAll('input[data-k]')) patch[i.dataset.k] = i.type === 'number' ? +i.value : i.value.trim(); patch.accountLabels = { ...(s.accountLabels || {}) }; for (const i of box.querySelectorAll('input[data-acct]')) patch.accountLabels[i.dataset.acct] = i.value.trim() || i.dataset.acct; const ws = box.querySelectorAll('input[data-ws]'); if (ws.length) { patch.windowStart = { ...(s.windowStart || {}) }; for (const i of ws) { const a = i.dataset.ws; patch.windowStart[a] = { on: i.checked, start: box.querySelector(`input[data-ws-start="${a}"]`).value || '07:00', end: box.querySelector(`input[data-ws-end="${a}"]`).value || '22:00' }; } } await act('Settings saved', api('settings', patch)); m.classList.add('hidden'); } }, 'Save')));
   m.replaceChildren(box);
+  show((() => { try { return localStorage.getItem(KEY); } catch { return null; } })());
   m.onclick = e => { if (e.target === m) m.classList.add('hidden'); };
 }
 
