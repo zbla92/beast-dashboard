@@ -9,7 +9,9 @@ On a project card, **✦ Claude ▾** has *New chat* (type the first message), t
 chats already running there (click to open), *Resume last chat in this folder* and *Chat in a git
 worktree…* (a new branch and folder under `.claude/worktrees`, so two agents never edit the same
 files). Two Claude Code logins are supported: the default `~/.claude`, and a second one kept in
-`~/.claude-company`. What they are called on the cards is
+`~/.claude-company`, or in the folder `BD_COMPANY_DIR` names if yours lives elsewhere (e.g. `~/.claude-work`: run
+`systemctl --user edit beast-dash`, add `Environment=BD_COMPANY_DIR=%h/.claude-work` under `[Service]`, restart, then
+re-run `node bin/install-hooks.js`). What they are called on the cards is
 yours — ⚙ Settings → *Claude accounts* (e.g. "Me" / "Work"). The second one is optional; if the
 folder doesn't exist, nothing mentions it. Sessions are listed in a fixed order (by org, then project)
 that never changes with their state. Git worktrees are not listed as
