@@ -2596,9 +2596,10 @@ function fileIcon(name) {
 }
 // Highlight a whole text and return one HTML string per line. hljs spans can cross lines (block comments, template
 // strings), so open spans are closed at each line end and reopened on the next line.
+const MAX_LINE = 4000;
 function hlLines(text, lang) {
   const H = window.hljs;
-  if (!H || !lang || !H.getLanguage(lang) || text.length > 600000) return text.split('\n').map(esc);
+  if (!H || !lang || !H.getLanguage(lang) || text.length > 200000) return text.split('\n').map(esc);
   let html; try { html = H.highlight(text, { language: lang, ignoreIllegals: true }).value; } catch { return text.split('\n').map(esc); }
   const out = []; const open = []; let cur = '';
   const re = /<span class="([^"]*)">|<\/span>|\n|[^<\n]+|</g; let m;
@@ -2686,6 +2687,7 @@ function tabFiles(el, p, o = {}) {
     function render() {
       prev.innerHTML = '';
       const showDiff = wantDiff && diff && !diff.error && diff.text;
+      const isHtml = /\.html?$/i.test(e.name), htmlSource = st.mode === 'source';
       const bar = h('div', { class: 'fbar' },
         fileIcon(e.name), h('span', { class: 'fpath mono', title: e.path }, e.path.includes('/') ? h('span', { class: 'fdir' }, e.path.slice(0, e.path.lastIndexOf('/') + 1)) : null, h('span', { class: 'fbase' }, e.name)),
         status ? h('span', { class: 'chst s' + (status === '?' ? 'Q' : status), title: STATUS_TITLE[status] || status }, status) : null,
@@ -2693,6 +2695,7 @@ function tabFiles(el, p, o = {}) {
         h('span', { class: 'sp' }),
         status ? h('button', { class: 'btn sm' + (showDiff ? ' primary' : ''), title: 'show what changed', onclick: () => { st.mode = 'diff'; showFile(e); } }, gl('± diff')) : null,
         o.select ? null : h('button', { class: 'btn sm' + (!showDiff && !st.editing ? ' primary' : ''), title: 'show the whole file', onclick: () => { st.mode = 'content'; st.editing = false; showFile(e); } }, gl('▤ content')),
+        isHtml && !showDiff && !st.editing ? h('button', { class: 'btn sm', title: htmlSource ? 'show the page rendered' : 'show the HTML source', onclick: () => { st.mode = htmlSource ? 'content' : 'source'; render(); } }, gl(htmlSource ? '◫ rendered' : '‹› source')) : null,
         !o.noEdit && !content.error && !content.binary && !content.truncated ? h('button', { class: 'btn sm' + (st.editing ? ' primary' : ''), title: 'edit in place (simple text editor)', onclick: () => { st.mode = 'content'; st.editing = true; render(); } }, gl('✎ edit')) : null,
         h('a', { class: 'btn sm', href: `/api/download/${p.id}?path=${encodeURIComponent(e.path)}&inline=1`, target: '_blank', rel: 'noopener', title: 'open in a new tab' }, gl(o.select ? '↗ Open' : '↗ open')),
         h('a', { class: 'btn sm' + (o.select ? ' primary' : ''), href: `/api/download/${p.id}?path=${encodeURIComponent(e.path)}`, download: e.name, title: 'download this file' }, gl(o.select ? '⇩ Download' : '⇩ download')),
@@ -2712,9 +2715,11 @@ function tabFiles(el, p, o = {}) {
       if (media === 'img') { prev.append(h('div', { class: 'fmedia' }, h('img', { src: raw, alt: e.name }))); return; }
       if (media === 'pdf') { prev.append(h('iframe', { class: 'fmedia pdf', src: raw, title: e.name })); return; }
       if (media === 'video') { prev.append(h('div', { class: 'fmedia' }, h('video', { src: raw, controls: true }))); return; }
+      if (isHtml && !htmlSource) { const frame = h('iframe', { class: 'fmedia pdf', title: e.name }); frame.setAttribute('sandbox', ''); frame.src = raw; prev.append(frame); return; }
       if (content.binary) { prev.append(h('div', { class: 'dim', style: 'padding:20px' }, 'binary file — use download')); return; }
       if (status && diff && diff.error) prev.append(h('div', { class: 'dim', style: 'padding:6px 12px' }, 'diff: ' + diff.error));
-      const lines = hlLines(content.text, langOf(e.name));
+      const clipped = content.text.split('\n').map(l => l.length > MAX_LINE ? l.slice(0, MAX_LINE) + ` … [${l.length - MAX_LINE} more characters hidden]` : l).join('\n');
+      const lines = hlLines(clipped, langOf(e.name));
       prev.append(h('pre', { class: 'fcode hljs' }, lines.map((l, i) => h('div', { class: 'ln' }, h('span', { class: 'n' }, i + 1), h('span', { class: 't', html: l || ' ' }))), content.truncated ? h('div', { class: 'dim' }, '… truncated (2 MB shown) — download for the whole file') : null));
     }
   };
