@@ -97,7 +97,7 @@ body.chat-wide { --chat-col: 100%; --chat-user-max: 100%; }
 .tg-sum .tcar { order: -1; width: 14px; text-align: center; font-size: 15px; }
 .tg-sum .tlab { font-size: var(--fs-sm); font-weight: 600; color: var(--muted); }
 .tg-sum .tsub { color: var(--dim); }
-.tgroup.run > .tg-sum .tlab { color: var(--text); }
+.tgroup.trun > .tg-sum .tlab { color: var(--text); }
 .tgroup.open > .tg-body { gap: 2px; margin: 2px 0 2px; padding-left: 0; border-left: 0; }
 .trow.open > .tr-body { padding: 2px 0 8px 26px; }
 .trow.err > .tr-sum .tlab { color: var(--red); }

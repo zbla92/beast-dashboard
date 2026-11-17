@@ -1754,7 +1754,7 @@ function toolRow(t, ctx) {
   const L = toolLook(t); const key = t.id; const open = CHAT.open.has(key);
   const st = !t.done && !t.stale ? h('span', { class: 'spin' }) : t.error ? h('span', { class: 'terrx' }, ico('x', 13)) : null;
   const body = h('div', { class: 'tr-body' });
-  const row = h('div', { class: 'trow t-' + L.cat + (L.sub ? '' : ' bare') + (open ? ' open' : '') + (t.error ? ' err' : '') + (!t.done && !t.stale ? ' run' : '') });
+  const row = h('div', { class: 'trow t-' + L.cat + (L.sub ? '' : ' bare') + (open ? ' open' : '') + (t.error ? ' err' : '') + (!t.done && !t.stale ? ' trun' : '') });
   const load = async () => {
     const cached = CHAT.detail.get(key); if (cached) { body.replaceChildren(...[toolDetailView(cached)].flat(2).filter(Boolean)); if (cached.done || !t.done && CHAT.liveAt.get(key) > Date.now() - 8000) return; }   // running: refresh at most every 8 s
     else body.replaceChildren(h('div', { class: 'dim tnone' }, 'loading…'));
@@ -1780,7 +1780,7 @@ function assistantTurn(turn, ctx) {
     if (!run.length) return; const tools = run; run = [];
     if (tools.length === 1) { el.append(toolRow(tools[0], ctx)); return; }
     const key = 'g:' + tools[0].id; const live = tools.some(t => !t.done && !t.stale); if (tools.some(t => CHAT.open.has(t.id))) CHAT.open.add(key); const open = CHAT.open.has(key);
-    const g = h('div', { class: 'tgroup' + (open ? ' open' : '') + (live ? ' run' : '') });
+    const g = h('div', { class: 'tgroup' + (open ? ' open' : '') + (live ? ' trun' : '') });
     const body = h('div', { class: 'tg-body' }, tools.map(t => toolRow(t, ctx)));
     const cur = live ? tools.filter(t => !t.done && !t.stale).pop() : null;
     g.append(h('button', { class: 'tg-sum', onclick: () => { const o = !g.classList.contains('open'); g.classList.toggle('open', o); o ? CHAT.open.add(key) : CHAT.open.delete(key); } },

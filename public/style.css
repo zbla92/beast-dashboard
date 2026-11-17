@@ -1053,7 +1053,7 @@ body.term-open { overflow: hidden; }
 .tcar { flex: none; color: var(--dim); transition: transform .15s; font-size: var(--fs-md); line-height: 1; }
 .trow.open > .tr-sum .tcar, .tgroup.open > .tg-sum .tcar { transform: rotate(90deg); }
 .trow.err > .tr-sum .tlab { color: var(--red); }
-.trow.run > .tr-sum, .tgroup.run > .tg-sum { color: var(--text); }
+.trow.trun > .tr-sum, .tgroup.trun > .tg-sum { color: var(--text); }
 .tr-sum .spin, .tg-sum .spin { width: 11px; height: 11px; flex: none; }
 .tr-body, .tg-body { display: none; }
 .trow.open > .tr-body { display: flex; flex-direction: column; gap: 6px; padding: 2px 0 6px 29px; min-width: 0; }
