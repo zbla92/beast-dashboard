@@ -71,7 +71,7 @@
     const title = h('h3', null, gl('◇ Subagents'));
     const back = h('button', { class: 'btn sm ghost', onclick: () => { st.agent = null; draw(); } }, gl('← all'));
     const body = h('div', { class: 'sa-body' });
-    box = h('div', { class: 'box sa-box' }, h('div', { class: 'sa-head' }, back, title, h('span', { class: 'sa-sp' }), h('span', { class: 'dim mono sa-sess' }, name), h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', onclick: close }, ico('x', 15))), body);
+    box = h('div', { class: 'box sa-box' }, h('div', { class: 'sa-head' }, back, title, typeof helpTip === 'function' ? helpTip('subagents') : null, h('span', { class: 'sa-sp' }), h('span', { class: 'dim mono sa-sess' }, name), h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', onclick: close }, ico('x', 15))), body);
     m.replaceChildren(box); m.onclick = onOut;
     let list = (DATA.get(name)?.j?.agents) || null; let detail = null; let want = agentId || null;
 

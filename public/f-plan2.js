@@ -804,6 +804,7 @@
     return [
       h('div', { class: 'fp2-row' },
         h('button', { class: 'fp2-pname' + (EXP.menu ? ' on' : ''), 'aria-expanded': String(EXP.menu), title: planLabel(p), onclick: toggleList }, h('span', { class: 'fp2-ptopic' }, p.topic), h('small', null, ico(EXP.menu ? 'chevronUp' : 'chevronDown', 11), others > 0 ? ` +${others}` : '')),
+        typeof helpTip === 'function' ? helpTip('plans') : null,
         h('span', { class: 'fp2-sp' }),
         h('button', { class: 'btn fp2-edit' + (live ? '' : ' off'), 'aria-disabled': live ? null : 'true', title: live ? 'Tell Claude what to change' : NOT_LIVE, onclick: () => { if (live) openUpdate(p); else toast(NOT_LIVE, 'err'); } }, ico('pencil', 14), 'Edit plan'),
         actionsMenu(p, rerender),

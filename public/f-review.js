@@ -128,7 +128,7 @@
       RV.list = []; save(); close(); toast('Review is in the chat box — edit and send', 'ok'); openTerm(name);
     };
     const box = h('div', { class: 'box settings rv-box' },
-      h('div', { class: 'sh' }, h('h3', null, `Review · ${RV.list.length} comment${RV.list.length === 1 ? '' : 's'}`), h('span', { class: 'sp' }),
+      h('div', { class: 'sh' }, h('h3', null, `Review · ${RV.list.length} comment${RV.list.length === 1 ? '' : 's'}`), typeof helpTip === 'function' ? helpTip('review') : null, h('span', { class: 'sp' }),
         h('button', { class: 'btn sm ghost', title: 'drop every comment', onclick: async () => { if (await confirmBox({ title: 'Clear the review?', text: `${RV.list.length} comments are dropped.`, ok: 'Clear', danger: true })) { RV.list = []; save(); } else tray(); } }, 'Clear'),
         h('button', { class: 'btn sm ghost icon', onclick: close }, ico('x', 15))),
       h('div', { class: 'sbody' }, list),

@@ -2071,7 +2071,7 @@ function scheduleDialog(name, draft) {
   const renum = () => { [...msgs.children].forEach((w, i) => { w.querySelector('.n').textContent = String(i + 1); }); };
   const first = addMsg(draft);
   const box = h('div', { class: 'box settings sched' },
-    h('div', { class: 'sh' }, h('h3', null, 'Schedule a message'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost icon', onclick: () => m.classList.add('hidden') }, ico('x', 15))),
+    h('div', { class: 'sh' }, h('h3', null, 'Schedule a message'), typeof helpTip === 'function' ? helpTip('queue') : null, h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost icon', onclick: () => m.classList.add('hidden') }, ico('x', 15))),
     h('div', { class: 'sbody' },
       h('div', { class: 'sto' }, avatar(sess?.project, 'sm'), h('b', null, cl.label || (sess?.project && byId()[sess.project]?.name) || name), h('span', { class: 'badge tag acc ' + (cl.account || '') }, acct(cl.account)), cl.state ? h('span', { class: 'cst mini ' + cl.state }, gico(STATE_ICON[cl.state], 10), ' ', STATE_LABEL[cl.state]) : null),
       h('div', { class: 'sg' }, h('div', { class: 'sg-t' }, 'When'), chips, h('div', { class: 'swhen' }, wp ? wp.field : when, rel), wp ? wp.pop : null),
@@ -2226,7 +2226,7 @@ async function openTranscriptFile(hh) {
 // LAYERS.hist mirrors our entries (index = depth): what is on top, and which page the chats were opened from.
 const LAYERS = { depth: 0, closing: false, modal: false, queue: [], fwd: false, pend: null, skip: 0, timer: 0, fwdTimer: 0, skipTimer: 0, reuse: false, back: false, restoring: 0, hist: [], boot: null };
 const modalOpen = () => !$('#modal').classList.contains('hidden');
-const OVERLAY_OPEN = { drawer: () => !!UI.drawer, modal: modalOpen, palette: () => PAL.open };   // the Code steps are judged by FEAT.code
+const OVERLAY_OPEN = { drawer: () => !!UI.drawer, modal: modalOpen, palette: () => PAL.open, tip: () => !!FEAT.help?.tipOpen(), help: () => !!FEAT.help?.layerOpen() };   // the Code steps are judged by FEAT.code
 const VIEWS = ['home', 'projects', 'tasks', 'code', 'bots'];
 function curLoc() { return { v: UI.view, t: TERM.open ? (IS_PHONE && TERM.showList ? '' : TERM.active || '') : null }; }
 const sameLoc = (a, b) => !!a && !!b && a.v === b.v && a.t === b.t;
@@ -2325,7 +2325,9 @@ function applyLoc(loc) {
 function closeOverlays(left) {
   const one = left.length === 1; let n = left.filter(x => !isPage(x)).length;
   while (n-- > 0) {
-    if (PAL.open) closePalette(false);
+    if (FEAT.help?.tipOpen()) FEAT.help.closeTip(false);
+    else if (FEAT.help?.layerOpen()) FEAT.help.closeLayer(false);
+    else if (PAL.open) closePalette(false);
     else if (modalOpen()) {   // Back = Escape: the dialog's own listener runs (confirmBox resolves false), the global handler hides the rest
       LAYERS.modal = false; document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
       // Escape only closed something inside it (project picker, subagent detail, recording): back onto the same entry. A
@@ -2753,10 +2755,11 @@ function tabRecent(el, p) {
 }
 
 // ---------- settings ----------
+const SECT_HELP = { notifications: 'push', power: 'power', plans: 'plans', accounts: 'accounts', connection: 'connection', hidden: 'hidden-projects' };
 function settingsModal() {
   const s = S.settings; const m = $('#modal'); m.classList.remove('hidden');
   // iOS-style grouped settings: a titled group of rows, label + hint on the left, the control on the right
-  const sect = (id, title, icon, tint, ...rows) => h('section', { class: 'sg sm-pane', 'data-sec': id, 'data-title': title, 'data-icon': icon, 'data-tint': tint }, h('div', { class: 'sg-t' }, h('span', { class: 'sg-ic', style: `--tint:${tint}` }, ico(icon, 16)), title), h('div', { class: 'sg-b' }, ...rows.filter(Boolean)));
+  const sect = (id, title, icon, tint, ...rows) => h('section', { class: 'sg sm-pane', 'data-sec': id, 'data-title': title, 'data-icon': icon, 'data-tint': tint }, h('div', { class: 'sg-t' }, h('span', { class: 'sg-ic', style: `--tint:${tint}` }, ico(icon, 16)), title, typeof helpTip === 'function' && SECT_HELP[id] ? helpTip(SECT_HELP[id]) : null), h('div', { class: 'sg-b' }, ...rows.filter(Boolean)));
   const row = (label, hint, ctl, cls = '') => h('div', { class: 'sr ' + cls }, h('div', { class: 'sr-l' }, h('div', { class: 'sr-k' }, label), hint ? h('div', { class: 'sr-h' }, hint) : null), h('div', { class: 'sr-c' }, ctl));
   const sw = (checked, attrs = {}) => h('label', { class: 'sw' }, h('input', { type: 'checkbox', checked, ...attrs }), h('i'));
   const txt = (k, extra = {}) => { const i = h('input', { class: 'txt', value: s[k] ?? '', ...extra }); i.dataset.k = k; return i; };
@@ -2813,7 +2816,8 @@ function settingsModal() {
     const cur = panes.find(x => x.dataset.sec === id) || panes[0];
     for (const x of panes) x.classList.toggle('on', x === cur);
     for (const i of items) i.classList.toggle('on', i.dataset.sec === cur.dataset.sec);
-    title.textContent = open && IS_PHONE ? cur.dataset.title : 'Settings';
+    const tipId = open && IS_PHONE ? SECT_HELP[cur.dataset.sec] : null;
+    title.replaceChildren(open && IS_PHONE ? cur.dataset.title : 'Settings', ...(tipId && typeof helpTip === 'function' ? [helpTip(tipId)] : []));
     box.classList.toggle('sm-open', !!open);
   };
   const box = h('div', { class: 'box settings setmodal' },
@@ -3094,7 +3098,7 @@ function downloadsModal() {
   document.addEventListener('keydown', esc, true);
   const body = h('div', { class: 'db files-tab dlx-body' });
   const box = h('div', { class: 'box dlx' },
-    h('div', { class: 'sh' }, h('h3', null, 'Downloads'), h('span', { class: 'dim dlx-where' }, '~/Downloads on the server'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', onclick: close }, ico('x', 15))),
+    h('div', { class: 'sh' }, h('h3', null, 'Downloads'), typeof helpTip === 'function' ? helpTip('downloads') : null, h('span', { class: 'dim dlx-where' }, '~/Downloads on the server'), h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', onclick: close }, ico('x', 15))),
     body);
   m.replaceChildren(box); m.onclick = e => { if (e.target === m) close(); };
   tabFiles(body, { id: '_downloads', isGit: false, parent: null, rel: '' }, { st: DLF, key: 'bd.dlopen', select: true, noEdit: true, newest: true, rootLabel: '~/Downloads on the server' });

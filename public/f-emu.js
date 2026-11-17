@@ -128,7 +128,7 @@
     }
 
     function head(extra) {
-      return h('div', { class: 'emu-head' }, h('h3', null, ico('phone', 16), ' Android'), extra, h('span', { class: 'emu-sp' }),
+      return h('div', { class: 'emu-head' }, h('h3', null, ico('phone', 16), ' Android'), typeof helpTip === 'function' ? helpTip('emulator') : null, extra, h('span', { class: 'emu-sp' }),
         h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', onclick: () => close() }, ico('x', 15)));
     }
 

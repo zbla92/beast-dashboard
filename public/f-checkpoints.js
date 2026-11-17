@@ -125,7 +125,7 @@
     });
     let close = null;
     const box = h('div', { class: 'box settings ckp-box ckp-listbox' },
-      h('div', { class: 'sh' }, h('h3', null, 'Changes by turn'), h('div', { class: 'ckp-sub' }, sessWho(name))),
+      h('div', { class: 'sh' }, h('h3', null, 'Changes by turn'), typeof helpTip === 'function' ? helpTip('checkpoints') : null, h('div', { class: 'ckp-sub' }, sessWho(name))),
       h('div', { class: 'sbody' }, rows.length ? h('div', { class: 'ckp-list' }, rows) : h('div', { class: 'dim', style: 'padding:18px 4px' }, 'No file changes recorded for this session yet. Every Claude turn that changes files in a git repo shows up here, with its diff and an Undo.')),
       h('div', { class: 'foot' }, h('span', { class: 'dim', style: 'font-size:12px' }, 'Snapshots are git objects without refs; git gc removes them after about two weeks.'), h('span', { class: 'sp' }), h('button', { class: 'btn ghost', onclick: () => close() }, 'Close')));
     close = modal(box);

@@ -88,6 +88,7 @@ FEAT.botsIntro = (() => {
       art,
       h('h3', { id: 'bi-title', class: 'bi-title' }, step.title),
       h('p', { class: 'bi-body' }, step.body),
+      h('button', { class: 'hp-more bi-more', type: 'button', onclick: () => { close(); FEAT.help?.open('bots'); } }, 'Learn more ›'),
       h('div', { class: 'bi-foot' }, back, dots, next));
     box.addEventListener('touchstart', e => { state.touchX = e.changedTouches[0].clientX; }, { passive: true });
     box.addEventListener('touchend', e => {

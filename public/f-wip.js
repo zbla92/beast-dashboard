@@ -36,7 +36,7 @@ FEAT.wip = (() => {
     const go = () => FEAT.code ? FEAT.code.open({ overview: true }) : null;
     return h('div', { class: 'wstrip', role: 'button', tabindex: '0', title: 'every repo with pending changes or unpushed commits — open in Code', onclick: go, onkeydown: e => { if (e.key === 'Enter') go(); } },
       h('span', { class: 'wstrip-ic' }, ico('code', 15)),
-      h('b', null, 'Work in progress'),
+      h('b', null, 'Work in progress'), typeof helpTip === 'function' ? helpTip('wip') : null,
       h('span', { class: 'wstrip-n' }, act.length ? totText(t) : W.at ? 'every repo is clean' : 'reading the repos…'),
       live ? h('span', { class: 'wstrip-l' }, h('i'), plural(live, 'repo') + ' with a live session') : null,
       h('span', { class: 'wsp' }),

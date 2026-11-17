@@ -809,7 +809,7 @@ FEAT.code = (() => {
     function buildFiles() {
       D.treeHost = h('div', { class: 'cv-scroll cv-tree' });
       return h('div', { class: 'cv-tab' },
-        h('div', { class: 'cv-tabbar' }, h('span', { class: 'cv-sect' }, 'Files'),
+        h('div', { class: 'cv-tabbar' }, h('span', { class: 'cv-sect' }, 'Files'), typeof helpTip === 'function' ? helpTip('files') : null,
           h('button', { class: 'cv-ib', title: 'Reload the file tree', 'aria-label': 'Reload the file tree', onclick: () => { stamp.tree = null; paintTree(); } }, ic('refresh', 15))),
         D.treeHost);
     }
@@ -911,7 +911,7 @@ FEAT.code = (() => {
       D.wtManage = h('button', { class: 'btn sm cv-more', hidden: true, onclick: () => { const r = info(); if (r) openDrawer(r.project, 'worktrees'); } }, 'Manage worktrees');
       D.wtHint = h('div', { class: 'cv-empty', hidden: true }, h('span', null, 'This repo has one checkout. Start a chat in a worktree from its project menu to add another.'));
       return h('div', { class: 'cv-tab' }, h('div', { class: 'cv-scroll cv-secs' },
-        h('section', { class: 'cv-sec', 'aria-label': 'Worktrees' }, h('header', { class: 'cv-sech' }, h('span', { class: 'cv-sect' }, 'Worktrees')), D.wtList, D.wtManage), D.wtHint));
+        h('section', { class: 'cv-sec', 'aria-label': 'Worktrees' }, h('header', { class: 'cv-sech' }, h('span', { class: 'cv-sect' }, 'Worktrees'), typeof helpTip === 'function' ? helpTip('worktrees') : null), D.wtList, D.wtManage), D.wtHint));
     }
 
     function worktreeRow(w) {
@@ -955,7 +955,7 @@ FEAT.code = (() => {
 
     function buildPreview() {
       D.prevList = h('div', { class: 'cv-rows' });
-      D.prevSec = h('section', { class: 'cv-sec', 'aria-label': 'Running servers' }, h('header', { class: 'cv-sech' }, h('span', { class: 'cv-sect' }, 'Running servers')), D.prevList);
+      D.prevSec = h('section', { class: 'cv-sec', 'aria-label': 'Running servers' }, h('header', { class: 'cv-sech' }, h('span', { class: 'cv-sect' }, 'Running servers'), typeof helpTip === 'function' ? helpTip('preview') : null), D.prevList);
       D.prevEmpty = h('div', { class: 'cv-empty', hidden: true }, h('b', null, 'No server running for this repo.'), h('span', null, 'Start a dev server from a chat or a terminal and it shows up here.'));
       return h('div', { class: 'cv-tab' }, h('div', { class: 'cv-scroll cv-secs' }, D.prevSec, D.prevEmpty));
     }

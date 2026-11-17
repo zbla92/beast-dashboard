@@ -156,7 +156,7 @@
     IBX.runsKey = '';
     IBX.count = h('span', { class: 'dim', style: 'font-size:13px' });
     const box = h('div', { class: 'box ibx', onmousedown: e => { if (e.target.closest('button')) e.preventDefault(); } },
-      h('div', { class: 'sh' }, h('h3', null, 'Inbox'), IBX.count, h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', onclick: close }, ico('x', 15))),
+      h('div', { class: 'sh' }, h('h3', null, 'Inbox'), typeof helpTip === 'function' ? helpTip('inbox') : null, IBX.count, h('span', { class: 'sp' }), h('button', { class: 'btn sm ghost icon', title: 'close (Esc)', onclick: close }, ico('x', 15))),
       h('div', { class: 'ibx-body' }, IBX.list, IBX.runs, h('div', { class: 'ibx-empty hidden' }, 'Nothing is waiting for you.')));
     IBX.modal = box; m.replaceChildren(box); m.onclick = e => { if (e.target === m && owns()) close(); };
     try { IBX.mo = new MutationObserver(() => alive()); IBX.mo.observe(m, { childList: true, attributes: true, attributeFilter: ['class'] }); } catch {}
