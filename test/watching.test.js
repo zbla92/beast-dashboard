@@ -41,3 +41,26 @@ test('bad ids and session names are refused; the number of tabs is capped', () =
   assert.strictEqual(w.report('tab-000001', 'claude-chat-2', 0).ok, true);   // a known tab can still update
   assert.strictEqual(w.report('tab-overflow', 'claude-chat-1', TTL + 1).ok, true);   // old ones expire
 });
+
+test('an active tab counts as someone at the dashboard even when it watches no chat, and stops after the TTL', () => {
+  const w = createWatching();
+  assert.strictEqual(w.active(0), false);
+  assert.strictEqual(w.report('tab-aaaaaa', null, 0, true).ok, true);
+  assert.strictEqual(w.active(1000), true);
+  assert.strictEqual(w.watched('claude-chat-1', 1000), false);
+  assert.strictEqual(w.active(TTL + 1), false);
+});
+
+test('a tab that is no longer active stops counting; a watching tab without activity is not active', () => {
+  const w = createWatching();
+  w.report('tab-aaaaaa', 'claude-chat-1', 0, true);
+  assert.strictEqual(w.active(100), true);
+  w.report('tab-aaaaaa', 'claude-chat-1', 200, false);
+  assert.strictEqual(w.active(300), false);
+  assert.strictEqual(w.watched('claude-chat-1', 300), true);
+  w.report('tab-aaaaaa', null, 400, true);
+  assert.strictEqual(w.watched('claude-chat-1', 500), false);
+  assert.strictEqual(w.active(500), true);
+  w.report('tab-aaaaaa', null, 600, false);
+  assert.strictEqual(w.active(700), false);
+});

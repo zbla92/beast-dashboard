@@ -419,13 +419,14 @@ function watchingNow() {
   if (UI.drawer) return UI.drawer === 'session:' + SESS.name && SESS.tab === 'transcript' && claudeOf(SESS.name) ? SESS.name : null;
   return TERM.open && !TERM.showList && TERM.active && claudeOf(TERM.active) ? TERM.active : null;
 }
+const activeNow = () => !document.hidden && document.hasFocus() && (usingTerminal() || Date.now() - WATCH.input < 5 * 60e3);
 function syncWatch() {
-  const s = watchingNow(), now = Date.now();
-  if (s === WATCH.sent && (!s || now - WATCH.at < 10000)) return;
-  WATCH.sent = s; WATCH.at = now;
-  const body = JSON.stringify({ id: WATCH.id, session: s });
-  const beaconed = !s && !!navigator.sendBeacon && (() => { try { return navigator.sendBeacon('/api/watching', body); } catch { return false; } })();   // survives the tab going away
-  if (!beaconed) api('watching', { id: WATCH.id, session: s }).catch(() => { WATCH.sent = undefined; });
+  const s = watchingNow(), active = activeNow(), now = Date.now(), key = (s || '') + '|' + active;
+  if (key === WATCH.sent && ((!s && !active) || now - WATCH.at < 10000)) return;
+  WATCH.sent = key; WATCH.at = now;
+  const body = JSON.stringify({ id: WATCH.id, session: s, active });
+  const beaconed = !s && !active && !!navigator.sendBeacon && (() => { try { return navigator.sendBeacon('/api/watching', body); } catch { return false; } })();   // survives the tab going away
+  if (!beaconed) api('watching', { id: WATCH.id, session: s, active }).catch(() => { WATCH.sent = undefined; });
 }
 setInterval(syncWatch, 3000);
 document.addEventListener('visibilitychange', syncWatch);

@@ -566,7 +566,7 @@ function doneSettled(name, since) {
   if (!r || r.gone || r.state !== 'needs-you' || r.since !== since || watching.watched(name)) return false;
   const w = waitingOn(r, headless.live(name));
   if (w.agents.length || w.queued || w.busy) return false;
-  return w.shells.length ? 'wait' : true;
+  return w.shells.length || watching.active() ? 'wait' : true;
 }
 function sendDone(name) {
   const r = { ...(claude.get(name) || {}), tmux: name }; const now = Date.now();
@@ -1268,7 +1268,7 @@ async function api(req, res, url) {
     }
     case 'dismiss-crash': { dismissedCrash.add(String(b.key || '')); pushState(true); return json(res, 200, { ok: true }); }
     case 'claude-seen': { const r = claude.seen(String(b.session || '')); setTimeout(tick, 100); return json(res, 200, r); }
-    case 'watching': { const r = watching.report(b.id, b.session); return json(res, r.ok ? 200 : 400, r); }   // the chat this tab is reading, or null
+    case 'watching': { const r = watching.report(b.id, b.session, Date.now(), b.active === true); return json(res, r.ok ? 200 : 400, r); }   // the chat this tab is reading, or null
     case 'savefile': { // editor save; refuses if the file changed since it was loaded
       const p = await roots.rootOf(b.id); if (!p) return json(res, 404, { error: 'no project' });
       if (typeof b.path !== 'string' || typeof b.text !== 'string') return json(res, 400, { error: 'path + text' });
