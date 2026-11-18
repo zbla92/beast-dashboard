@@ -173,7 +173,7 @@ async function rollNext(gen) {
     if (gen !== rollGen) return;
     if (!r.ok && r.error === 'unknown op') r = await oldRunnerUpgrade(name);
     if (gen !== rollGen) return;
-    if (r.ok) ROLL.done++; else { ROLL.failed++; console.error(`chat upgrade ${name}: ${r.error}`); }
+    if (r.ok && r.when === 'busy') rollQueue.push(name); else if (r.ok) ROLL.done++; else { ROLL.failed++; console.error(`chat upgrade ${name}: ${r.error}`); }
   }
   ROLL.waiting = rollQueue.length;
   if (rollQueue.length) rollTimer = setTimeout(rollNext, name ? 2000 : 15000, gen); else pushState(false);

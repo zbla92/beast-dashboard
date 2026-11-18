@@ -348,20 +348,23 @@ test('upgrade while idle restarts claude now on the new binary and keeps the con
   assert.strictEqual(snap.claude, bin);
 });
 
-test('upgrade during a turn waits for the result, then restarts on the new binary', async t => {
+test('upgrade during a turn is refused as busy and leaves the binary alone; once idle it restarts on the new binary', async t => {
   const r = runner(t); const k = await client(t, r.sock);
   await k.op({ op: 'send', text: 'slow' }); await k.until(e => e.ev === 'tool');
   const bin = fakeVersion(r.dir, '7.7.8');
-  const ack = await k.op({ op: 'upgrade', claude: bin });
-  assert.strictEqual(ack.when, 'after-turn');
+  assert.strictEqual((await k.op({ op: 'upgrade', claude: bin })).when, 'busy');
   const res = await k.until(e => e.ev === 'result');
   assert.strictEqual(res.subtype, 'success');
+  await new Promise(res2 => setTimeout(res2, 2000));
   assert.strictEqual(r.args().length, 1);
-  for (let i = 0; i < 150 && r.args().length < 2; i++) await new Promise(res2 => setTimeout(res2, 20));
+  k.c.write('{"op":"hello"}\n');
+  const before = await k.until(e => e.ev === 'snapshot');
+  assert.notStrictEqual(before.claude, bin);
+  assert.strictEqual((await k.op({ op: 'upgrade', claude: bin })).when, 'now');
+  for (const _ of Array(150)) { if (r.args().length >= 2) break; await new Promise(res2 => setTimeout(res2, 20)); }
   assert.strictEqual(r.args().length, 2);
   await k.op({ op: 'send', text: 'next' });
   await k.until(e => e.ev === 'snapshot' && e.version === '7.7.8');
-  assert.ok(k.evs.filter(e => e.ev === 'result').every(e => e.subtype !== 'restarted'));
 });
 
 test('upgrade after claude exited applies at the next start; a bad path is refused', async t => {
@@ -392,25 +395,6 @@ test('a message sent during the upgrade restart runs as a working turn that can 
   await k.op({ op: 'interrupt' });
   const res = await k.until(e => e.ev === 'result' && e.subtype !== 'restarted');
   assert.strictEqual(res.reason, 'aborted_streaming');
-});
-
-test('a message injected into the waiting turn defers the upgrade to the next result; a second upgrade replaces the first', async t => {
-  const r = runner(t); const k = await client(t, r.sock);
-  await k.op({ op: 'send', text: 'slow' }); await k.until(e => e.ev === 'tool');
-  assert.strictEqual((await k.op({ op: 'upgrade', claude: fakeVersion(r.dir, '7.8.1') })).when, 'after-turn');
-  const bin = fakeVersion(r.dir, '7.8.2');
-  assert.strictEqual((await k.op({ op: 'upgrade', claude: bin })).when, 'after-turn');
-  await k.op({ op: 'send', text: 'also this' });
-  await k.until(e => e.ev === 'result');
-  await new Promise(res => setTimeout(res, 2000));
-  assert.strictEqual(r.args().length, 1);
-  k.clear();
-  await k.op({ op: 'send', text: 'next' }); await k.until(e => e.ev === 'result');
-  for (let i = 0; i < 150 && r.args().length < 2; i++) await new Promise(res => setTimeout(res, 20));
-  assert.strictEqual(r.args().length, 2);
-  await k.op({ op: 'send', text: 'then' });
-  const snap = await k.until(e => e.ev === 'snapshot' && e.version);
-  assert.strictEqual(snap.version, '7.8.2'); assert.strictEqual(snap.claude, bin);
 });
 
 test('findTranscript: the known file wins, then a walk up from the folder, then any project dir; dir is always the session folder', async t => {

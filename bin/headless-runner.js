@@ -40,7 +40,7 @@ const S = { state: 'starting', since: Date.now(), turn: null, rate: null, ctx: n
 const pending = new Map();
 const clients = new Set();
 let child = null, hasConversation = arg('start') === 'resume', stopping = false, seq = 0, stderrTail = '';
-let restarting = false, heard = false, unheard = [], upgradeAfterTurn = false, upgradeTimer = null, sentWhileWorking = false;
+let restarting = false, heard = false, unheard = [], sentWhileWorking = false;
 const queued = [], inbox = [], tookIn = new Set(), mine = new Set();
 let msgSeq = 0, dying = null, lastOut = 0, endAt = 0, sweepTimer = null;
 const SWEEP_MS = +process.env.BD_HL_SWEEP_MS || 4000;
@@ -110,7 +110,7 @@ function startChild() {
     ...(chosenModel ? ['--model', chosenModel] : []), ...(chosenEffort ? ['--effort', chosenEffort] : []), ...(acc.prompt ? ['--append-system-prompt', acc.prompt] : [])];
   line(dim(`[${clock()}] claude ${fork ? 'fork of ' + FORK + ' as' : hasConversation ? 'resume' : 'new session'} ${fork ? SID : current}  (${ACCOUNT}, ${CWD})`));
   if (acc.error) line(dim(`[${clock()}] ${acc.error}`));
-  stderrTail = ''; heard = false; unheard = []; S.version = binVersion(CLAUDE); S.error = acc.error; childAt = Date.now(); upgradeAfterTurn = false; sentWhileWorking = false; clearTimeout(upgradeTimer);
+  stderrTail = ''; heard = false; unheard = []; S.version = binVersion(CLAUDE); S.error = acc.error; childAt = Date.now(); sentWhileWorking = false;
   const resumed = hasConversation;
   const p = spawn(CLAUDE, args, { cwd: CWD, env: { ...childEnv(), ...acc.env }, stdio: ['pipe', 'pipe', 'pipe'] });
   child = p;
@@ -252,8 +252,7 @@ function onChildLine(l, old) {
     emit({ ev: 'result', subtype: o.subtype, reason: o.terminal_reason || null, ms, text: text === null ? null : text.slice(0, MAX_TEXT), truncated: !!text && text.length > MAX_TEXT, isError: !!o.is_error });
     setState('idle');
     endAt = Date.now(); clearTimeout(sweepTimer); sweepTimer = setTimeout(sweep, SWEEP_MS);
-    const late = sentWhileWorking; sentWhileWorking = false;
-    if (upgradeAfterTurn && !late && !EXIT_AFTER_RESULT) { clearTimeout(upgradeTimer); upgradeTimer = setTimeout(upgradeIfIdle, 1500); }
+    sentWhileWorking = false;
     if (EXIT_AFTER_RESULT) exitWhenQuiet();
     return;
   }
@@ -457,20 +456,14 @@ function exitWhenQuiet() {
   }, EXIT_MS);
 }
 function quiet() { return child && !restarting && S.state === 'idle' && !S.turn && !pending.size; }
-function upgradeIfIdle() {
-  upgradeTimer = null;
-  if (!upgradeAfterTurn || !quiet()) return;
-  upgradeAfterTurn = false;
-  line(dim(`[${clock()}] restarting on ${CLAUDE}`));
-  restart();
-}
 function upgrade(bin) {
+  if (child && !restarting && !EXIT_AFTER_RESULT && !quiet()) return 'busy';
   CLAUDE = bin;
   emit(snapshot());
-  if (restarting) { upgradeAfterTurn = false; return 'now'; }
-  if (!child || EXIT_AFTER_RESULT) { upgradeAfterTurn = false; return 'next-start'; }
-  if (!quiet()) { upgradeAfterTurn = true; return 'after-turn'; }
-  upgradeAfterTurn = true; upgradeIfIdle();
+  if (restarting) return 'now';
+  if (!child || EXIT_AFTER_RESULT) return 'next-start';
+  line(dim(`[${clock()}] restarting on ${CLAUDE}`));
+  restart();
   return 'now';
 }
 const isDir = p => { try { return fs.statSync(p).isDirectory(); } catch { return false; } };
@@ -619,7 +612,7 @@ function onClientOp(c, m) {
     case 'restart': {
       if (m.claude !== undefined) {
         if (typeof m.claude !== 'string' || !path.isAbsolute(m.claude) || !executable(m.claude)) return fail('claude must be an absolute path to an executable file');
-        CLAUDE = m.claude; upgradeAfterTurn = false; clearTimeout(upgradeTimer);
+        CLAUDE = m.claude;
       }
       if (m.addDirs !== undefined) {
         if (!Array.isArray(m.addDirs) || m.addDirs.length > 40 || m.addDirs.some(d => typeof d !== 'string' || !path.isAbsolute(d) || !isDir(d))) return fail('addDirs must be a list of at most 40 existing absolute folders');
