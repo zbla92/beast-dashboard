@@ -147,7 +147,8 @@ let rollQueue = [], rollTimer = null, rollGen = 0, snapshotReady = false;
 const rollOn = st => settings.get().chatAutoUpgrade !== false && !!st.using && path.isAbsolute(st.bin || '');
 const outdated = (name, st) => { const L = headless.live(name); return !L || !!L.stale || (!L.provider && L.claude !== st.bin && (L.version || '') !== st.using); };
 const hookBusy = name => ['working', 'background', 'permission'].includes(claude.info(name).state);
-const quietChat = name => { const L = headless.live(name); return !!(L && !L.stale && L.state === 'idle' && !L.turn && !(L.pending || []).length && !SWITCHING.has(name) && !hookBusy(name) && !autoresume.holdsChat(claude.info(name))); };
+const runsToolShells = name => { const s = snapshot.sessions.find(x => x.name === name); return !!(s && s.toolShells); };
+const quietChat = name => { const L = headless.live(name); return !!(L && !L.stale && L.state === 'idle' && !L.turn && !(L.pending || []).length && !SWITCHING.has(name) && !hookBusy(name) && !runsToolShells(name) && !autoresume.holdsChat(claude.info(name))); };
 function rollChats() {
   if (!snapshotReady) { setTimeout(rollChats, 5000); return; }
   clearTimeout(rollTimer); rollTimer = null; const gen = ++rollGen; rollQueue = [];
@@ -163,7 +164,9 @@ async function rollNext(gen) {
   const st = claudever.status();
   if (!rollOn(st) || st.using !== ROLL.version || Date.now() - ROLL.at > 6 * 3600e3) rollQueue = [];
   rollQueue = rollQueue.filter(n => isChat(n) && snapshot.sessions.some(s => s.name === n) && outdated(n, st));
-  const name = rollQueue.find(quietChat);
+  const pick = rollQueue.find(quietChat);
+  if (pick) { await tick(); if (gen !== rollGen) return; }
+  const name = pick && quietChat(pick) ? pick : null;
   if (name) {
     rollQueue = rollQueue.filter(n => n !== name);
     let r = await headless.upgrade(name, st.bin).catch(e => ({ ok: false, error: e.message }));
