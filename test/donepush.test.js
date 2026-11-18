@@ -453,3 +453,91 @@ test('soon() during a running re-check makes a wait verdict come back after the 
   await first;
   assert.strictEqual(timers[1].ms, QUICK);
 });
+
+test('while someone is at the computer a done push waits past the max wait, and goes out when they leave', async () => {
+  const state = { verdict: 'present' };
+  const clock = { t: 0 };
+  const { d, sent, run, timers } = rig(() => state.verdict, null, clock);
+  d.schedule('claude-a', 100, 50);
+  clock.t = 60000; await run();
+  assert.strictEqual(timers.length, 0);
+  clock.t = 40 * 60000;
+  assert.strictEqual(d.soon('claude-a'), true);
+  await run();
+  assert.deepStrictEqual(sent, []);
+  assert.deepStrictEqual(await d.release(), []);
+  assert.deepStrictEqual(sent, []);
+  state.verdict = true;
+  assert.deepStrictEqual(await d.release(), ['claude-a']);
+  assert.deepStrictEqual(sent, ['claude-a']);
+  assert.deepStrictEqual(await d.release(), []);
+  assert.strictEqual(d.schedule('claude-a', 200, 50), false);
+});
+
+test('released done pushes can be collected instead of sent; one already seen is dropped, one still holding waits again', async () => {
+  const verdicts = { 'claude-a': 'present', 'claude-b': 'present', 'claude-c': 'present' };
+  const clock = { t: 0 };
+  const { d, sent, run } = rig(name => verdicts[name], null, clock);
+  for (const n of Object.keys(verdicts)) d.schedule(n, 100, 50);
+  clock.t = 60000; await run();
+  Object.assign(verdicts, { 'claude-a': true, 'claude-b': false, 'claude-c': 'wait' });
+  clock.t = 30 * 60000;
+  const got = [];
+  assert.deepStrictEqual(await d.release(name => { got.push(name); }), ['claude-a']);
+  assert.deepStrictEqual(got, ['claude-a']);
+  verdicts['claude-c'] = true;
+  clock.t += 60000; await run();
+  assert.deepStrictEqual(sent, ['claude-c']);
+});
+
+test('a parked push that a new turn cancels never goes out', async () => {
+  const clock = { t: 0 };
+  const { d, sent, run } = rig(() => 'present', null, clock);
+  d.schedule('claude-a', 100, 50);
+  clock.t = 60000; await run();
+  d.cancel('claude-a');
+  assert.deepStrictEqual(await d.release(() => true), []);
+  assert.deepStrictEqual(sent, []);
+});
+
+test('a push held for live agents still ends at the max wait while someone is at the computer, without being sent', async () => {
+  const clock = { t: 0 };
+  const parks = [];
+  const timers = [];
+  const sent = [];
+  const d = createDonePush({ ready: () => 'hold', send: n => { sent.push(n); }, onPark: n => parks.push(n), now: () => clock.t, setTimer: (fn, ms) => { const t = { fn, ms, cleared: false }; timers.push(t); return t; }, clearTimer: t => { t.cleared = true; } });
+  d.schedule('claude-a', 100, 50);
+  for (clock.t = 60000; clock.t <= 16 * 60000; clock.t += 60000) for (const t of timers.splice(0)) if (!t.cleared) await t.fn();
+  assert.strictEqual(timers.length, 0);
+  assert.deepStrictEqual(parks, []);
+  assert.deepStrictEqual(await d.release(), []);
+  assert.deepStrictEqual(sent, []);
+});
+
+test('parked pushes are listed for saving and restored parked after a restart, then released as usual', async () => {
+  const clock = { t: 0 };
+  const a = rig(() => 'present', null, clock);
+  assert.deepStrictEqual(a.d.parked(), []);
+  a.d.schedule('claude-a', 100, 50, true);
+  clock.t = 60000; await a.run();
+  const saved = JSON.parse(JSON.stringify(a.d.parked()));
+  assert.deepStrictEqual(saved, [{ name: 'claude-a', mark: 100, askedAt: 50, real: true }]);
+  const marks = [];
+  const sent = [];
+  const c = createDonePush({ ready: (name, mark, owed) => { marks.push([mark, owed]); return true; }, send: n => { sent.push(n); }, now: () => clock.t, setTimer: () => ({}), clearTimer: () => {} });
+  c.restore([...saved, null, { name: 7 }]);
+  assert.deepStrictEqual(c.parked(), saved);
+  assert.deepStrictEqual(await c.release(), ['claude-a']);
+  assert.deepStrictEqual(marks, [[100, true]]);
+  assert.deepStrictEqual(sent, ['claude-a']);
+  assert.strictEqual(c.schedule('claude-a', 200, 50), false);
+});
+
+test('parking a push reports it so the list can be saved', async () => {
+  const parks = [];
+  const timers = [];
+  const d = createDonePush({ ready: () => 'present', send: () => {}, onPark: n => parks.push(n), now: () => 0, setTimer: fn => { const t = { fn }; timers.push(t); return t; }, clearTimer: () => {} });
+  d.schedule('claude-a', 100, 50);
+  await timers[0].fn();
+  assert.deepStrictEqual(parks, ['claude-a']);
+});

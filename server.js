@@ -4,7 +4,7 @@ const zlib = require('zlib');
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
-const { run, readBody, corrupted, readJson, STATE, ROOT } = require('./lib/util');
+const { run, readBody, corrupted, readJson, writeJson, STATE, ROOT } = require('./lib/util');
 const { createWhisper } = require('./lib/whisper');
 const settings = require('./lib/settings');
 const discovery = require('./lib/discovery');
@@ -410,7 +410,9 @@ async function runSchedule() {
     if ((j.whenFree || j.resume) && j.state === 'done') continue;   // the session's own "done" push already covers it
     // a task rode on this job: attach Claude's closing message and tell the phone about the TASK, not the job
     const tk = tasks.noteResult(j.id, { ok: j.state === 'done', summary: claude.get(j.session)?.lastMessage, session: j.session, error: j.error });
-    if (tk) { if (pushAllowed('done', j.session)) push.notify({ title: `${tk.title.slice(0, 60)} · ${j.state === 'done' ? 'Claude finished' : 'failed'}`, body: oneLine(tk.result.summary || tk.result.error || 'review it on the Tasks screen', 80), url: '/?view=tasks', tag: 'task-' + tk.id }).catch(() => {}); pushState(true); continue; } const ok = j.state === 'done'; if (pushAllowed('done', j.session)) push.notify({ title: `${j.session.replace(/^claude-/, '').replace(/-company$/, '')} · scheduled ${ok ? 'done' : 'failed'}`, body: oneLine(ok ? j.prompts[0] : (j.error || ''), 80), url: `/?term=${encodeURIComponent(j.session)}`, tag: 'sched-' + j.id }).catch(() => {}); }
+    if (tk) { const at = tk.result.at; if (pushAllowed('done', j.session)) pushOrHold('task-' + tk.id, { who: tk.title.slice(0, 40), session: j.session, kind: 'done', push: { title: `${tk.title.slice(0, 60)} · ${j.state === 'done' ? 'Claude finished' : 'failed'}`, body: oneLine(tk.result.summary || tk.result.error || 'review it on the Tasks screen', 80), url: '/?view=tasks', tag: 'task-' + tk.id }, check: { type: 'task', id: tk.id, at } }); pushState(true); continue; }
+    const ok = j.state === 'done'; const who = j.session.replace(/^claude-/, '').replace(/-company$/, ''); const at = Date.now();
+    if (pushAllowed('done', j.session)) pushOrHold('sched-' + j.id, { who, session: j.session, kind: 'done', push: { title: `${who} · scheduled ${ok ? 'done' : 'failed'}`, body: oneLine(ok ? j.prompts[0] : (j.error || ''), 80), url: `/?term=${encodeURIComponent(j.session)}`, tag: 'sched-' + j.id }, check: { type: 'seen', session: j.session, at } }); }
   if (done.length) setTimeout(tick, 200);
 }
 const windowStarter = windowstart.create({ file: path.join(STATE, 'windowstart.json'), send: account => windowstart.ping(account, { bin: claudever.chatBin(), cwd: path.join(STATE, 'windowstart') }) });
@@ -532,8 +534,10 @@ function oneLine(t, n = 80) {
 // State transitions worth a phone buzz: Claude finished / needs permission / hit an error. At most one per session per 30 s.
 const pushGate = require('./lib/pushgate').createPushGate();
 // A chat that finishes while you read it isn't waiting for you: no done buzz, and it is marked seen right away.
-const watching = require('./lib/watching').createWatching();
+const { createWatching, LONG_TTL } = require('./lib/watching');
+const watching = createWatching();
 const { createDonePush, createRosterWatch, fromNotification, waitingOn, liveRoster, marksAwaited, liveVerdict, holds } = require('./lib/donepush');
+const { createHeldPush, createStillDue } = require('./lib/heldpush');
 const bgroster = require('./lib/bgroster');
 const terminalRoster = r => { if (!r || r.mode === 'chat' || !r.transcriptPath) return null; const tasks = bgroster.forSession(r); return tasks ? { source: 'transcript', tasks } : null; };
 // Should this event buzz? Respects the per-event toggles, quiet hours and muted sessions from settings.
@@ -559,7 +563,7 @@ function chatAskPush(name, req) {
   const question = req.kind === 'question';
   const title = question ? `${who} · question` : `${who} · needs permission`;
   const body = oneLine(question ? (req.questions?.[0]?.question || req.what || 'Claude asks you something') : (req.what || req.tool || 'wants to run a tool'), 80);
-  if (!pushGate.blocked(name, 'permission', now) && pushAllowed('permission', name)) { pushGate.sent(name, 'permission', now); push.notify({ title, body, url: `/?term=${encodeURIComponent(name)}`, tag: name, session: name, kind: question ? 'question' : 'permission', since: req.at }).then(res => { if (res.sent || res.test) console.log(`push: ${title} -> ${res.sent}`); }); }
+  if (!pushGate.blocked(name, 'permission', now) && pushAllowed('permission', name)) pushOrHold(name, { who, session: name, kind: 'permission', gate: 'permission', push: { title, body, url: `/?term=${encodeURIComponent(name)}`, tag: name, session: name, kind: question ? 'question' : 'permission', since: req.at }, check: { type: 'ask', session: name, rid: req.rid, at: req.at } });
   broadcast('ding', { tmux: name, state: 'permission', title });
 }
 headless.onEvent((name, o) => { if (o.ev === 'pending') chatAskPush(name, o.req); });
@@ -576,7 +580,8 @@ function doneSettled(name, since, owed = false) {
   const verdict = liveVerdict(L, updatedWake.get(name), Date.now(), owed);
   if (!verdict) return false;
   if (w.agents.length || (w.shells.length && (w.source === 'transcript' || (w.source === 'live' && marksAwaited(L))))) return 'hold';
-  return w.shells.length || watching.active() ? 'wait' : verdict;
+  if (watching.active()) return 'present';
+  return w.shells.length ? 'wait' : verdict;
 }
 function rosterChanged(name) {
   const r = claude.get(name); const L = headless.live(name);
@@ -593,16 +598,51 @@ function forgetDoneState() {
     updatedWake.delete(name); rosterWatch.forget(name); donePush.forget(name);
   }
 }
-function sendDone(name) {
-  const r = { ...(claude.get(name) || {}), tmux: name }; const now = Date.now();
-  if (pushGate.blocked(name, 'done', now) || !pushAllowed('done', name)) return false;
+function doneItem(name) {
+  const r = { ...(claude.get(name) || {}), tmux: name };
+  if (pushGate.blocked(name, 'done', Date.now()) || !pushAllowed('done', name)) return null;
   // One glance: "<project> · done" and ONE short line saying what the task was. No markdown dumps.
-  const title = `${whoOf(r)} · done`;
+  const who = whoOf(r);
+  const title = `${who} · done`;
   const body = oneLine(r.title || (fromNotification(r.lastPrompt) ? '' : r.lastPrompt) || r.lastMessage || 'finished', 80);
-  pushGate.sent(name, 'done', now);
-  push.notify({ title, body, url: `/?term=${encodeURIComponent(name)}`, tag: name, session: name, kind: 'done', since: r.since }).then(res => { if (res.sent) console.log(`push: ${title} -> ${res.sent}`); });
+  return { who, session: name, kind: 'done', gate: 'done', push: { title, body, url: `/?term=${encodeURIComponent(name)}`, tag: name, session: name, kind: 'done', since: r.since } };
 }
-const donePush = createDonePush({ ready: doneSettled, send: sendDone });
+function sendDone(name) {
+  const item = doneItem(name);
+  if (!item) return false;
+  deliverPush(item.push, [item]);
+}
+const donePush = createDonePush({ ready: doneSettled, send: sendDone, onPark: () => saveHeld() });
+function deliverPush(payload, items) {
+  const now = Date.now();
+  for (const x of items) if (x.gate) pushGate.sent(x.session, x.gate, now);
+  push.notify(payload).then(res => { if (res.sent) console.log(`push: ${payload.title} -> ${res.sent}`); }).catch(() => {});
+}
+const still = createStillDue({ get: claude.get, live: headless.live, tasks: tasks.all, watched: name => watching.watched(name) });
+const heldPush = createHeldPush({ still, allowed: x => !(x.gate && pushGate.blocked(x.session, x.gate, Date.now())) && pushAllowed(x.kind, x.session), deliver: deliverPush });
+function pushOrHold(key, item) { if (!watching.active()) return deliverPush(item.push, [item]); heldPush.hold(key, item); saveHeld(); }
+async function releaseHeld() {
+  const done = [];
+  await donePush.release(name => { const item = doneItem(name); if (!item) return false; done.push(item); });
+  heldPush.release(done);
+  saveHeld();
+}
+const HELD_FILE = path.join(STATE, 'held-push.json');
+const heldSaved = { json: null };
+function saveHeld() {
+  const data = { held: heldPush.list(), parked: donePush.parked() };
+  const json = JSON.stringify(data);
+  if (json === heldSaved.json) return;
+  try { writeJson(HELD_FILE, data); heldSaved.json = json; } catch (e) { console.error('held push save', e); }
+}
+function restoreHeld() {
+  const data = readJson(HELD_FILE, {}) || {};
+  heldPush.load(data.held); donePush.restore(data.parked);
+  if (heldPush.list().length || donePush.parked().length) setTimeout(() => { if (!watching.active()) releaseHeld().catch(e => console.error('held push', e)); }, LONG_TTL).unref();
+}
+restoreHeld();
+watching.onChange(on => { if (!on) releaseHeld().catch(e => console.error('held push', e)); });
+setInterval(() => { watching.check(); saveHeld(); }, 5000).unref();
 headless.onEvent((name, o) => {
   const wake = o.ev === 'wake' || o.ev === 'result' ? o.wake : null;
   if (wake && wake.outcome === 'updated') updatedWake.set(name, wake.at || Date.now());
@@ -629,7 +669,8 @@ claude.onChange((ev, r, prev) => {
     const body = r.state === 'permission' ? oneLine(r.lastTool || 'wants to run a tool', 80)
       : r.state === 'limit' ? oneLine((r.lastMessage || '').replace(/^.*?(resets?[^.]*).*$/i, '$1') || `${r.account || ''} account`, 80)
       : oneLine(r.lastMessage || 'API error', 80);
-    if (!pushGate.blocked(r.tmux, kind, now) && pushAllowed(kind, r.tmux)) { pushGate.sent(r.tmux, kind, now); push.notify({ title, body, url: `/?term=${encodeURIComponent(r.tmux)}`, tag: r.tmux, session: r.tmux, kind, since: r.since }).then(res => { if (res.sent) console.log(`push: ${title} -> ${res.sent}`); }); }
+    const since = r.since;
+    if (!pushGate.blocked(r.tmux, kind, now) && pushAllowed(kind, r.tmux)) pushOrHold(r.tmux, { who, session: r.tmux, kind, gate: kind, push: { title, body, url: `/?term=${encodeURIComponent(r.tmux)}`, tag: r.tmux, session: r.tmux, kind, since }, check: { type: 'state', session: r.tmux, state: kind, since } });
   }
   broadcast('ding', { tmux: r.tmux, state: r.state, title });
   setTimeout(tick, 150);
@@ -1300,7 +1341,7 @@ async function api(req, res, url) {
     case 'dismiss-crash': { dismissedCrash.add(String(b.key || '')); pushState(true); return json(res, 200, { ok: true }); }
     case 'claude-seen': { const r = claude.seen(String(b.session || '')); setTimeout(tick, 100); return json(res, 200, r); }
     case 'claude-unread': { const r = claude.markUnread(String(b.session || '')); if (r.ok) setTimeout(tick, 100); return json(res, r.ok ? 200 : 409, r); }
-    case 'watching': { const r = watching.report(b.id, b.session, Date.now(), b.active === true); if (r.ok && b.session && claude.autoSeen(b.session)) pushState(true); return json(res, r.ok ? 200 : 400, r); }   // the chat this tab is reading, or null
+    case 'watching': { const r = watching.report(b.id, b.session, Date.now(), b.active === true, b.detector === true); if (r.ok && b.session && claude.autoSeen(b.session)) pushState(true); return json(res, r.ok ? 200 : 400, r); }   // the chat this tab is reading, or null
     case 'savefile': { // editor save; refuses if the file changed since it was loaded
       const p = await roots.rootOf(b.id); if (!p) return json(res, 404, { error: 'no project' });
       if (typeof b.path !== 'string' || typeof b.text !== 'string') return json(res, 400, { error: 'path + text' });

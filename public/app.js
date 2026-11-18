@@ -424,22 +424,51 @@ setInterval(() => {
 const WATCH = { id: 't' + Math.random().toString(36).slice(2, 12).padEnd(10, '0'), sent: null, at: 0, input: Date.now() };
 for (const ev of ['pointerdown', 'keydown', 'wheel', 'touchstart']) document.addEventListener(ev, () => { WATCH.input = Date.now(); }, { capture: true, passive: true });
 function watchingNow() {
-  if (document.hidden || !document.hasFocus() || Date.now() - WATCH.input > 10 * 60e3 || !$('#modal').classList.contains('hidden')) return null;
+  if ((IDLE.det && !IDLE.active) || document.hidden || !document.hasFocus() || Date.now() - WATCH.input > 10 * 60e3 || !$('#modal').classList.contains('hidden')) return null;
   if (UI.drawer) return UI.drawer === 'session:' + SESS.name && SESS.tab === 'transcript' && claudeOf(SESS.name) ? SESS.name : null;
   return TERM.open && !TERM.showList && TERM.active && claudeOf(TERM.active) ? TERM.active : null;
 }
-const activeNow = () => !document.hidden && document.hasFocus() && (usingTerminal() || Date.now() - WATCH.input < 5 * 60e3);
+const IDLE = { det: null, ctl: null, active: false, state: null, starting: false };
+const IDLE_KEY = 'bd.idleQuiet';
+const idleSupported = () => 'IdleDetector' in window;
+async function startIdle() {
+  if (!idleSupported() || IDLE.det || IDLE.starting) return;
+  IDLE.starting = true;
+  const ctl = new AbortController(); const det = new IdleDetector();
+  const read = () => { IDLE.active = det.userState === 'active' && det.screenState === 'unlocked'; syncWatch(); };
+  det.addEventListener('change', read);
+  try { await det.start({ threshold: 120000, signal: ctl.signal }); } catch { Object.assign(IDLE, { state: 'denied', starting: false }); return; }
+  Object.assign(IDLE, { det, ctl, state: 'granted', starting: false }); read();
+}
+navigator.permissions?.query({ name: 'idle-detection' }).then(st => { st.onchange = () => { if (st.state !== 'granted' && IDLE.det) { stopIdle(); IDLE.state = 'denied'; } }; }).catch(() => {});
+function stopIdle() {
+  try { localStorage.removeItem(IDLE_KEY); } catch {}
+  if (IDLE.ctl) IDLE.ctl.abort();
+  Object.assign(IDLE, { det: null, ctl: null, active: false }); syncWatch();
+}
+async function enableIdle() {
+  if (!idleSupported()) return;
+  const p = await IdleDetector.requestPermission().catch(() => 'denied');
+  if (p !== 'granted') { IDLE.state = 'denied'; return; }
+  try { localStorage.setItem(IDLE_KEY, '1'); } catch {}
+  await startIdle();
+}
+const activeNow = () => IDLE.det ? IDLE.active : !document.hidden && document.hasFocus() && Date.now() - WATCH.input < 5 * 60e3;
+const markTermInput = f => { try { for (const ev of ['keydown', 'pointerdown', 'wheel', 'touchstart']) f.contentWindow.document.addEventListener(ev, () => { WATCH.input = Date.now(); }, { capture: true, passive: true }); } catch {} };
 function syncWatch() {
-  const s = watchingNow(), active = activeNow(), now = Date.now(), key = (s || '') + '|' + active;
+  const s = watchingNow(), active = activeNow(), detector = !!IDLE.det, now = Date.now(), key = (s || '') + '|' + active + '|' + detector;
   if (key === WATCH.sent && ((!s && !active) || now - WATCH.at < 10000)) return;
   WATCH.sent = key; WATCH.at = now;
-  const body = JSON.stringify({ id: WATCH.id, session: s, active });
+  const body = JSON.stringify({ id: WATCH.id, session: s, active, detector });
   const beaconed = !s && !active && !!navigator.sendBeacon && (() => { try { return navigator.sendBeacon('/api/watching', body); } catch { return false; } })();   // survives the tab going away
-  if (!beaconed) api('watching', { id: WATCH.id, session: s, active }).catch(() => { WATCH.sent = undefined; });
+  if (!beaconed) api('watching', { id: WATCH.id, session: s, active, detector }).catch(() => { WATCH.sent = undefined; });
 }
 setInterval(syncWatch, 3000);
 document.addEventListener('visibilitychange', syncWatch);
-for (const ev of ['focus', 'blur', 'pagehide']) window.addEventListener(ev, syncWatch);
+window.addEventListener('focus', syncWatch);
+window.addEventListener('blur', () => { if (document.activeElement?.classList?.contains('termframe')) WATCH.input = Date.now(); syncWatch(); });
+window.addEventListener('pagehide', () => { WATCH.sent = undefined; try { navigator.sendBeacon?.('/api/watching', JSON.stringify({ id: WATCH.id, session: null, active: false })); } catch {} });
+if ((() => { try { return localStorage.getItem(IDLE_KEY) === '1'; } catch { return false; } })()) startIdle();
 document.addEventListener('visibilitychange', () => { if (document.hidden) liveStream(null); if (!document.hidden) { renderChatPane(false); if (UI.drawer && String(UI.drawer).startsWith('session:')) renderSessionDrawer(false); } });
 const FRAME_IDLE_MS = 10 * 60e3;   // hidden iframes are dropped after this: each one is a tmux client fighting over the pane size
 function openTerm(session, o = {}) {   // o.chat: this tab just started it as a chat (see bornChat)
@@ -573,6 +602,7 @@ window.addEventListener('message', e => {
 function ensureFrame(session) {
   if (TERM.frames.has(session)) return TERM.frames.get(session);
   const f = h('iframe', { class: 'termframe', src: termUrl(session), title: session, allow: 'clipboard-read; clipboard-write' });
+  f.addEventListener('load', () => markTermInput(f));
   TERM.frames.set(session, f); TERM.lastUsed.set(session, Date.now()); return f;
 }
 function dropFrame(session) { const f = TERM.frames.get(session); if (f) f.remove(); TERM.frames.delete(session); TERM.lastUsed.delete(session); if (TERM.active === session) TERM.active = [...TERM.frames.keys()].pop() || null; renderTermPanel(true); }
@@ -2813,6 +2843,17 @@ function tabRecent(el, p) {
 
 // ---------- settings ----------
 const SECT_HELP = { notifications: 'push', power: 'power', plans: 'plans', accounts: 'accounts', connection: 'connection', hidden: 'hidden-projects' };
+function idleControl() {
+  const box = h('span', { class: 'qh' });
+  const paint = () => {
+    if (!idleSupported()) { box.replaceChildren(h('span', { class: 'dim' }, 'not supported')); return; }
+    const on = !!IDLE.det;
+    box.replaceChildren(h('span', { class: 'dim' }, on ? 'on' : IDLE.state === 'denied' ? 'denied' : 'off'),
+      h('button', { class: 'btn sm' + (on ? '' : ' primary'), onclick: () => (on ? Promise.resolve(stopIdle()) : enableIdle()).then(paint) }, on ? 'Turn off' : 'Turn on'));
+  };
+  paint();
+  return box;
+}
 function settingsModal() {
   const s = S.settings; const m = $('#modal'); m.classList.remove('hidden');
   // iOS-style grouped settings: a titled group of rows, label + hint on the left, the control on the right
@@ -2837,6 +2878,7 @@ function settingsModal() {
       sect('notifications', 'Notifications', 'bell', 'var(--pink)',
         ncb('done', 'Session finished'), ncb('permission', 'Needs permission'), ncb('error', 'Session error'), ncb('limit', 'Usage limit hit'), ncb('crash', 'Dev server died'), ncb('system', 'Server too hot / out of memory / runaway process / battery low'), ncb('digest', 'Monday weekly digest'), row('Morning summary', '08:00 — tasks to review, sessions that need you, yesterday\'s spend', sw(n.daily !== false, { 'data-n': 'daily' })),
         row('Quiet hours', 'no push between these times', h('span', { class: 'qh' }, qf, h('span', { class: 'dim' }, '–'), qt)),
+        row('Quiet while I\'m at this computer', 'this device · no session push while you use this computer in any app; what you missed goes out when you step away' + (idleSupported() ? '' : ' · this browser can\'t tell, so only time spent in the dashboard counts'), idleControl()),
         row('Sound', 'ding on this device when a session needs you', sw(SOUND.on, { onchange: e => { SOUND.on = e.target.checked; localStorage.setItem('bd.sound', SOUND.on ? '1' : '0'); if (SOUND.on) ding('done'); } })),
         row('Push', PUSH.supported ? `${S.host.pushSubs || 0} device(s) subscribed · ` + (PUSH.sub ? 'enabled here' : 'not enabled on this device') : 'needs HTTPS (service worker) — open via https://' + (S.host.tsName || '<magicdns-name>'),
           PUSH.supported ? h('span', { class: 'qh' }, PUSH.sub ? h('button', { class: 'btn sm', onclick: () => disablePush().then(() => m.classList.add('hidden')) }, 'Disable') : h('button', { class: 'btn sm primary', onclick: () => enablePush().then(() => m.classList.add('hidden')) }, 'Enable'), h('button', { class: 'btn sm ghost', onclick: () => api('push-test', {}).then(r => toast(`test sent to ${r.sent || 0} device(s)`)) }, 'Test')) : null),

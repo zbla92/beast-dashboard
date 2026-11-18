@@ -64,3 +64,40 @@ test('a tab that is no longer active stops counting; a watching tab without acti
   w.report('tab-aaaaaa', null, 600, false);
   assert.strictEqual(w.active(700), false);
 });
+
+test('an active report backed by the idle detector outlives the short TTL, but still expires; watching a chat does not', () => {
+  const { LONG_TTL } = require('../lib/watching');
+  const w = createWatching();
+  w.report('tab-aaaaaa', 'claude-chat-1', 0, true, true);
+  assert.strictEqual(w.active(TTL + 1), true);
+  assert.strictEqual(w.watched('claude-chat-1', TTL + 1), false);
+  assert.strictEqual(w.active(LONG_TTL + 1), false);
+  w.report('tab-bbbbbb', null, 0, false, true);
+  assert.strictEqual(w.active(1), false);
+});
+
+test('an idle or locked report from the detector ends activity at once', () => {
+  const w = createWatching();
+  w.report('tab-aaaaaa', null, 0, true, true);
+  assert.strictEqual(w.active(1000), true);
+  w.report('tab-aaaaaa', null, 2000, false, true);
+  assert.strictEqual(w.active(2001), false);
+});
+
+test('onChange fires when someone becomes active and when the last one stops, by report or by expiry', () => {
+  const w = createWatching();
+  const seen = [];
+  w.onChange((on, now) => seen.push([on, now]));
+  w.report('tab-aaaaaa', null, 0, true);
+  w.report('tab-bbbbbb', null, 10, true);
+  w.report('tab-aaaaaa', null, 20, false);
+  assert.deepStrictEqual(seen, [[true, 0]]);
+  w.report('tab-bbbbbb', null, 30, false);
+  assert.deepStrictEqual(seen, [[true, 0], [false, 30]]);
+  w.report('tab-aaaaaa', null, 100, true);
+  assert.strictEqual(w.check(100 + TTL), true);
+  assert.strictEqual(w.check(101 + TTL), false);
+  assert.deepStrictEqual(seen, [[true, 0], [false, 30], [true, 100], [false, 101 + TTL]]);
+  w.check(200 + TTL);
+  assert.strictEqual(seen.length, 4);
+});
