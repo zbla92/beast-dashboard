@@ -502,6 +502,7 @@ async function decorateClaude(snap) {
   headless.watch(cl.filter(isChat));
   for (const n of cl) if (isChat(n)) { const L = headless.live(n); if (L && !L.stale && L.v >= 2) claude.followChat(n, L.sessionId); }
   claude.reconcile(names);
+  forgetDoneState();
   claude.refreshTitles();
   for (const s of snap.sessions) if (isClaude(s)) { s.claude = claude.info(s.name); s.claude.usage = usage.bySession(s.claude.sessionId); s.claude.ctx = ctxOf(s); liveModel(s); s.claude.cache = usage.cacheOf(s.claude); Object.assign(s.claude, await whereIs(s)); if (s.claudeVersion) s.claude.version = s.claudeVersion; s.claude.waitingOn = waitingOn(claude.get(s.name), s.claude.mode === 'chat' ? headless.live(s.name) : null); if (s.claude.state === 'needs-you' && holds(s.claude.waitingOn)) s.claude.needsYou = false; const st = settle.of(s.name); if (st && !settle.wake(s.name, s.claude.state, s.claude.since || 0)) { s.claude.settled = st; s.claude.needsYou = false; } }
   if (Date.now() - lastUsageScan > 30000) { lastUsageScan = Date.now(); usage.scan().then(() => pushState(false)); }
@@ -531,7 +532,7 @@ function oneLine(t, n = 80) {
 const pushGate = require('./lib/pushgate').createPushGate();
 // A chat that finishes while you read it isn't waiting for you: no done buzz, and it is marked seen right away.
 const watching = require('./lib/watching').createWatching();
-const { createDonePush, fromNotification, waitingOn, holds } = require('./lib/donepush');
+const { createDonePush, createRosterWatch, fromNotification, waitingOn, liveRoster, liveVerdict, holds } = require('./lib/donepush');
 // Should this event buzz? Respects the per-event toggles, quiet hours and muted sessions from settings.
 function pushAllowed(kind, tmux) {
   const n = settings.get().notify || {}; if (n[kind] === false) return false;
@@ -561,12 +562,32 @@ function chatAskPush(name, req) {
 headless.onEvent((name, o) => { if (o.ev === 'pending') chatAskPush(name, o.req); });
 claude.onChange(checkpoints.onChange);
 claude.onChange((ev, r) => { if (settle.onChange(ev, r)) pushState(true); });
-function doneSettled(name, since) {
+const rosterWatch = createRosterWatch();
+const updatedWake = new Map();
+function doneSettled(name, since, owed = false) {
   const r = claude.get(name);
   if (!r || r.gone || r.state !== 'needs-you' || r.since !== since || watching.watched(name)) return false;
-  const w = waitingOn(r, headless.live(name));
-  if (w.agents.length || w.queued || w.busy) return false;
-  return w.shells.length || watching.active() ? 'wait' : true;
+  const L = headless.live(name);
+  const w = waitingOn(r, L);
+  if (w.queued || w.busy || (w.agents.length && w.source !== 'live')) return false;
+  const verdict = liveVerdict(L, updatedWake.get(name), Date.now(), owed);
+  if (!verdict) return false;
+  if (w.agents.length) return 'hold';
+  return w.shells.length || watching.active() ? 'wait' : verdict;
+}
+function rosterChanged(name) {
+  const r = claude.get(name); const L = headless.live(name);
+  if (!r || !liveRoster(L)) return;
+  const w = waitingOn(r, L);
+  const held = [...w.agents, ...w.shells].map(t => t.id);
+  if (rosterWatch.check(name, held, L.tasks.map(t => t && t.id), r.askedAt)) donePush.soon(name);
+}
+function forgetDoneState() {
+  for (const name of new Set([...updatedWake.keys(), ...rosterWatch.names(), ...donePush.names()])) {
+    const r = claude.get(name);
+    if (r && !r.gone) continue;
+    updatedWake.delete(name); rosterWatch.forget(name); donePush.forget(name);
+  }
 }
 function sendDone(name) {
   const r = { ...(claude.get(name) || {}), tmux: name }; const now = Date.now();
@@ -578,6 +599,12 @@ function sendDone(name) {
   push.notify({ title, body, url: `/?term=${encodeURIComponent(name)}`, tag: name, session: name, kind: 'done', since: r.since }).then(res => { if (res.sent) console.log(`push: ${title} -> ${res.sent}`); });
 }
 const donePush = createDonePush({ ready: doneSettled, send: sendDone });
+headless.onEvent((name, o) => {
+  const wake = o.ev === 'wake' || o.ev === 'result' ? o.wake : null;
+  if (wake && wake.outcome === 'updated') updatedWake.set(name, wake.at || Date.now());
+  if (o.ev === 'result' && o.end !== 'wake' && o.interrupted) donePush.forgo(name, (claude.get(name) || {}).askedAt || null);
+  if (['tasks', 'wake', 'result', 'snapshot'].includes(o.ev)) rosterChanged(name);
+});
 claude.onChange((ev, r, prev) => {
   if (r.state !== 'needs-you') donePush.cancel(r.tmux);
   if (r.state === 'limit') limits.refresh().then(() => { if (isChat(r.tmux)) planResume(r.tmux); pushState(false); });   // the plan numbers just changed: show the fresh reset time right away
@@ -592,7 +619,7 @@ claude.onChange((ev, r, prev) => {
     // Quick turns (under 20 s) don't buzz the phone — the ding in the open dashboard is enough for those.
     const started = r.askedAt || r.promptAt;
     const quick = started && r.stopAt && r.stopAt - started < 20000;
-    if (!quick && !watched && !isBotSession(r.tmux)) donePush.schedule(r.tmux, r.since, r.askedAt || null);
+    if (!quick && !watched && !isBotSession(r.tmux) && donePush.schedule(r.tmux, r.since, r.askedAt || null, !fromNotification(r.lastPrompt))) rosterChanged(r.tmux);
   } else {
     const kind = r.state;
     const body = r.state === 'permission' ? oneLine(r.lastTool || 'wants to run a tool', 80)
