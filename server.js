@@ -486,6 +486,7 @@ function ctxOf(s) {
 function liveModel(s) {
   const lv = s.claude.mode === 'chat' ? headless.live(s.name) : null;
   if (!lv || lv.stale) return;
+  if (lv.lastResult && lv.lastResult.interrupted) s.claude.interrupted = true;
   if (lv.model) s.claude.model = lv.model;
   const v = headless.liveVersion(lv, pathVersion()); if (v) s.claude.version = v;
   s.claude.wantVersion = claudever.status().using || CLAUDE_VERSION;

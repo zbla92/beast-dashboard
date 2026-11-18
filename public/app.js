@@ -316,7 +316,10 @@ function liveStream(name) {
   on('pending', o => { if (!HL.snap) HL.snap = { pending: [] }; HL.snap.pending = [...HL.snap.pending.filter(x => x.rid !== o.req.rid), o.req]; liveRender(false); });
   on('resolved', o => { if (HL.snap) HL.snap.pending = HL.snap.pending.filter(x => x.rid !== o.rid); liveRender(false); });
   on('state', o => { if (!HL.snap) HL.snap = { pending: [] }; HL.snap.state = o.state; HL.snap.since = o.since; if (o.state !== 'working') { HL.snap.pending = []; HL.snap.turn = null; } liveRender(false); });
-  on('result', () => { if (HL.snap) HL.snap.turn = null; liveRender(false); });
+  const livePills = () => { renderRail(); if (TERM.open) renderTermPanel(); feat('onState'); };
+  on('result', o => { if (HL.snap) { HL.snap.turn = null; HL.snap.lastResult = { at: Date.now(), end: o.end || 'turn', interrupted: !!o.interrupted, isError: !!o.isError, subtype: o.subtype, reason: o.reason, wakeOutcome: o.wake ? o.wake.outcome : null }; } liveRender(false); livePills(); });
+  on('tasks', o => { if (!HL.snap) HL.snap = { pending: [] }; if (Array.isArray(o.tasks)) HL.snap.tasks = o.tasks; livePills(); });
+  on('wake', o => { if (!HL.snap) HL.snap = { pending: [] }; HL.snap.wake = o.wake || null; livePills(); });
   for (const ev of ['shell', 'shell-out', 'shells']) on(ev, o => { if (!HL.snap) HL.snap = { pending: [] }; feat('liveEvent', ev, o, HL.snap); if (ev !== 'shell-out') liveRender(false); });
   es.addEventListener('error', () => { if (HL.es === es && es.readyState === EventSource.CLOSED) setTimeout(() => { if (HL.es === es && !document.hidden) { HL.name = null; liveStream(name); } }, 2000); });
 }
@@ -658,9 +661,25 @@ function stateLabel(cl) {
   const parts = waitingParts(cl);
   return parts.length ? 'background: ' + parts.join(' · ') : 'background';
 }
+const PILLS = { working: ['working', '●', 'Working'], waiting: ['waiting', '○', 'Waiting'], done: ['done', '✓', 'Done'], perm: ['perm', '!', 'Needs permission'], input: ['input', '?', 'Needs input'], failed: ['failed', '✕', 'Failed'], limit: ['limit', '⏳', 'Usage limit'], stopped: ['stopped', '■', 'Stopped'] };
+const PILL_OF = { working: 'working', background: 'waiting', error: 'failed', limit: 'limit' };
+function pillKey(cl, name) {
+  if (!cl) return null;
+  const st = displayState(cl); const lv = name ? liveOf(name) : null;
+  if (st === 'permission') { const ask = (lv && lv.pending && lv.pending[0]) || cl.ask; return ask && ask.kind === 'question' ? 'input' : 'perm'; }
+  if (st === 'done' || st === 'error') { const lr = lv && lv.lastResult; if (lr ? lr.interrupted : cl.interrupted) return 'stopped'; }
+  return st === 'done' ? 'done' : PILL_OF[st] || null;
+}
+function statePill(cl, name, small = false) {
+  const key = pillKey(cl, name); if (!key) return null;
+  const [css, glyph, label] = PILLS[key];
+  return h('span', { class: 'spill s-' + css + (small ? ' sm' : ''), title: stateLabel(cl) }, h('i', null, glyph), label);
+}
 const stateKey = cl => cl ? displayState(cl) + '|' + waitingParts(cl).join() : '';
-function stateBadge(cl, compact = false) {
-  if (!cl) return null; const st = displayState(cl); const at = st === 'done' ? cl.doneAt || cl.since : cl.since;
+function stateBadge(cl, compact = false, name = null) {
+  if (!cl) return null; const st = displayState(cl);
+  const pill = statePill(cl, name, compact); if (pill) return pill;
+  if (st === 'idle') return h('span'); const at = st === 'done' ? cl.doneAt || cl.since : cl.since;
   if (compact) return h('span', { class: 'cst ' + stCss(st), title: stateLabel(cl) }, h('i', null, gico(STATE_ICON[st] || '·', 11)), at && st !== 'unknown' ? h('b', null, ' ' + ago(at)) : null);
   return h('span', { class: 'cst ' + stCss(st), title: stateLabel(cl) + (at ? ' since ' + new Date(at).toLocaleTimeString() : '') }, h('i', null, gico(STATE_ICON[st] || '·', 11)), ' ', STATE_SHORT[st] || st, at && st !== 'unknown' ? h('b', null, ' ' + ago(at)) : null);
 }
@@ -704,7 +723,7 @@ function renderTermPanel(force) {
   const extra = [...TERM.frames.keys()].filter(k => !known.has(k) && !FEAT.specialists?.phantom(k));
   // The list and the bar are rebuilt only when something they show actually changed. Rebuilding them on every
   // 3-second state tick blurred the terminal iframe (the focus bug) and made the sidebar flicker.
-  const key = JSON.stringify([TERM.active, TERM.showList, TERM.view[TERM.active] || '', TERM.focus, S3.all.map(x => [x.name, x.claude?.mode, x.claude?.state, stateKey(x.claude), x.claude?.title, x.claude?.label, x.rename, x.claude?.firstPrompt, (x.claude?.projects || []).join(), x.claude?.model, x.claude?.effort, x.claude?.branch, x.claude?.worktree?.name, x.claude?.version, x.claude?.wantVersion, (S.settings.muted || []).includes(x.name), Math.floor((x.cpu || 0) / 10), x.ports.map(p => p.port)]), S.claude?.installed, S.claude?.update?.version, CLAUDE_UPGRADING, extra, [...TERM.frames.keys()], S.runtime.sessions.filter(s => s.name === TERM.active).map(s => s.project + (gitOf(byId()[s.project] || {})?.dirty || 0) + '|' + (s.claude?.ctx ? Math.round(s.claude.ctx.used / 1000) + '/' + s.claude.ctx.window + '/' + s.claude.ctx.compactAt : '')), feat('termBarKey', TERM.active)]);
+  const key = JSON.stringify([TERM.active, TERM.showList, TERM.view[TERM.active] || '', TERM.focus, S3.all.map(x => [x.name, x.claude?.mode, x.claude?.state, stateKey(x.claude), pillKey(x.claude, x.name), x.claude?.title, x.claude?.label, x.rename, x.claude?.firstPrompt, (x.claude?.projects || []).join(), x.claude?.model, x.claude?.effort, x.claude?.branch, x.claude?.worktree?.name, x.claude?.version, x.claude?.wantVersion, (S.settings.muted || []).includes(x.name), Math.floor((x.cpu || 0) / 10), x.ports.map(p => p.port)]), S.claude?.installed, S.claude?.update?.version, CLAUDE_UPGRADING, extra, [...TERM.frames.keys()], S.runtime.sessions.filter(s => s.name === TERM.active).map(s => s.project + (gitOf(byId()[s.project] || {})?.dirty || 0) + '|' + (s.claude?.ctx ? Math.round(s.claude.ctx.used / 1000) + '/' + s.claude.ctx.window + '/' + s.claude.ctx.compactAt : '')), feat('termBarKey', TERM.active)]);
   const frames = $('#term-frames'); const chatOn = TERM.active && chatMode(TERM.active);
   for (const [k, f] of TERM.frames) { if (!f.isConnected) frames.append(f); f.classList.toggle('on', k === TERM.active && !chatOn); }
   $('#term-chat').classList.toggle('hidden', !chatOn);
@@ -721,7 +740,7 @@ function renderTermPanel(force) {
     const name = kind === 'claude' ? (sub ? h('span', { class: 'inst' }, gl(i.label, 12)) : isNewChat(it.name) ? chatTitle(cl) : (cl?.label || it.project)) : it.rename || (kind === 'dev' ? it.project : it.name);
     const acctTag = kind === 'claude' && multiAcct() && it.account !== 'personal' ? h('span', { class: 'badge tag acc ' + it.account }, acct(it.account)) : null;
     const tag = kind === 'claude' ? null : kind === 'dev' ? h('span', { class: 'grp' }, it.label) : it.name.startsWith('sh-') ? h('span', { class: 'grp' }, 'bash') : null;
-    const line2 = cl ? [h('span', { class: 'cst mini ' + stCss(displayState(cl)) }, gico(STATE_ICON[displayState(cl)] || '·', 10), ' ', stateLabel(cl)), cl.model ? h('span', { class: 'mdl' }, modelName(cl.model)) : null, !sub && i && i.n ? h('span', { class: 'grp' }, '#' + i.n) : null, acctTag]
+    const line2 = cl ? [statePill(cl, it.name, true) || (displayState(cl) === 'idle' ? null : h('span', { class: 'cst mini ' + stCss(displayState(cl)) }, gico(STATE_ICON[displayState(cl)] || '·', 10), ' ', stateLabel(cl))), cl.model ? h('span', { class: 'mdl' }, modelName(cl.model)) : null, !sub && i && i.n ? h('span', { class: 'grp' }, '#' + i.n) : null, acctTag]
       : [h('span', { class: 'grp' }, [it.group, it.org].filter(Boolean).join(' · ') || home(it.cwd)), h('span', { class: 'grp' }, `${ago(it.started)} · ${(it.cpu || 0).toFixed(0)}% · ${fmtB(it.mem || 0)}`)];
     const others = cl && isNewChat(it.name) ? (cl.projects || []).filter(x => x !== it.pid).slice(0, 2).map(x => h('span', { class: 'grp pchip' }, byId()[x]?.name || x)) : [];
     const line3 = cl ? [where, ...others, isNewChat(it.name) && !sub ? (it.pid ? null : h('span', { class: 'grp' }, home(it.cwd))) : cl.title ? h('span', { class: 'ttl', title: cl.title }, cl.title) : cl.lastPrompt ? h('span', { class: 'ttl dim', title: cl.lastPrompt }, ico('prompt', 12), ' ' + cl.lastPrompt) : null] : null;
@@ -766,7 +785,7 @@ function renderTermPanel(force) {
   const mobName = act ? sessTitle(act) : (FEAT.specialists?.termTitle(TERM.active) || TERM.active || 'Sessions');
   const toList = () => { TERM.showList = true; renderTermPanel(true); retop(); };
   barAdd(h('button', { class: 'btn sm ghost mob icon', title: 'back to the sessions (they keep running)', onclick: toList }, ico('back', 17)),
-    h('button', { class: 'mob msess', title: 'switch session', onclick: toList }, act ? avatar(act.project, 'sm') : FEAT.specialists?.termTile(TERM.active), h('span', { class: 'nm' }, mobName), accTag(), instNum(act, TERM.active) ? h('span', { class: 'grp' }, '#' + instNum(act, TERM.active)) : null, cl && IS_PHONE ? stateBadge(cl, true) : null));
+    h('button', { class: 'mob msess', title: 'switch session', onclick: toList }, act ? avatar(act.project, 'sm') : FEAT.specialists?.termTile(TERM.active), h('span', { class: 'nm' }, mobName), accTag(), instNum(act, TERM.active) ? h('span', { class: 'grp' }, '#' + instNum(act, TERM.active)) : null, cl && IS_PHONE ? stateBadge(cl, true, TERM.active) : null));
   const gone = !act && !!TERM.active && !FEAT.specialists?.phantom(TERM.active) && TERM.active !== 'shell';
   const actName = act ? sessTitle(act) : (FEAT.specialists?.termTitle(TERM.active) || TERM.active);
   const isChatS = cl && cl.mode === 'chat'; const logOn = isChatS && TERM.view[TERM.active] === 'term';
@@ -778,7 +797,7 @@ function renderTermPanel(force) {
       gone ? h('span', { class: 'dim tgone' }, 'This session has ended.') : null,
       cl && (cl.worktree?.name || cl.branch) ? h('span', { class: 'tcrumb' + (cl.worktree?.name ? ' wt' : ''), title: cl.worktree?.name ? 'git worktree' + (cl.branch ? ' · branch ' + cl.branch : '') : 'branch' }, ico('chevronRight', 12), h('span', { class: 'tcrumb-b' }, cl.worktree?.name || cl.branch)) : null,
       IS_PHONE ? null : accTag()),
-    cl && !IS_PHONE ? stateBadge(cl) : null,
+    cl && !IS_PHONE ? stateBadge(cl, false, TERM.active) : null,
     h('span', { class: 'sp' }),
     logOn ? h('button', { class: 'btn sm', title: 'you are looking at the runner log — back to the conversation', onclick: () => setMode('chat') }, ico('chat', 13), 'Back to chat') : null,
     cl && cl.state === 'limit' && act ? h('button', { class: 'btn sm primary', title: 'start the other account in this folder with a summary of where this one stopped', onclick: () => handoff({ name: TERM.active, account: cl.account, project: act.project }) }, gl('⇄ Hand off')) : null,
@@ -1540,7 +1559,7 @@ async function renderSessionDrawer(full = true) {
   }
   const P = byId(); const pr = s && P[s.project];
   const title = cl.label || (pr ? pr.name : name);
-  const head = h('div', { class: 'dh' }, h('div', { class: 'row1' }, h('h2', null, avatar(s && s.project, 'sm'), title, cl.title ? h('span', { class: 'dim', style: 'font-size:13px;font-weight:500' }, cl.title) : null, stateBadge(cl)),
+  const head = h('div', { class: 'dh' }, h('div', { class: 'row1' }, h('h2', null, avatar(s && s.project, 'sm'), title, cl.title ? h('span', { class: 'dim', style: 'font-size:13px;font-weight:500' }, cl.title) : null, stateBadge(cl, false, name)),
       h('button', { class: 'btn sm', onclick: () => { closeDrawer(); openTerm(name); } }, gl('⌨ Terminal')), h('button', { class: 'btn ghost close', onclick: closeDrawer }, gl('✕ Esc'))),
     h('div', { class: 'path' }, name, ' · ', cl.cwd || s?.cwd || '', cl.usage ? ` · ${usd(cl.usage.cost)} · ${cl.usage.requests} requests` : ''),
     h('div', { class: 'tabs' }, [['transcript', 'Conversation'], ['touched', `Files edited${cl.touched ? ' (' + cl.touched + ')' : ''}`]].map(([k, l]) => h('div', { class: 'tab' + (SESS.tab === k ? ' on' : ''), onclick: () => { SESS.tab = k; renderSessionDrawer(); } }, l))));
@@ -2992,17 +3011,17 @@ function renderRail() {
     const cl = it.claude; if (!cl) return it.label ? it.label + (it.ports.length ? ' · :' + it.ports.map(p => p.port).join(' :') : '') : (it.current || 'bash') + ' · ' + home(it.cwd);
     const st = displayState(cl);
     if (st === 'working') return cl.lastTool || 'working…';
-    if (st === 'background') return stateLabel(cl);
-    return ['permission', 'done', 'error', 'limit'].includes(st) ? STATE_SHORT[st] : '';
+    if (st === 'background') return waitingParts(cl).join(' · ');
+    return '';
   };
   const row = (it, kind, tuck) => {
     const cl = it.claude; const st = cl ? stCss(displayState(cl)) : kind; const i = kind === 'claude' ? instOf(it) : null;
     const nm = kind === 'claude' ? (isNewChat(it.name) ? chatTitle(cl) : cl?.label || (tuck ? (i.wt ? it.project : '#' + (i.n || 1)) : it.name.startsWith('sh-') ? it.name : it.project)) : it.rename || (kind === 'dev' ? it.project : it.name);
-    const subline = sub(it); const age = cl?.since && st !== 'unknown' ? ago(cl.since).replace(/\.\d+/, '') : '';
+    const subline = sub(it); const pill = cl ? statePill(cl, it.name, true) : null; const age = cl?.since && st !== 'unknown' ? ago(cl.since).replace(/\.\d+/, '') : '';
     return h('button', { class: 'rrow k-' + kind + ' st-' + st + (tuck ? ' sub' : '') + (act === it.name ? ' on' : '') + (needsYou(cl) ? ' need' : '') + (cl?.settled ? ' settled' : ''), title: it.name + (cl ? ' · ' + stateLabel(cl) : '') + (cl?.settled ? ' · ' + (cl.settled.until ? 'snoozed' : 'settled') : ''), onclick: () => openTerm(it.name) },
       kind === 'claude' && !tuck ? h('span', { class: 'rav' }, avatar(it.pid, 'sm'), h('i', { class: 'rdot' })) : h('i', { class: 'rdot' }),
       h('span', { class: 'rtx' }, h('span', { class: 'rnm' }, h('b', null, nm), i && i.n && !(tuck && !cl?.label && !i.wt) ? h('em', null, '#' + i.n) : null, i && i.wt ? h('em', { class: 'wt' }, ico('branch', 11), ' ' + i.wt.name) : null, kind === 'claude' && multiAcct() && it.account !== 'personal' ? h('em', { class: 'racc ' + it.account, title: 'Claude Code account: ' + acct(it.account) }, acct(it.account).slice(0, 1)) : null),
-        subline ? h('span', { class: 'rln2' }, h('span', { class: 'rsub' + (st === 'working' ? ' mono' : '') }, subline)) : null),
+        subline || pill ? h('span', { class: 'rln2' }, pill, subline ? h('span', { class: 'rsub' + (st === 'working' ? ' mono' : '') }, subline) : null) : null),
       age ? h('span', { class: 'rage', title: 'since ' + new Date(cl.since).toLocaleTimeString() }, age) : null,
       ...feat('termItem', it.name),
       h('span', { class: 'redit', role: 'button', title: 'rename this session', onclick: ev => { ev.stopPropagation(); renameDialog(it.name); } }, ico('pencil', 13)));

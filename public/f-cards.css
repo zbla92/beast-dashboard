@@ -97,8 +97,8 @@
   #term-bar { gap: 8px; padding: 0 10px; }
   #term-bar > .tid { gap: 8px; margin: 0; padding: 0 14px 0 5px; }
   #term-bar > .tid:not(:has(> .av)) { padding-left: 14px; }
-  #term-bar > .tid:has(+ .cst) { padding-right: 8px; border-right: 0; border-radius: calc(var(--pill) / 2) 0 0 calc(var(--pill) / 2); }
-  #term-bar > .tid + .cst { height: var(--pill); margin-left: -8px; padding: 0 14px 0 2px; border: 1px solid var(--line2); background: var(--glass-solid); box-shadow: 0 2px 10px rgba(0,0,0,.45); border-left: 0; border-radius: 0 calc(var(--pill) / 2) calc(var(--pill) / 2) 0; clip-path: inset(-12px -12px -12px 0); font-size: var(--fs-xs); }
+  #term-bar > .tid:has(+ .cst, + .spill) { padding-right: 8px; border-right: 0; border-radius: calc(var(--pill) / 2) 0 0 calc(var(--pill) / 2); }
+  #term-bar > .tid + .cst, #term-bar > .tid + .spill { height: var(--pill); margin-left: -8px; padding: 0 14px 0 2px; border: 1px solid var(--line2); background: var(--glass-solid); box-shadow: 0 2px 10px rgba(0,0,0,.45); border-left: 0; border-radius: 0 calc(var(--pill) / 2) calc(var(--pill) / 2) 0; clip-path: inset(-12px -12px -12px 0); font-size: var(--fs-xs); }
   #term-bar > .tid + .cst.needs-you { color: var(--st-need); }
   #term-bar > .tid + .cst.permission { color: var(--st-perm); }
   #term-bar > .btn:not(.icon, .tmore) { padding: 0 14px; }
