@@ -36,6 +36,13 @@
 .bg-pi .bg-el { font-size: var(--fs-xs); }
 .bg-act { height: 26px; padding: 0 10px; border: 1px solid var(--line2); border-radius: var(--r-sm); background: var(--fill); color: inherit; font: inherit; font-size: var(--fs-xs); font-weight: 500; white-space: nowrap; cursor: pointer; }
 .bg-act:hover { background: var(--fill2); }
+.bg-acts { display: flex; gap: 6px; }
+.bg-x { display: inline-flex; align-items: center; gap: 6px; }
+.bg-sq { flex: none; width: 7px; height: 7px; border-radius: 2px; background: var(--red); }
+.bg-x:disabled { opacity: .55; cursor: default; }
+.bg-x:disabled:hover { background: var(--fill); }
+.bg-x:disabled .bg-sq { background: var(--dim); }
+.bg-pp.bg-err { color: var(--red); white-space: normal; }
 @media (prefers-reduced-motion: reduce) {
   .bg-spin { animation: none; }
 }
@@ -46,5 +53,6 @@
   .bg-pk { grid-area: k; }
   .bg-pi .bg-el { grid-area: e; }
   .bg-pd { grid-area: d; }
-  .bg-act { grid-area: a; justify-self: start; height: 30px; }
+  .bg-acts { grid-area: a; justify-self: start; }
+  .bg-act { height: 30px; }
 }

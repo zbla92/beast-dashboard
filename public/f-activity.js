@@ -11,6 +11,8 @@ FEAT.activity = (() => {
     up: '<path d="M4 10l4-4 4 4"/>',
   };
   const OPEN = new Set();
+  const STOPS = new Map();
+  const SENT_MS = 10 * 1000, ERR_MS = 5000;
   const age = ms => { const m = Math.floor(ms / 60000); return m < 60 ? m + 'm' : m < 1440 ? Math.floor(m / 60) + 'h' : Math.floor(m / 1440) + 'd'; };
   const plural = (n, word) => n + ' ' + word + (n === 1 ? '' : 's');
   const clock = ms => { const s = Math.max(0, Math.floor(ms / 1000)); const hr = Math.floor(s / 3600); const mn = Math.floor(s % 3600 / 60); const sc = s % 60; return hr ? hr + 'h ' + String(mn).padStart(2, '0') + 'm' : mn ? mn + 'm ' + String(sc).padStart(2, '0') + 's' : sc + 's'; };
@@ -35,9 +37,10 @@ FEAT.activity = (() => {
       return { ...base, startedAt: base.startedAt || (a && a.startedAt) || null, silent: mayBeSilent && quiet > SILENT_MS ? quiet : 0 };
     };
     if (lv && !lv.stale && Array.isArray(lv.tasks)) {
+      const stoppable = lv.stopTask === true;
       return lv.tasks.flatMap(t => {
         const it = enrich(t.kind === 'agent' ? t.id : null, { id: t.id, kind: t.kind, description: t.description || t.id, startedAt: t.startedAt || null, progress: t.progress || null });
-        return it ? [{ ...it, holds: turnDone && held.has(t.id) }] : [];
+        return it ? [{ ...it, holds: turnDone && held.has(t.id), stoppable: stoppable && !!t.id && !t.owed }] : [];
       });
     }
     const agents = (cl.bgTasks || []).flatMap(t => {
@@ -63,16 +66,49 @@ FEAT.activity = (() => {
   const earliest = items => items.reduce((m, i) => i.startedAt && (!m || i.startedAt < m) ? i.startedAt : m, 0);
   const elapsed = start => h('span', { class: 'bg-el mono', 'data-start': start ? String(start) : '' }, start ? clock(Date.now() - start) : '');
 
+  const stopKey = (name, id) => name + '\n' + id;
+  function stopState(name, id) {
+    const st = STOPS.get(stopKey(name, id));
+    if (!st) return null;
+    const ttl = st.state === 'err' ? ERR_MS : st.state === 'sent' ? SENT_MS : Infinity;
+    return Date.now() - st.at < ttl ? st : null;
+  }
+
+  async function stopTask(name, id) {
+    const key = stopKey(name, id);
+    STOPS.set(key, { state: 'busy', at: Date.now() });
+    paintAll();
+    try {
+      await api('hl-task-stop', { session: name, id });
+      STOPS.set(key, { state: 'sent', at: Date.now() });
+      setTimeout(paintAll, SENT_MS + 50);
+    } catch (e) {
+      STOPS.set(key, { state: 'err', at: Date.now(), error: e.message || 'failed' });
+      setTimeout(paintAll, ERR_MS + 50);
+    }
+    paintAll();
+  }
+
+  function stopButton(name, it) {
+    const st = stopState(name, it.id);
+    const busy = !!st && st.state !== 'err';
+    return h('button', { class: 'bg-act bg-x', disabled: busy, 'aria-label': 'Stop ' + (NOUN[it.kind] || 'task'), onclick: ev => { ev.stopPropagation(); if (!busy) stopTask(name, it.id); } },
+      h('span', { class: 'bg-sq' }), busy ? 'Stopping…' : 'Stop');
+  }
+
   function popItem(name, it, turnDone) {
+    const st = it.stoppable ? stopState(name, it.id) : null;
+    const failed = st && st.state === 'err' ? 'Could not stop: ' + st.error : '';
     const hint = it.silent ? 'silent ' + age(it.silent) : it.progress || '';
-    const action = it.kind === 'agent' && it.id && FEAT.subagents ? h('button', { class: 'bg-act', onclick: () => FEAT.subagents.sheet(name, it.id) }, 'Open subagent') : null;
+    const open = it.kind === 'agent' && it.id && FEAT.subagents ? h('button', { class: 'bg-act', onclick: () => FEAT.subagents.sheet(name, it.id) }, 'Open subagent') : null;
+    const stop = it.stoppable ? stopButton(name, it) : null;
     return h('div', { class: 'bg-pi' + (it.holds ? '' : ' soft') },
       h('span', { class: 'bg-pk k-' + it.kind }, glyph(it.kind), h('span', null, KIND[it.kind] || 'Task')),
       h('div', { class: 'bg-pd' },
         h('div', { class: 'bg-pt' }, it.description, turnDone && !it.holds ? h('span', { class: 'bg-nb' }, 'Not blocking') : null),
-        hint ? h('div', { class: 'bg-pp mono' }, hint) : null),
+        failed ? h('div', { class: 'bg-pp bg-err', role: 'alert' }, failed) : hint ? h('div', { class: 'bg-pp mono' }, hint) : null),
       elapsed(it.startedAt),
-      action);
+      open || stop ? h('span', { class: 'bg-acts' }, open, stop) : null);
   }
 
   function popover(name, items, turnDone) {
@@ -109,15 +145,25 @@ FEAT.activity = (() => {
     return strip;
   }
 
-  const signature = (cl, items) => displayState(cl) + '|' + items.map(i => [i.id, i.kind, i.description, i.progress, i.holds, i.silent ? 1 : 0, i.startedAt ? 1 : 0].join('~')).join('|');
+  const stopSig = (name, i) => { const st = i.stoppable ? stopState(name, i.id) : null; return i.stoppable ? st ? st.state : 's' : ''; };
+  const signature = (name, cl, items) => displayState(cl) + '|' + items.map(i => [i.id, i.kind, i.description, i.progress, i.holds, i.silent ? 1 : 0, i.startedAt ? 1 : 0, stopSig(name, i)].join('~')).join('|');
+
+  function forgetStops(name, items) {
+    const ids = new Set(items.map(i => i.id));
+    for (const key of [...STOPS.keys()]) {
+      const [n, id] = key.split('\n');
+      if (n === name && (!ids.has(id) || !stopState(n, id))) STOPS.delete(key);
+    }
+  }
 
   function paintBox(box) {
     const name = box.dataset.chat;
     const cl = name ? claudeOf(name) : null;
     const items = cl && cl.mode === 'chat' ? itemsOf(name, cl) : [];
     const found = box.querySelector(':scope > .act-strip');
+    if (name) forgetStops(name, items);
     if (!items.length) { if (found) found.remove(); return; }
-    const sig = signature(cl, items);
+    const sig = signature(name, cl, items);
     if (found && found.dataset.sig === sig) return;
     const strip = build(name, cl, items);
     strip.dataset.sig = sig;

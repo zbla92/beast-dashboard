@@ -1350,6 +1350,13 @@ async function api(req, res, url) {
       const r = isCmd ? await headless.shell(b.session, cmd) : parts[0] === 'hl-shell-stop' ? await headless.shellStop(b.session, b.id) : await headless.shellDrop(b.session, b.id);
       return json(res, r.ok ? 200 : 409, r);
     }
+    case 'hl-task-stop': {
+      if (typeof b.id !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(b.id)) return json(res, 400, { error: 'bad task id' });
+      if (!isChat(b.session)) return json(res, 404, { error: 'not a chat session' });
+      const { status, ...r } = await headless.stopTask(b.session, b.id);
+      if (r.ok) setTimeout(tick, 300);
+      return json(res, status, r);
+    }
     case 'hl-shell-input': {
       if (typeof b.id !== 'string' || !/^s-\d+$/.test(b.id)) return json(res, 400, { error: 'bad command id' });
       if (b.text !== undefined && typeof b.text !== 'string') return json(res, 400, { error: 'text must be a string' });

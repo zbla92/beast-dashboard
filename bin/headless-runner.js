@@ -62,7 +62,7 @@ const clock = () => new Date().toTimeString().slice(0, 8);
 function snapshot() {
   return { ev: 'snapshot', v: 4, sessionId: current, state: S.state, since: S.since, turn: S.turn, pending: [...pending.values()].map(p => p.req), inbox: inboxList(),
     rate: S.rate, ctx: S.ctx, model: S.model, effort: S.effort, version: S.version, claude: CLAUDE, childAt, caps: S.caps, error: S.error, shells: shellList(), addDirs: [...ADD_DIRS],
-    tasks: taskList(), wake: S.wake, lastResult: S.lastResult };
+    tasks: taskList(), wake: S.wake, lastResult: S.lastResult, stopTask: true };
 }
 function inboxList() { return inbox.map(m => ({ id: m.id, text: m.text, at: m.at })); }
 function emitInbox() { emit({ ev: 'inbox', inbox: inboxList() }); }
@@ -335,6 +335,16 @@ function markAwaited(ids) {
   if (!ids.length) return;
   for (const id of ids) { keep(marked, id, true); const t = roster.get(id); if (t) t.awaited = true; }
   emitTasks();
+}
+const taskStops = new Set();
+async function stopTask(id) {
+  taskStops.add(id);
+  line(dim(`[${clock()}] stop task ${id}`));
+  const r = await ctl({ subtype: 'stop_task', task_id: id });
+  taskStops.delete(id);
+  const ok = r.subtype === 'success', error = ok ? null : cap(r.error || 'stop_task failed', 300);
+  emit({ ev: 'stop-task', id, ok, error });
+  return error;
 }
 function onLevel(list) {
   const ids = new Set();
@@ -682,6 +692,13 @@ function onClientOp(c, m) {
       if (!cmd || cmd.length > MAX_CMD) return fail('cmd must be 1..10000 chars');
       if (shells.some(e => e.state === 'running')) return fail('a command is still running');
       return c.write(JSON.stringify({ ev: 'ack', cid: m.cid, id: startShell(cmd) }) + '\n');
+    }
+    case 'stop-task': {
+      const t = typeof m.id === 'string' ? roster.get(m.id) : null;
+      if (!t || t.owed) return fail('no such background task');
+      if (taskStops.has(t.id)) return fail('that task is already being stopped');
+      if (!child) return fail('claude is not running');
+      return stopTask(t.id).then(error => error ? fail(error) : ack());
     }
     case 'shell-stop': {
       const e = shells.find(x => x.id === m.id && x.state === 'running');

@@ -208,6 +208,8 @@ r="$(hlpost hl-shell '{"session":"claude-gate-nope","cmd":"   "}') $(hlpost hl-s
 [ "$r" = "400 400 400 400" ] && ok "POST hl-shell / -stop / -drop bad input -> 400" || fail "POST hl-shell bad input -> $r"
 r="$(hlpost hl-shell-stop '{"session":"claude-gate-nope","id":"s-1"}') $(hlpost hl-shell-drop '{"session":"claude-gate-nope","id":"s-1"}')"
 [ "$r" = "400 400" ] && ok "POST hl-shell-stop / -drop non-chat session -> 400" || fail "POST hl-shell-stop / -drop non-chat session -> $r"
+r="$(hlpost hl-task-stop '{"session":"claude-chat-gate-plain","id":"../x"}') $(hlpost hl-task-stop '{"session":"claude-chat-gate-plain"}') $(hlpost hl-task-stop '{"session":"claude-gate-nope","id":"b123"}') $(hlpost hl-task-stop '{"session":"claude-chat-gate-plain","id":"b123"}') $(jq1 'j.error')"
+[ "$r" = "400 400 404 409 chat runner is not reachable" ] && ok "POST hl-task-stop bad id -> 400, non-chat -> 404, chat without a runner -> 409" || fail "POST hl-task-stop -> $r"
 r="$(hlpost send '{"session":"claude-spec-gate-bot","text":"hi"}') $(jq1 'j.error')"
 [ "$r" = "400 chat runner is not reachable" ] && ok "POST send to a claude-spec session that is no bot's thread goes straight to its runner" || fail "POST send unknown bot name chat -> $r"
 GL="$TMP/specialists/gate-lost"
@@ -306,6 +308,9 @@ r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: appli
 for h in "Sec-Fetch-Site: cross-site" "Origin: https://evil.example"; do
   r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -H "$h" -d '{"session":"claude-gate-nope","cmd":"id"}' "$B/api/hl-shell")"
   [ "$r" = 403 ] && ok "POST hl-shell with $h -> 403" || fail "POST hl-shell with $h -> $r"; done
+for h in "Sec-Fetch-Site: cross-site" "Origin: https://evil.example"; do
+  r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -H "$h" -d '{"session":"claude-chat-gate-plain","id":"b123"}' "$B/api/hl-task-stop")"
+  [ "$r" = 403 ] && ok "POST hl-task-stop with $h -> 403" || fail "POST hl-task-stop with $h -> $r"; done
 for ep in kill unexpose; do r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -H "Origin: $B" -d '{"pid":1}' "$B/api/$ep")"
   [ "$r" = 403 ] && ok "POST $ep of an unlisted pid -> 403" || fail "POST $ep of an unlisted pid -> $r"; done
 r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X OPTIONS -H "Origin: http://127.0.0.1:7681" -H 'Sec-Fetch-Site: same-site' "$B/api/paste-image")"

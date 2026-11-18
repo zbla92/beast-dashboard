@@ -109,12 +109,15 @@ async function turn(text, uuid, content = text) {
 const STREAM = process.env.FAKE_STREAM ? fs.readFileSync(process.env.FAKE_STREAM, 'utf8').split('\n').filter(l => l.trim()).map(l => JSON.parse(l)) : null;
 const segments = STREAM ? STREAM.reduce((acc, f, i) => { if (i && f.type === 'command_lifecycle' && f.state === 'queued') acc.push([]); acc[acc.length - 1].push(f); return acc; }, [[]]) : [];
 const interrupts = [];
+const stops = [];
 const isEcho = f => f.type === 'user' && f.isReplay === true && !(Array.isArray(f.message && f.message.content) && f.message.content.some(b => b && b.type === 'tool_result'));
 async function play(frames, uuid, raw) {
   for (const f of frames) {
     await sleep(+process.env.FAKE_STREAM_MS || 2);
     if (f.type === 'fake_exit') process.exit(3);
     if (f.type === 'fake_sleep') { await sleep(f.ms); continue; }
+    if (f.type === 'fake_await' && f.request === 'stop_task') { stops.rid = await new Promise(r => stops.length ? r(stops.shift()) : stops.waiter = r); continue; }
+    if (f.type === 'control_response' && /^st-/.test(f.response && f.response.request_id)) { emit({ ...f, response: { ...f.response, request_id: stops.rid } }); continue; }
     if (f.type === 'control_response' && /^int-/.test(f.response && f.response.request_id)) {
       const rid = await new Promise(r => interrupts.length ? r(interrupts.shift()) : interrupts.waiter = r);
       emit({ ...f, response: { ...f.response, request_id: rid } }); continue;
@@ -133,6 +136,12 @@ process.stdin.on('data', d => {
     if (o.type === 'control_response') { const f = waiting.get(o.response.request_id); waiting.delete(o.response.request_id); if (f) f(o.response.response); else if (process.env.FAKE_ARGS) fs.appendFileSync(process.env.FAKE_ARGS, JSON.stringify({ response: o.response }) + '\n'); continue; }
     if (STREAM && o.type === 'control_request' && o.request.subtype === 'interrupt') {
       if (interrupts.waiter) { const w = interrupts.waiter; interrupts.waiter = null; w(o.request_id); } else interrupts.push(o.request_id);
+      continue;
+    }
+    if (STREAM && o.type === 'control_request' && o.request.subtype === 'stop_task') {
+      if (process.env.FAKE_ARGS) fs.appendFileSync(process.env.FAKE_ARGS, JSON.stringify({ request: o.request }) + '\n');
+      if (process.env.FAKE_STOP_ERROR) { emit({ type: 'control_response', response: { subtype: 'error', request_id: o.request_id, error: process.env.FAKE_STOP_ERROR } }); continue; }
+      if (stops.waiter) { const w = stops.waiter; stops.waiter = null; w(o.request_id); } else stops.push(o.request_id);
       continue;
     }
     if (o.type === 'control_request' && o.request.subtype === 'interrupt') {
