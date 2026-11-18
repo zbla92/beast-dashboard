@@ -31,3 +31,7 @@ body.rail-flat .tgbox .tgrp { min-height: 44px; padding: 6px 6px 6px 10px; font-
 body.rail-flat .tgbox .titem.sub { min-height: 48px; margin: 0 0 2px 32px; padding: 8px 4px 8px 10px; border: 0; border-radius: var(--r); }
 body.rail-flat .tgbox .titem.sub:not(.on, .st-needs-you, .st-permission) { background: none; }
 body.rail-flat .torg::before { display: none; }
+@media (max-width: 900px) {
+  .termpanel.showlist { background: transparent; box-shadow: none; }
+  body.rail-flat #term-list .torg { margin-bottom: 8px; padding: 0 4px 4px; border-radius: var(--r-lg); background: var(--card-fill); }
+}
