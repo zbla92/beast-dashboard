@@ -217,5 +217,5 @@
     return true;
   }
 
-  FEAT.subagents = { chatBar, sessMenu, homeTiles, deepLink };
+  FEAT.subagents = { chatBar, sessMenu, homeTiles, deepLink, sheet, agents: name => DATA.get(name)?.j?.agents || [], partial: name => !!DATA.get(name)?.j?.partial };
 })();

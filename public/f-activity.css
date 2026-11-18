@@ -1,0 +1,16 @@
+.act-strip { flex: none; display: flex; align-items: center; gap: var(--sp-3); min-width: 0; min-height: 24px; padding: 2px max(24px, 3vw); background: var(--bg); font-size: var(--fs-xs); color: var(--muted); overflow: hidden; }
+.act-part { display: inline-flex; align-items: center; gap: var(--sp-1); min-width: 0; flex: none; white-space: nowrap; }
+.act-part b { font-weight: 500; color: var(--text); }
+.act-agents { flex: 1 1 auto; border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; text-align: left; }
+.act-agents:hover b { text-decoration: underline; }
+.act-desc { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.act-warn { flex: none; color: var(--amber, #d9a02b); font-weight: 500; }
+.act-spin { flex: none; width: 10px; height: 10px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--st-work) 25%, transparent); border-top-color: var(--st-work); animation: rot .9s linear infinite; }
+.act-silent .act-spin { border-color: color-mix(in srgb, var(--amber, #d9a02b) 25%, transparent); border-top-color: var(--amber, #d9a02b); }
+@media (prefers-reduced-motion: reduce) {
+  .act-spin { animation: none; width: 7px; height: 7px; border: 0; background: var(--st-work); }
+  .act-silent .act-spin { background: var(--amber, #d9a02b); }
+}
+@media (max-width: 700px) {
+  .act-strip { padding: 2px var(--sp-2); gap: var(--sp-2); }
+}

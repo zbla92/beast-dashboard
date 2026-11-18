@@ -402,6 +402,24 @@ const HELP = [
     ],
   },
   {
+    id: 'activity',
+    title: 'Activity strip',
+    icon: 'diamond',
+    short: 'A slim line above the message box shows what a chat is still doing after its turn: background agents and background commands.',
+    sections: [
+      {
+        h: 'What it shows',
+        md: [
+          'When Claude has finished its turn but still waits on something running in the background, a strip with a spinner appears above the message box and disappears when nothing runs.',
+          '',
+          '- **Agents** lists the background agents Claude is waiting on. Click it to open the subagents sheet.',
+          '- **Silent** in amber means that agent has written nothing for more than 10 minutes, for example `silent 7h`. It may be stuck.',
+          '- **Commands running** counts background shell commands started by Claude.',
+        ].join('\n'),
+      },
+    ],
+  },
+  {
     id: 'inbox',
     title: 'Inbox',
     icon: 'bell',
