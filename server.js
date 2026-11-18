@@ -533,7 +533,7 @@ function oneLine(t, n = 80) {
 const pushGate = require('./lib/pushgate').createPushGate();
 // A chat that finishes while you read it isn't waiting for you: no done buzz, and it is marked seen right away.
 const watching = require('./lib/watching').createWatching();
-const { createDonePush, createRosterWatch, fromNotification, waitingOn, liveRoster, liveVerdict, holds } = require('./lib/donepush');
+const { createDonePush, createRosterWatch, fromNotification, waitingOn, liveRoster, marksAwaited, liveVerdict, holds } = require('./lib/donepush');
 // Should this event buzz? Respects the per-event toggles, quiet hours and muted sessions from settings.
 function pushAllowed(kind, tmux) {
   const n = settings.get().notify || {}; if (n[kind] === false) return false;
@@ -573,7 +573,7 @@ function doneSettled(name, since, owed = false) {
   if (w.queued || w.busy || (w.agents.length && w.source !== 'live')) return false;
   const verdict = liveVerdict(L, updatedWake.get(name), Date.now(), owed);
   if (!verdict) return false;
-  if (w.agents.length) return 'hold';
+  if (w.agents.length || (w.shells.length && w.source === 'live' && marksAwaited(L))) return 'hold';
   return w.shells.length || watching.active() ? 'wait' : verdict;
 }
 function rosterChanged(name) {

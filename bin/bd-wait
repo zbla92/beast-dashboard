@@ -1,0 +1,13 @@
+#!/usr/bin/env node
+'use strict';
+const { awaitedIds } = require('../lib/awaited');
+
+const args = process.argv.slice(2);
+if (!args.length || args.includes('-h') || args.includes('--help')) {
+  process.stdout.write('usage: bd-wait <task-id> [<task-id> ...]\nTells Beast Dash this session is waiting on these background commands or monitors: it stays busy and sends no done push until each one ends.\nWrite each id out in the command: Beast Dash reads it from the command text, so an id passed in a variable is not seen.\n');
+  process.exit(args.length ? 0 : 2);
+}
+const ids = awaitedIds(['bd-wait', ...args].join(' '));
+const bad = args.filter(a => !ids.includes(a.replace(/^['"]|['"]$/g, '')));
+if (bad.length) { process.stderr.write(`bd-wait: not a task id: ${bad.join(' ')}\n`); process.exit(2); }
+process.stdout.write(`Beast Dash will hold this session until ${ids.join(', ')} ${ids.length > 1 ? 'end' : 'ends'}.\n`);

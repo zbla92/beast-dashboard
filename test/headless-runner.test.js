@@ -40,7 +40,7 @@ test('hello, send and streamed deltas; child started with clean env and --sessio
   const r = runner(t); const k = await client(t, r.sock);
   k.c.write('{"op":"hello"}\n');
   const snap = await k.until(e => e.ev === 'snapshot');
-  assert.strictEqual(snap.sessionId, SID); assert.strictEqual(snap.v, 3); assert.deepStrictEqual([snap.tasks, snap.wake, snap.lastResult], [[], null, null]);
+  assert.strictEqual(snap.sessionId, SID); assert.strictEqual(snap.v, 4); assert.deepStrictEqual([snap.tasks, snap.wake, snap.lastResult], [[], null, null]);
   assert.strictEqual((await k.op({ op: 'send', text: 'hi there' })).ev, 'ack');
   await k.until(e => e.ev === 'state' && e.state === 'working');
   const res = await k.until(e => e.ev === 'result');
@@ -430,7 +430,7 @@ test('/clear moves the chat to the new conversation id: snapshot follows it and 
   await k.op({ op: 'send', text: 'hello' }); await k.until(e => e.ev === 'result');
   k.clear(); await k.op({ op: 'send', text: '/clear' });
   const moved = await k.until(e => e.ev === 'snapshot' && e.sessionId === NEW);
-  assert.strictEqual(moved.v, 3);
+  assert.strictEqual(moved.v, 4);
   await k.until(e => e.ev === 'result');
   assert.match(r.log(), new RegExp(`conversation is now ${NEW} \\(was ${SID}\\)`));
   k.clear(); await k.op({ op: 'restart' });

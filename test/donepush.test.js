@@ -212,6 +212,38 @@ test('live shells stop holding once the turn ended more than the max wait ago, b
   assert.deepStrictEqual(w.agents.map(x => x.id), ['a1']);
 });
 
+test('a v 4 roster holds shells and monitors only when awaited, with no time limit; agents and generic tasks always hold', () => {
+  const { waitingOn, holds, marksAwaited, MAX_WAIT } = require('../lib/donepush');
+  const r = { askedAt: 1000, stopAt: 2000 };
+  const tasks = [task('new', 'shell', 1500), task('mon', 'monitor', 1200), task('old', 'shell', 100, { awaited: true }), task('wmon', 'monitor', 1500, { awaited: true }), task('a1', 'agent', 500), task('t1', 'task', 500), task('ow', 'shell', 1500, { awaited: true, owed: true })];
+  for (const now of [3000, 2001 + MAX_WAIT, 2000 + 50 * MAX_WAIT]) {
+    const w = waitingOn(r, chat(tasks, { v: 4 }), now);
+    assert.deepStrictEqual(w.shells.map(x => [x.id, x.kind]), [['old', 'shell'], ['wmon', 'monitor'], ['ow', 'shell']]);
+    assert.deepStrictEqual(w.agents.map(x => x.id), ['a1', 't1']);
+  }
+  const unmarked = waitingOn(r, chat([task('new', 'shell', 1500), task('mon', 'monitor', 1500)], { v: 4 }), 3000);
+  assert.deepStrictEqual(unmarked.shells, []); assert.strictEqual(holds(unmarked), false);
+  assert.strictEqual(marksAwaited(chat([], { v: 4 })), true);
+  assert.strictEqual(marksAwaited(chat([], { v: 3 })), false);
+  assert.strictEqual(marksAwaited(chat([])), false);
+  assert.strictEqual(marksAwaited(null), false);
+});
+
+test('a v 3 roster keeps the started-for-this-prompt rule with the max wait cut-off', () => {
+  const { waitingOn, MAX_WAIT } = require('../lib/donepush');
+  const r = { askedAt: 1000, stopAt: 2000 };
+  const tasks = [task('old', 'shell', 500), task('new', 'shell', 1500), task('mon', 'monitor', 1200)];
+  assert.deepStrictEqual(waitingOn(r, chat(tasks, { v: 3 }), 3000).shells.map(x => x.id), ['new', 'mon']);
+  assert.deepStrictEqual(waitingOn(r, chat(tasks, { v: 3 }), 2001 + MAX_WAIT).shells, []);
+});
+
+test('a v 4 snapshot that went stale falls back to the Stop hook rule', () => {
+  const { waitingOn } = require('../lib/donepush');
+  const r = { bgTasks: [], bgShells: ['b1'], shellsAtAsk: [], askedAt: 1000, stopAt: 2000 };
+  const w = waitingOn(r, chat([task('x', 'shell', 1500)], { v: 4, stale: true }), 3000);
+  assert.deepStrictEqual([w.source, w.shells.map(x => x.id)], ['hook', ['b1']]);
+});
+
 test('a stop from an earlier prompt does not cut off the shells of the turn that is still running', () => {
   const { waitingOn, MAX_WAIT } = require('../lib/donepush');
   const r = { askedAt: 5000, stopAt: 1000 };

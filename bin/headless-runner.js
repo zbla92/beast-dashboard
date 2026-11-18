@@ -6,6 +6,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { randomUUID } = require('crypto');
 const { describeTool } = require('../lib/tooldesc');
+const { fromToolUse } = require('../lib/awaited');
 
 const arg = name => { const i = process.argv.indexOf('--' + name); return i > 0 ? process.argv[i + 1] : undefined; };
 const SOCK = arg('sock'), CWD = arg('cwd') || process.cwd(), SID = arg('session-id'), ACCOUNT = arg('account') || 'personal';
@@ -59,7 +60,7 @@ const clean = s => strip(s).replace(/(^|\n)(\s*[>❯])/g, '$1 $2');
 const clock = () => new Date().toTimeString().slice(0, 8);
 
 function snapshot() {
-  return { ev: 'snapshot', v: 3, sessionId: current, state: S.state, since: S.since, turn: S.turn, pending: [...pending.values()].map(p => p.req), inbox: inboxList(),
+  return { ev: 'snapshot', v: 4, sessionId: current, state: S.state, since: S.since, turn: S.turn, pending: [...pending.values()].map(p => p.req), inbox: inboxList(),
     rate: S.rate, ctx: S.ctx, model: S.model, effort: S.effort, version: S.version, claude: CLAUDE, childAt, caps: S.caps, error: S.error, shells: shellList(), addDirs: [...ADD_DIRS],
     tasks: taskList(), wake: S.wake, lastResult: S.lastResult };
 }
@@ -214,6 +215,7 @@ function onChildLine(l, old) {
     const used = u ? (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.output_tokens || 0) : 0;
     if (used) setCtx({ used });
     for (const b of (o.message && o.message.content) || []) if (b && b.type === 'tool_use' && typeof b.id === 'string') keep(toolNames, b.id, b.name);
+    if (Array.isArray(o.message && o.message.content)) markAwaited(o.message.content.flatMap(fromToolUse));
     for (const b of (o.message && o.message.content) || []) {
       if (b.type !== 'tool_use' || !S.turn || S.turn.tools.some(t => t.id === b.id)) continue;
       const t = { id: b.id, name: b.name, what: describeTool(b.name, b.input), done: false, at: Date.now() };
@@ -291,11 +293,11 @@ function onChildLine(l, old) {
 
 const OWED_MS = +process.env.BD_HL_OWED_MS || 10000, ID_KEEP = 64;
 const OUTCOMES = new Map([['completed', 'completed'], ['failed', 'failed'], ['error', 'failed'], ['stopped', 'cancelled'], ['killed', 'cancelled'], ['cancelled', 'cancelled']]);
-const roster = new Map(), toolNames = new Map(), taskTools = new Map(), expired = new Map();
+const roster = new Map(), toolNames = new Map(), taskTools = new Map(), expired = new Map(), marked = new Map();
 const bg = { interrupted: false, wakeSince: null, sent: '[]' };
 const cap = (s, n) => typeof s === 'string' ? s.trim().slice(0, n) : '';
 const keep = (m, k, v) => { m.delete(k); m.set(k, v); if (m.size > ID_KEEP) m.delete(m.keys().next().value); };
-const pubTask = t => ({ id: t.id, kind: t.kind, description: t.description, startedAt: t.startedAt, toolUseId: t.toolUseId, awaited: false, progress: t.progress, owed: t.owed });
+const pubTask = t => ({ id: t.id, kind: t.kind, description: t.description, startedAt: t.startedAt, toolUseId: t.toolUseId, awaited: t.awaited, progress: t.progress, owed: t.owed });
 function taskList() { return [...roster.values()].map(pubTask); }
 function emitTasks() {
   const tasks = taskList(), j = JSON.stringify(tasks);
@@ -313,7 +315,7 @@ function settle(t) {
   t.kind = t.type === 'local_agent' || t.type === 'remote_agent' ? 'agent' : t.type === 'local_bash' ? toolNames.get(t.toolUseId) === 'Monitor' ? 'monitor' : 'shell' : 'task';
 }
 function addTask(id) {
-  const t = { id, type: null, kind: 'task', description: '', startedAt: Date.now(), toolUseId: taskTools.get(id) || null, progress: null, owed: false, timer: null };
+  const t = { id, type: null, kind: 'task', description: '', startedAt: Date.now(), toolUseId: taskTools.get(id) || null, awaited: marked.has(id), progress: null, owed: false, timer: null };
   roster.set(id, t);
   expired.delete(id);
   return t;
@@ -326,7 +328,12 @@ function owe(t) {
 }
 function clearRoster() {
   for (const t of roster.values()) clearTimeout(t.timer);
-  roster.clear(); taskTools.clear(); expired.clear(); bg.wakeSince = null;
+  roster.clear(); taskTools.clear(); expired.clear(); marked.clear(); bg.wakeSince = null;
+  emitTasks();
+}
+function markAwaited(ids) {
+  if (!ids.length) return;
+  for (const id of ids) { keep(marked, id, true); const t = roster.get(id); if (t) t.awaited = true; }
   emitTasks();
 }
 function onLevel(list) {

@@ -51,6 +51,25 @@ prompt, the projects it touched, grouped by day) and opens one as a chat.
 **Fork chat** (session menu, when Claude is not in a turn) starts a new chat from the conversation
 so far and leaves the original as it is.
 
+### Background work
+
+A chat can keep working after its turn ends: background commands, monitors and subagents run on, and Claude
+wakes when one of them ends. The runner follows them from the claude stream, and the row above the composer lists
+them. Subagents and other background tasks always hold the chat: it shows *Waiting*, not *Done*, and the done push
+waits until they end. A background command or monitor holds only when Claude marks it as something it is waiting
+for, by running `bd-wait` with the task id the Bash or Monitor tool returned:
+
+```bash
+bd-wait b1x2y3z4
+```
+
+`bd-wait` only checks the id and prints a line. The runner reads the id from that Bash call itself, so nothing is
+sent over the network, and the id has to be written out in the command: `bd-wait "$ID"` is not seen. A marked command holds until it ends, with no time limit. An unmarked one (a dev server, a
+file watcher) never holds, so the chat shows *Done* as soon as the turn ends. A chat whose runner started before
+this rule keeps the older one until it restarts: commands started for the last prompt hold for up to 15 minutes
+after the turn ended. Terminal sessions take their background work from the Stop hook. `./install.sh` links
+`bd-wait` next to `bd-chat`.
+
 ### From an agent or a script
 
 An agent that hands work to a new session, for example in another repo, starts it with the `bd-chat` command:

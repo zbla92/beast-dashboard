@@ -297,6 +297,15 @@ test('the bd-bot command is linked next to bd-ask and taken out by --remove', t 
   assert.throws(() => fs.lstatSync(link));
 });
 
+test('the bd-wait command is linked next to bd-chat and taken out by --remove', t => {
+  const h = home(t);
+  const link = path.join(h, '.local', 'bin', 'bd-wait');
+  go(h, { plans: false });
+  assert.equal(fs.readlinkSync(link), path.join(ROOT, 'bin', 'bd-wait'));
+  go(h, { remove: true });
+  assert.throws(() => fs.lstatSync(link));
+});
+
 test('the bd-ask command is linked next to bd-chat and taken out by --remove', t => {
   const h = home(t);
   const link = path.join(h, '.local', 'bin', 'bd-ask');

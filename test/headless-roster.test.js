@@ -81,7 +81,7 @@ test('replay: a background command and a background agent with a nested foregrou
   ]);
   assert.deepStrictEqual(res[1].wake, wakes[0]); assert.deepStrictEqual(res[2].wake, wakes[1]);
   const s = await k.snapshot();
-  assert.strictEqual(s.v, 3); assert.deepStrictEqual(s.tasks, []); assert.deepStrictEqual(s.wake, wakes[1]);
+  assert.strictEqual(s.v, 4); assert.deepStrictEqual(s.tasks, []); assert.deepStrictEqual(s.wake, wakes[1]);
   assert.deepStrictEqual({ ...s.lastResult, at: 0 }, { at: 0, end: 'wake', interrupted: false, isError: false, subtype: 'success', reason: 'completed', wakeOutcome: 'completed' });
   assert.strictEqual(s.state, 'idle'); assert.strictEqual(s.turn, null);
 });
@@ -220,4 +220,60 @@ test('apply keeps tasks, wake and lastResult, and an old runner snapshot stays w
   assert.deepStrictEqual({ ...snap.lastResult, at: 0 }, { at: 0, end: 'wake', interrupted: true, isError: true, subtype: 'error_during_execution', reason: 'aborted_tools', wakeOutcome: 'failed' });
   headless.apply(snap, { ev: 'tasks' });
   assert.deepStrictEqual(snap.tasks, list);
+});
+
+const bash = (id, command, parent = null) => ({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id, name: 'Bash', input: { command } }] }, parent_tool_use_id: parent });
+const fixtureWith = (t, name, where, frames) => {
+  const lines = fs.readFileSync(FIX(name), 'utf8').split('\n').filter(l => l.trim()).map(l => JSON.parse(l));
+  const i = lines.findIndex(where);
+  assert.ok(i >= 0);
+  return synthetic(t, [...lines.slice(0, i), ...frames, ...lines.slice(i)]);
+};
+
+test('replay: bd-wait before the command shows up marks it awaited from its first roster entry until it ends; the agent stays unmarked', async t => {
+  const f = fixtureWith(t, 'stream-bg-tasks.jsonl', o => o.type === 'system' && o.subtype === 'background_tasks_changed', [bash('toolu_wait1', 'bd-wait b7arm4dxt')]);
+  const r = runner(t, f); const k = await client(t, r.sock);
+  await k.op({ op: 'send', text: 'go' });
+  await k.results(3);
+  const lists = k.all('tasks').map(e => e.tasks).filter(l => l.length);
+  assert.ok(lists.some(l => l.some(x => x.id === 'b7arm4dxt')));
+  for (const l of lists) for (const x of l) assert.strictEqual(x.awaited, x.id === 'b7arm4dxt', x.id);
+  assert.deepStrictEqual(k.all('tasks').at(-1).tasks, []);
+});
+
+test('replay: bd-wait after a Monitor started marks the running monitor and emits the roster again', async t => {
+  const f = fixtureWith(t, 'stream-bg-monitor.jsonl', o => o.type === 'user' && Array.isArray(o.message.content) && o.message.content.some(b => b.tool_use_id === 'toolu_01EzdZBacr8nHprrxzX4PFYd'),
+    [bash('toolu_wait2', 'sleep 1; bd-wait b0i0euitq')]);
+  const r = runner(t, f); const k = await client(t, r.sock);
+  await k.op({ op: 'send', text: 'watch' });
+  await k.results(4);
+  const lists = k.all('tasks').map(e => e.tasks).filter(l => l.length);
+  const first = lists.findIndex(l => l[0].awaited);
+  assert.ok(first > 0);
+  assert.deepStrictEqual(lists.slice(first - 1, first + 1).map(l => l.map(x => [x.id, x.kind, x.awaited])), [[['b0i0euitq', 'monitor', false]], [['b0i0euitq', 'monitor', true]]]);
+  assert.ok(lists.slice(first).every(l => l[0].awaited));
+  assert.deepStrictEqual((await k.snapshot()).tasks, []);
+});
+
+test('awaited survives roster levels and owed state, a task that comes back keeps it, and marks from subagents or other tools do not count', async t => {
+  const other = { type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'tu-o', name: 'Monitor', input: { command: 'bd-wait bz' } }] }, parent_tool_use_id: null };
+  const f = synthetic(t, [init(), echo('hi'), ...say('ok'), level([['bx', 'local_bash'], ['by', 'local_bash'], ['bz', 'local_bash']]), started('bx', 'tu-x'),
+    bash('tu-w', 'bd-wait bx'), bash('tu-s', 'bd-wait by', 'tu-agent'), other, result(),
+    level([['bx', 'local_bash'], ['by', 'local_bash']]), level([['by', 'local_bash']]), { type: 'fake_sleep', ms: 400 }, level([['bx', 'local_bash'], ['by', 'local_bash']]), { type: 'fake_sleep', ms: 100 }]);
+  const r = runner(t, f, { BD_HL_OWED_MS: '200' }); const k = await client(t, r.sock);
+  await k.op({ op: 'send', text: 'hi' });
+  await k.results(1);
+  await k.until(e => e.ev === 'tasks' && e.tasks.length === 2 && e.tasks.every(x => !x.owed) && k.all('tasks').indexOf(e) > 4);
+  const seq = k.all('tasks').map(e => e.tasks.map(x => [x.id, x.awaited, x.owed]));
+  assert.deepStrictEqual(seq, [
+    [['bx', false, false], ['by', false, false], ['bz', false, false]],
+    [['bx', false, false], ['by', false, false], ['bz', false, false]],
+    [['bx', true, false], ['by', false, false], ['bz', false, false]],
+    [['bx', true, false], ['by', false, false], ['bz', false, true]],
+    [['bx', true, true], ['by', false, false], ['bz', false, true]],
+    [['bx', true, true], ['by', false, false]],
+    [['by', false, false]],
+    [['by', false, false], ['bx', true, false]],
+  ]);
+  assert.strictEqual((await k.snapshot()).v, 4);
 });
