@@ -1,22 +1,21 @@
 .act-strip { --t: var(--st-wait); position: relative; flex: none; min-width: 0; padding: 4px max(20px, 3vw, calc((100% - var(--chat-col)) / 2)) 8px; font-size: var(--fs-sm); color: var(--muted); }
-.bg-row { border-radius: var(--r); }
-.bg-row.hold { background: color-mix(in srgb, var(--t) 10%, var(--bg2, #13141a)); border: 1px solid color-mix(in srgb, var(--t) 38%, transparent); box-shadow: inset 3px 0 0 var(--t); color: var(--text); }
-.bg-row.soft { background: transparent; border: 1px dashed var(--line2); color: var(--dim); }
-.bg-main { display: flex; align-items: center; gap: 7px; min-height: 34px; padding: 4px 6px 4px 11px; min-width: 0; cursor: pointer; }
-.bg-row.soft .bg-main { min-height: 28px; }
-.bg-rl { font-weight: 600; white-space: nowrap; flex: none; }
-.bg-row.soft .bg-rl { font-weight: 500; color: var(--muted); }
+.bg-row { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
+.bg-main { display: inline-flex; align-items: center; gap: 7px; max-width: 100%; min-width: 0; height: 28px; padding: 0 3px 0 11px; border-radius: 999px; background: var(--fill); cursor: pointer; transition: background .15s; }
+.bg-main:hover { background: var(--fill2); }
+.bg-row.soft .bg-main { background: transparent; padding-left: 4px; }
+.bg-row.soft .bg-main:hover { background: var(--fill); }
+.bg-rl { font-weight: 500; white-space: nowrap; flex: none; color: var(--text); }
+.bg-row.soft .bg-rl { color: var(--muted); }
 .bg-sep { color: var(--dim); flex: none; }
 .bg-rd { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
-.bg-row.hold .bg-rd { color: var(--text); }
-.bg-grow { flex: 1; }
+.bg-grow { width: 2px; flex: none; }
 .bg-el { flex: none; font-size: var(--fs-xs); color: var(--dim); }
-.bg-spin { flex: none; width: 11px; height: 11px; border-radius: 50%; border: 1.5px solid color-mix(in srgb, var(--t) 28%, transparent); border-top-color: var(--t); animation: rot 1.4s linear infinite; }
-.bg-row.soft .bg-spin { animation: none; border: 1.5px solid var(--dim); border-top-color: var(--dim); width: 7px; height: 7px; background: var(--dim); margin: 0 2px; }
-.bg-prog { padding: 0 12px 7px 29px; font-size: var(--fs-xs); color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bg-spin { flex: none; width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid color-mix(in srgb, var(--t) 25%, transparent); border-top-color: var(--t); animation: rot 1.4s linear infinite; }
+.bg-row.soft .bg-spin { animation: none; border: 0; width: 6px; height: 6px; background: var(--dim); }
+.bg-prog { max-width: 100%; padding: 3px 12px 0 29px; font-size: var(--fs-xs); color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bg-ico { display: inline-flex; flex: none; }
-.bg-more { flex: none; width: 28px; height: 28px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--muted); display: grid; place-items: center; cursor: pointer; }
-.bg-more:hover { background: var(--fill2); color: var(--text); }
+.bg-more { flex: none; width: 24px; height: 24px; border: 0; border-radius: 999px; background: transparent; color: var(--muted); display: grid; place-items: center; cursor: pointer; }
+.bg-more:hover { color: var(--text); }
 .bg-more .bg-ico { transition: transform .15s; }
 .bg-more[aria-expanded="true"] .bg-ico { transform: rotate(180deg); }
 .bg-pop { display: none; position: absolute; left: max(20px, 3vw, calc((100% - var(--chat-col)) / 2)); right: max(20px, 3vw, calc((100% - var(--chat-col)) / 2)); bottom: calc(100% - 4px); max-width: 560px; background: var(--glass-solid); border: 1px solid var(--line2); border-radius: var(--r-lg); box-shadow: var(--shadow); padding: 6px; z-index: 30; }
@@ -43,8 +42,6 @@
 @media (max-width: 700px) {
   .act-strip { padding: 4px var(--sp-3) 8px; }
   .bg-pop { left: var(--sp-3); right: var(--sp-3); max-width: none; }
-      .bg-main { flex-wrap: wrap; row-gap: 4px; }
-  .bg-rd { flex: 1 1 100px; }
   .bg-pi { grid-template-columns: 1fr auto; grid-template-areas: 'k e' 'd d' 'a a'; }
   .bg-pk { grid-area: k; }
   .bg-pi .bg-el { grid-area: e; }
