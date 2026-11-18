@@ -98,3 +98,18 @@ test('a real prompt remembers which background commands were already running; a 
   h({ hook_event_name: 'SessionStart', source: 'clear' }, 6000);
   assert.deepStrictEqual(claude.get(n).bgShells, []);
 });
+
+test('Stop keeps the ids of every running background task as the roster level, SessionStart and a Stop without the field clear it', () => {
+  hook({ hook_event_name: 'Stop', background_tasks: [
+    { id: 'a1', type: 'subagent', status: 'running', description: 'x' },
+    { id: 'bq1', type: 'local_bash', status: 'running', description: 'y' },
+    { id: 'a2', type: 'subagent', status: 'completed', description: 'z' },
+  ] }, 9000);
+  assert.deepStrictEqual(claude.get(name).stopIds, ['a1', 'bq1']);
+  hook({ hook_event_name: 'Stop' }, 9100);
+  assert.strictEqual(claude.get(name).stopIds, null);
+  hook({ hook_event_name: 'Stop', background_tasks: [] }, 9200);
+  assert.deepStrictEqual(claude.get(name).stopIds, []);
+  hook({ hook_event_name: 'SessionStart', source: 'startup' }, 9300);
+  assert.strictEqual(claude.get(name).stopIds, null);
+});

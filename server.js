@@ -505,7 +505,7 @@ async function decorateClaude(snap) {
   claude.reconcile(names);
   forgetDoneState();
   claude.refreshTitles();
-  for (const s of snap.sessions) if (isClaude(s)) { if (watching.watched(s.name)) claude.autoSeen(s.name); s.claude = claude.info(s.name); s.claude.usage = usage.bySession(s.claude.sessionId); s.claude.ctx = ctxOf(s); liveModel(s); s.claude.cache = usage.cacheOf(s.claude); Object.assign(s.claude, await whereIs(s)); if (s.claudeVersion) s.claude.version = s.claudeVersion; s.claude.waitingOn = waitingOn(claude.get(s.name), s.claude.mode === 'chat' ? headless.live(s.name) : null); if (s.claude.state === 'needs-you' && holds(s.claude.waitingOn)) s.claude.needsYou = false; const st = settle.of(s.name); if (st && !settle.wake(s.name, s.claude.state, s.claude.doneAt || s.claude.since || 0)) { s.claude.settled = st; s.claude.needsYou = false; } }
+  for (const s of snap.sessions) if (isClaude(s)) { if (watching.watched(s.name)) claude.autoSeen(s.name); s.claude = claude.info(s.name); s.claude.usage = usage.bySession(s.claude.sessionId); s.claude.ctx = ctxOf(s); liveModel(s); s.claude.cache = usage.cacheOf(s.claude); Object.assign(s.claude, await whereIs(s)); if (s.claudeVersion) s.claude.version = s.claudeVersion; s.claude.waitingOn = waitingOn(claude.get(s.name), s.claude.mode === 'chat' ? headless.live(s.name) : terminalRoster(claude.get(s.name))); if (s.claude.mode !== 'chat') rosterChanged(s.name); if (s.claude.state === 'needs-you' && holds(s.claude.waitingOn)) s.claude.needsYou = false; const st = settle.of(s.name); if (st && !settle.wake(s.name, s.claude.state, s.claude.doneAt || s.claude.since || 0)) { s.claude.settled = st; s.claude.needsYou = false; } }
   if (Date.now() - lastUsageScan > 30000) { lastUsageScan = Date.now(); usage.scan().then(() => pushState(false)); }
 }
 // Where a Claude session actually works: its branch, and whether that is a git worktree apart from the project
@@ -534,6 +534,8 @@ const pushGate = require('./lib/pushgate').createPushGate();
 // A chat that finishes while you read it isn't waiting for you: no done buzz, and it is marked seen right away.
 const watching = require('./lib/watching').createWatching();
 const { createDonePush, createRosterWatch, fromNotification, waitingOn, liveRoster, marksAwaited, liveVerdict, holds } = require('./lib/donepush');
+const bgroster = require('./lib/bgroster');
+const terminalRoster = r => { if (!r || r.mode === 'chat' || !r.transcriptPath) return null; const tasks = bgroster.forSession(r); return tasks ? { source: 'transcript', tasks } : null; };
 // Should this event buzz? Respects the per-event toggles, quiet hours and muted sessions from settings.
 function pushAllowed(kind, tmux) {
   const n = settings.get().notify || {}; if (n[kind] === false) return false;
@@ -569,19 +571,20 @@ function doneSettled(name, since, owed = false) {
   const r = claude.get(name);
   if (!r || r.gone || r.state !== 'needs-you' || r.since !== since || (r.seenAt || 0) >= claude.doneAtOf(r, r.state, r.since) || watching.watched(name)) return false;
   const L = headless.live(name);
-  const w = waitingOn(r, L);
-  if (w.queued || w.busy || (w.agents.length && w.source !== 'live')) return false;
+  const w = waitingOn(r, terminalRoster(r) || L);
+  if (w.queued || w.busy || (w.agents.length && w.source === 'hook')) return false;
   const verdict = liveVerdict(L, updatedWake.get(name), Date.now(), owed);
   if (!verdict) return false;
-  if (w.agents.length || (w.shells.length && w.source === 'live' && marksAwaited(L))) return 'hold';
+  if (w.agents.length || (w.shells.length && (w.source === 'transcript' || (w.source === 'live' && marksAwaited(L))))) return 'hold';
   return w.shells.length || watching.active() ? 'wait' : verdict;
 }
 function rosterChanged(name) {
   const r = claude.get(name); const L = headless.live(name);
-  if (!r || !liveRoster(L)) return;
-  const w = waitingOn(r, L);
+  const src = terminalRoster(r) || (liveRoster(L) ? L : null);
+  if (!r || !src) return;
+  const w = waitingOn(r, src);
   const held = [...w.agents, ...w.shells].map(t => t.id);
-  if (rosterWatch.check(name, held, L.tasks.map(t => t && t.id), r.askedAt)) donePush.soon(name);
+  if (rosterWatch.check(name, held, src.tasks.map(t => t && t.id), r.askedAt)) donePush.soon(name);
 }
 function forgetDoneState() {
   for (const name of new Set([...updatedWake.keys(), ...rosterWatch.names(), ...donePush.names()])) {

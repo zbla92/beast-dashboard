@@ -67,8 +67,9 @@ bd-wait b1x2y3z4
 sent over the network, and the id has to be written out in the command: `bd-wait "$ID"` is not seen. A marked command holds until it ends, with no time limit. An unmarked one (a dev server, a
 file watcher) never holds, so the chat shows *Done* as soon as the turn ends. A chat whose runner started before
 this rule keeps the older one until it restarts: commands started for the last prompt hold for up to 15 minutes
-after the turn ended. Terminal sessions take their background work from the Stop hook. `./install.sh` links
-`bd-wait` next to `bd-chat`.
+after the turn ended. Terminal sessions follow the same rule from their transcript: starts from the tool results,
+ends from task notifications, marks from `bd-wait` calls. A terminal session whose transcript can't be read yet
+falls back to the Stop hook. `./install.sh` links `bd-wait` next to `bd-chat`.
 
 ### From an agent or a script
 
