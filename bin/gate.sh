@@ -198,6 +198,9 @@ out="$(BEAST_DASH_PORT=1 "$TMP/bin/bd-ask" --list 2>&1)"; rc=$?
 r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"id":"gate-tab-1","session":"claude-gate-nope"}' "$B/api/watching")"
 r2="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"id":"gate-tab-1","session":"../x"}' "$B/api/watching")"
 [ "$r $r2" = "200 400" ] && ok "POST watching -> 200, bad session -> 400" || fail "POST watching -> $r, bad session -> $r2"
+r="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"session":"claude-gate-nope"}' "$B/api/claude-unread")"
+r2="$(curl -s -m 5 -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"session":"claude-gate-nope"}' "$B/api/claude-seen")"
+[ "$r $r2" = "409 200" ] && ok "POST claude-unread with nothing to rewind -> 409, claude-seen -> 200" || fail "POST claude-unread -> $r, claude-seen -> $r2"
 hlpost() { curl -s -m 5 -o /tmp/gate-$$.body -w '%{http_code}' -X POST -H 'content-type: application/json' -d "$2" "$B/api/$1"; }
 r="$(hlpost hl-shell '{"session":"claude-gate-nope","cmd":"echo hi"}')"
 [ "$r" = 400 ] && grep -q 'run in the terminal for terminal sessions' /tmp/gate-$$.body && ok "POST hl-shell non-chat session -> 400" || fail "POST hl-shell non-chat session -> $r $(head -c 200 /tmp/gate-$$.body)"
