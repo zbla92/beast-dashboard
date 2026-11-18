@@ -3296,6 +3296,13 @@ async function clearDevice() {
 }
 const PUSH = { supported: 'serviceWorker' in navigator && 'PushManager' in window && (location.protocol === 'https:' || location.hostname === 'localhost'), sub: null };
 async function pushStatus() { if (!PUSH.supported) return null; try { const reg = await navigator.serviceWorker.getRegistration('/'); PUSH.sub = reg ? await reg.pushManager.getSubscription() : null; return PUSH.sub; } catch { return null; } }
+function clearDeliveredPushes() {
+  if (!PUSH.supported || document.visibilityState !== 'visible') return;
+  navigator.clearAppBadge?.()?.catch(() => {});
+  navigator.serviceWorker.getRegistration('/').then(reg => reg ? reg.getNotifications() : []).then(ns => { for (const n of ns) n.close(); }).catch(() => {});
+}
+clearDeliveredPushes();
+document.addEventListener('visibilitychange', clearDeliveredPushes);
 async function enablePush() {
   if (!PUSH.supported) { toast('Push needs HTTPS — see docs/guide/access.md (bin/enable-https.sh).', 'err'); return; }
   try {
