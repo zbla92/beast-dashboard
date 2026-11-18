@@ -36,7 +36,7 @@ const MAX_LINE = 4 * 1024 * 1024, MAX_TEXT = 200 * 1024, MAX_SEND = 100000;
 const INHERITED = ['CLAUDECODE', 'CLAUDE_EFFORT', 'CLAUDE_PID'];
 const KEEP = ['CLAUDE_CODE_AUTO_COMPACT_WINDOW'];
 
-const S = { state: 'starting', since: Date.now(), turn: null, rate: null, ctx: null, model: null, effort: null, version: null, caps: [], error: null };
+const S = { state: 'starting', since: Date.now(), turn: null, rate: null, ctx: null, model: null, effort: null, version: null, caps: [], error: null, wake: null, lastResult: null };
 const pending = new Map();
 const clients = new Set();
 let child = null, hasConversation = arg('start') === 'resume', stopping = false, seq = 0, stderrTail = '';
@@ -59,8 +59,9 @@ const clean = s => strip(s).replace(/(^|\n)(\s*[>❯])/g, '$1 $2');
 const clock = () => new Date().toTimeString().slice(0, 8);
 
 function snapshot() {
-  return { ev: 'snapshot', v: 2, sessionId: current, state: S.state, since: S.since, turn: S.turn, pending: [...pending.values()].map(p => p.req), inbox: inboxList(),
-    rate: S.rate, ctx: S.ctx, model: S.model, effort: S.effort, version: S.version, claude: CLAUDE, childAt, caps: S.caps, error: S.error, shells: shellList(), addDirs: [...ADD_DIRS] };
+  return { ev: 'snapshot', v: 3, sessionId: current, state: S.state, since: S.since, turn: S.turn, pending: [...pending.values()].map(p => p.req), inbox: inboxList(),
+    rate: S.rate, ctx: S.ctx, model: S.model, effort: S.effort, version: S.version, claude: CLAUDE, childAt, caps: S.caps, error: S.error, shells: shellList(), addDirs: [...ADD_DIRS],
+    tasks: taskList(), wake: S.wake, lastResult: S.lastResult };
 }
 function inboxList() { return inbox.map(m => ({ id: m.id, text: m.text, at: m.at })); }
 function emitInbox() { emit({ ev: 'inbox', inbox: inboxList() }); }
@@ -165,14 +166,15 @@ function ended(p, reason) {
   line(dim(`[${clock()}] claude exited (${reason})`) + (S.error ? '  ' + S.error : ''));
   dropUntaken('claude exited');
   endTurn('exited', reason);
+  clearRoster();
   setState('exited');
   if (stopping) finish();
   else if (EXIT_AFTER_RESULT) exitWhenQuiet();
 }
 
 function endTurn(subtype, reason) {
-  if (S.turn) emit({ ev: 'result', subtype, reason, ms: Date.now() - S.turn.startedAt });
-  S.turn = null;
+  if (S.turn) emitResult({ ev: 'result', subtype, reason, ms: Date.now() - S.turn.startedAt, end: 'turn', interrupted: bg.interrupted, wake: null });
+  S.turn = null; bg.interrupted = false; bg.wakeSince = null;
   for (const rid of pending.keys()) emit({ ev: 'resolved', rid });
   pending.clear();
 }
@@ -211,6 +213,7 @@ function onChildLine(l, old) {
     const u = o.message && o.message.usage;
     const used = u ? (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.output_tokens || 0) : 0;
     if (used) setCtx({ used });
+    for (const b of (o.message && o.message.content) || []) if (b && b.type === 'tool_use' && typeof b.id === 'string') keep(toolNames, b.id, b.name);
     for (const b of (o.message && o.message.content) || []) {
       if (b.type !== 'tool_use' || !S.turn || S.turn.tools.some(t => t.id === b.id)) continue;
       const t = { id: b.id, name: b.name, what: describeTool(b.name, b.input), done: false, at: Date.now() };
@@ -240,6 +243,9 @@ function onChildLine(l, old) {
     return;
   }
   if (o.type === 'result') {
+    const wakeEnd = !!(o.origin && o.origin.kind === 'task-notification');
+    const text = typeof o.result === 'string' ? o.result : null;
+    if (wakeEnd && o.num_turns === 0 && !(text && text.trim())) return;
     follow(o.session_id);
     const mu = o.modelUsage || {}; const m = mu[S.model] || Object.values(mu).sort((a, b) => (b.contextWindow || 0) - (a.contextWindow || 0))[0];
     if (m && m.contextWindow) setCtx({ window: m.contextWindow });
@@ -248,8 +254,11 @@ function onChildLine(l, old) {
     for (const rid of pending.keys()) emit({ ev: 'resolved', rid });
     pending.clear();
     line(dim(`[${clock()}] done (${o.subtype}${o.terminal_reason && o.terminal_reason !== 'completed' ? ', ' + o.terminal_reason : ''}, ${Math.round(ms / 100) / 10}s)`));
-    const text = typeof o.result === 'string' ? o.result : null;
-    emit({ ev: 'result', subtype: o.subtype, reason: o.terminal_reason || null, ms, text: text === null ? null : text.slice(0, MAX_TEXT), truncated: !!text && text.length > MAX_TEXT, isError: !!o.is_error });
+    if (wakeEnd && !bg.wakeSince) wake({ at: Date.now(), taskId: null, kind: null, outcome: 'updated', summary: cap(text, 300) });
+    const interrupted = /^aborted/.test(o.terminal_reason || '') || bg.interrupted;
+    const w = wakeEnd ? bg.wakeSince : null;
+    bg.interrupted = false; bg.wakeSince = null;
+    emitResult({ ev: 'result', subtype: o.subtype, reason: o.terminal_reason || null, ms, text: text === null ? null : text.slice(0, MAX_TEXT), truncated: !!text && text.length > MAX_TEXT, isError: !!o.is_error, end: wakeEnd ? 'wake' : 'turn', interrupted, wake: w });
     setState('idle');
     endAt = Date.now(); clearTimeout(sweepTimer); sweepTimer = setTimeout(sweep, SWEEP_MS);
     sentWhileWorking = false;
@@ -262,6 +271,10 @@ function onChildLine(l, old) {
     emit({ ev: 'rate', rate: S.rate });
     return;
   }
+  if (o.type === 'system' && o.subtype === 'background_tasks_changed') return onLevel(o.tasks);
+  if (o.type === 'system' && o.subtype === 'task_started') return onTaskStarted(o);
+  if (o.type === 'system' && o.subtype === 'task_notification') return onTaskNotification(o);
+  if (o.type === 'system' && o.subtype === 'task_progress') return onTaskProgress(o);
   if (o.type === 'system' && o.subtype === 'compact_boundary') {
     const n = o.compact_metadata && o.compact_metadata.post_tokens;
     if (Number.isFinite(n)) setCtx({ used: n });
@@ -274,6 +287,90 @@ function onChildLine(l, old) {
     emit(snapshot());
     readApplied();
   }
+}
+
+const OWED_MS = +process.env.BD_HL_OWED_MS || 10000, ID_KEEP = 64;
+const OUTCOMES = new Map([['completed', 'completed'], ['failed', 'failed'], ['error', 'failed'], ['stopped', 'cancelled'], ['killed', 'cancelled'], ['cancelled', 'cancelled']]);
+const roster = new Map(), toolNames = new Map(), taskTools = new Map(), expired = new Map();
+const bg = { interrupted: false, wakeSince: null, sent: '[]' };
+const cap = (s, n) => typeof s === 'string' ? s.trim().slice(0, n) : '';
+const keep = (m, k, v) => { m.delete(k); m.set(k, v); if (m.size > ID_KEEP) m.delete(m.keys().next().value); };
+const pubTask = t => ({ id: t.id, kind: t.kind, description: t.description, startedAt: t.startedAt, toolUseId: t.toolUseId, awaited: false, progress: t.progress, owed: t.owed });
+function taskList() { return [...roster.values()].map(pubTask); }
+function emitTasks() {
+  const tasks = taskList(), j = JSON.stringify(tasks);
+  if (j === bg.sent) return;
+  bg.sent = j;
+  emit({ ev: 'tasks', tasks });
+}
+function emitResult(e) {
+  emit(e);
+  S.lastResult = { at: Date.now(), end: e.end, interrupted: e.interrupted, isError: !!e.isError, subtype: e.subtype, reason: e.reason, wakeOutcome: e.wake ? e.wake.outcome : null };
+}
+function wake(w) { S.wake = w; bg.wakeSince = w; emit({ ev: 'wake', wake: w }); }
+function settle(t) {
+  if (t.kind === 'monitor') return;
+  t.kind = t.type === 'local_agent' || t.type === 'remote_agent' ? 'agent' : t.type === 'local_bash' ? toolNames.get(t.toolUseId) === 'Monitor' ? 'monitor' : 'shell' : 'task';
+}
+function addTask(id) {
+  const t = { id, type: null, kind: 'task', description: '', startedAt: Date.now(), toolUseId: taskTools.get(id) || null, progress: null, owed: false, timer: null };
+  roster.set(id, t);
+  expired.delete(id);
+  return t;
+}
+function dropTask(t) { clearTimeout(t.timer); roster.delete(t.id); }
+function owe(t) {
+  t.owed = true;
+  t.timer = setTimeout(() => { if (roster.get(t.id) === t && t.owed) { roster.delete(t.id); keep(expired, t.id, t.kind); emitTasks(); } }, OWED_MS);
+  t.timer.unref();
+}
+function clearRoster() {
+  for (const t of roster.values()) clearTimeout(t.timer);
+  roster.clear(); taskTools.clear(); expired.clear(); bg.wakeSince = null;
+  emitTasks();
+}
+function onLevel(list) {
+  const ids = new Set();
+  for (const x of Array.isArray(list) ? list : []) {
+    if (!x || typeof x.task_id !== 'string' || !x.task_id) continue;
+    ids.add(x.task_id);
+    const t = roster.get(x.task_id) || addTask(x.task_id);
+    if (typeof x.task_type === 'string') t.type = x.task_type;
+    if (typeof x.description === 'string' && x.description) t.description = cap(x.description, 500);
+    if (t.owed) { clearTimeout(t.timer); t.timer = null; t.owed = false; }
+    settle(t);
+  }
+  for (const t of roster.values()) if (!ids.has(t.id) && !t.owed) owe(t);
+  emitTasks();
+}
+function onTaskStarted(o) {
+  if (typeof o.task_id !== 'string' || !o.task_id) return;
+  if (typeof o.tool_use_id === 'string' && o.tool_use_id) keep(taskTools, o.task_id, o.tool_use_id);
+  if (o.is_backgrounded !== true || o.parent_task_id || o.owned_by_subagent) return;
+  const t = roster.get(o.task_id) || addTask(o.task_id);
+  if (!t.toolUseId && typeof o.tool_use_id === 'string' && o.tool_use_id) t.toolUseId = o.tool_use_id;
+  if (!t.type && typeof o.task_type === 'string') t.type = o.task_type;
+  if (!t.description && typeof o.description === 'string') t.description = cap(o.description, 500);
+  settle(t);
+  emitTasks();
+}
+function onTaskNotification(o) {
+  const id = typeof o.task_id === 'string' ? o.task_id : null;
+  const t = id && roster.get(id);
+  const late = !t && id && expired.has(id) ? { id, kind: expired.get(id) } : null;
+  if (!t && !late) return;
+  if (t) dropTask(t); else expired.delete(id);
+  const w = t || late;
+  wake({ at: Date.now(), taskId: w.id, kind: w.kind, outcome: OUTCOMES.get(o.status) || 'unknown', summary: cap(o.summary, 300) });
+  emitTasks();
+}
+function onTaskProgress(o) {
+  const t = typeof o.task_id === 'string' && roster.get(o.task_id);
+  if (!t) return;
+  const p = cap(o.description, 200) || null;
+  if (p === t.progress) return;
+  t.progress = p;
+  emitTasks();
 }
 
 function onStream(o) {
@@ -355,6 +452,7 @@ function interrupt() {
   if (!child || S.state !== 'working') return;
   for (const rid of [...pending.keys()]) respond(rid, { behavior: 'deny', message: 'Interrupted by user' });
   write({ type: 'control_request', request_id: `int-${++seq}`, request: { subtype: 'interrupt' } });
+  bg.interrupted = true;
   line(dim(`[${clock()}] interrupt`));
 }
 
@@ -423,6 +521,7 @@ function restart() {
   dropUntaken('no echo from claude', stale);
   dying = old; child = null; restarting = true;
   endTurn('restarted', 'restart');
+  clearRoster();
   let done = false;
   const respawn = () => {
     if (done) return;
