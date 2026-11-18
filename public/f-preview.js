@@ -23,7 +23,7 @@ FEAT.preview = (() => {
     return h('pre', { class: 'fcode hljs' }, lines.map((l, i) => h('div', { class: 'ln' + (i + 1 === line ? ' fpv-line' : '') }, h('span', { class: 'n' }, i + 1), h('span', { class: 't', html: l || ' ' }))),
       read.truncated ? truncatedNote() : null);
   };
-  const sandboxedFrame = (url, title) => { const frame = h('iframe', { class: 'fmedia pdf', title }); frame.setAttribute('sandbox', ''); frame.src = url; return frame; };
+  const sandboxedFrame = (url, title) => { const frame = h('iframe', { class: 'fmedia pdf', title }); frame.setAttribute('sandbox', ''); frame.src = url; return keysStayOnPage(frame); };
   const shortPath = abs => abs.replace(S.host.home + '/', '~/');
   const isMarkdown = name => /\.(md|markdown)$/i.test(name);
   const isHtml = name => /\.html?$/i.test(name);
@@ -31,7 +31,7 @@ FEAT.preview = (() => {
   async function fillBody(body, where, line, showCopy) {
     const url = rawUrl(where, true), media = mediaOf(where.name);
     if (media === 'img') { body.replaceChildren(h('div', { class: 'fmedia' }, h('img', { src: url, alt: where.name }))); return; }
-    if (media === 'pdf') { body.replaceChildren(h('iframe', { class: 'fmedia pdf', src: url, title: where.name })); return; }
+    if (media === 'pdf') { body.replaceChildren(keysStayOnPage(h('iframe', { class: 'fmedia pdf', src: url, title: where.name }))); return; }
     if (media === 'video') { body.replaceChildren(h('div', { class: 'fmedia' }, h('video', { src: url, controls: true }))); return; }
     if (isHtml(where.name)) { body.replaceChildren(sandboxedFrame(url, where.name)); return; }
     body.replaceChildren(h('div', { class: 'dim fpv-note' }, 'loading…'));

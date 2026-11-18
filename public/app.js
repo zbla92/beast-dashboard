@@ -2268,6 +2268,15 @@ async function openTranscriptFile(hh) {
 // LAYERS.hist mirrors our entries (index = depth): what is on top, and which page the chats were opened from.
 const LAYERS = { depth: 0, closing: false, modal: false, queue: [], fwd: false, pend: null, skip: 0, timer: 0, fwdTimer: 0, skipTimer: 0, reuse: false, back: false, restoring: 0, hist: [], boot: null };
 const modalOpen = () => !$('#modal').classList.contains('hidden');
+function keysStayOnPage(frame) {
+  const pull = () => setTimeout(() => {
+    if (!frame.isConnected) { removeEventListener('blur', pull); return; }
+    if (document.activeElement !== frame) return;
+    const home = frame.parentElement; home.tabIndex = -1; home.focus({ preventScroll: true });
+  });
+  addEventListener('blur', pull);
+  return frame;
+}
 const OVERLAY_OPEN = { drawer: () => !!UI.drawer, modal: modalOpen, palette: () => PAL.open, tip: () => !!FEAT.help?.tipOpen(), help: () => !!FEAT.help?.layerOpen() };   // the Code steps are judged by FEAT.code
 const VIEWS = ['home', 'projects', 'tasks', 'code', 'bots'];
 function curLoc() { return { v: UI.view, t: TERM.open ? (IS_PHONE && TERM.showList ? '' : TERM.active || '') : null }; }
@@ -2761,9 +2770,9 @@ function tabFiles(el, p, o = {}) {
       if (content.error) { prev.append(h('div', { class: 'dim', style: 'padding:20px' }, content.error)); return; }
       const media = mediaOf(e.name), raw = `/api/download/${p.id}?path=${encodeURIComponent(e.path)}&inline=1`;
       if (media === 'img') { prev.append(h('div', { class: 'fmedia' }, h('img', { src: raw, alt: e.name }))); return; }
-      if (media === 'pdf') { prev.append(h('iframe', { class: 'fmedia pdf', src: raw, title: e.name })); return; }
+      if (media === 'pdf') { prev.append(keysStayOnPage(h('iframe', { class: 'fmedia pdf', src: raw, title: e.name }))); return; }
       if (media === 'video') { prev.append(h('div', { class: 'fmedia' }, h('video', { src: raw, controls: true }))); return; }
-      if (isHtml && !htmlSource) { const frame = h('iframe', { class: 'fmedia pdf', title: e.name }); frame.setAttribute('sandbox', ''); frame.src = raw; prev.append(frame); return; }
+      if (isHtml && !htmlSource) { const frame = h('iframe', { class: 'fmedia pdf', title: e.name }); frame.setAttribute('sandbox', ''); frame.src = raw; prev.append(keysStayOnPage(frame)); return; }
       if (content.binary) { prev.append(h('div', { class: 'dim', style: 'padding:20px' }, 'binary file — use download')); return; }
       if (status && diff && diff.error) prev.append(h('div', { class: 'dim', style: 'padding:6px 12px' }, 'diff: ' + diff.error));
       const clipped = content.text.split('\n').map(l => l.length > MAX_LINE ? l.slice(0, MAX_LINE) + ` … [${l.length - MAX_LINE} more characters hidden]` : l).join('\n');
