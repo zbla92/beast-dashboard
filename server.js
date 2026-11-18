@@ -503,7 +503,7 @@ async function decorateClaude(snap) {
   for (const n of cl) if (isChat(n)) { const L = headless.live(n); if (L && !L.stale && L.v >= 2) claude.followChat(n, L.sessionId); }
   claude.reconcile(names);
   claude.refreshTitles();
-  for (const s of snap.sessions) if (isClaude(s)) { s.claude = claude.info(s.name); s.claude.usage = usage.bySession(s.claude.sessionId); s.claude.ctx = ctxOf(s); liveModel(s); s.claude.cache = usage.cacheOf(s.claude); Object.assign(s.claude, await whereIs(s)); if (s.claudeVersion) s.claude.version = s.claudeVersion; const st = settle.of(s.name); if (st && !settle.wake(s.name, s.claude.state, s.claude.since || 0)) { s.claude.settled = st; s.claude.needsYou = false; } }
+  for (const s of snap.sessions) if (isClaude(s)) { s.claude = claude.info(s.name); s.claude.usage = usage.bySession(s.claude.sessionId); s.claude.ctx = ctxOf(s); liveModel(s); s.claude.cache = usage.cacheOf(s.claude); Object.assign(s.claude, await whereIs(s)); if (s.claudeVersion) s.claude.version = s.claudeVersion; s.claude.waitingOn = waitingOn(claude.get(s.name), s.claude.mode === 'chat' ? headless.live(s.name) : null); if (s.claude.state === 'needs-you' && holds(s.claude.waitingOn)) s.claude.needsYou = false; const st = settle.of(s.name); if (st && !settle.wake(s.name, s.claude.state, s.claude.since || 0)) { s.claude.settled = st; s.claude.needsYou = false; } }
   if (Date.now() - lastUsageScan > 30000) { lastUsageScan = Date.now(); usage.scan().then(() => pushState(false)); }
 }
 // Where a Claude session actually works: its branch, and whether that is a git worktree apart from the project
@@ -531,7 +531,7 @@ function oneLine(t, n = 80) {
 const pushGate = require('./lib/pushgate').createPushGate();
 // A chat that finishes while you read it isn't waiting for you: no done buzz, and it is marked seen right away.
 const watching = require('./lib/watching').createWatching();
-const { createDonePush, fromNotification } = require('./lib/donepush');
+const { createDonePush, fromNotification, waitingOn, holds } = require('./lib/donepush');
 // Should this event buzz? Respects the per-event toggles, quiet hours and muted sessions from settings.
 function pushAllowed(kind, tmux) {
   const n = settings.get().notify || {}; if (n[kind] === false) return false;
@@ -561,16 +561,12 @@ function chatAskPush(name, req) {
 headless.onEvent((name, o) => { if (o.ev === 'pending') chatAskPush(name, o.req); });
 claude.onChange(checkpoints.onChange);
 claude.onChange((ev, r) => { if (settle.onChange(ev, r)) pushState(true); });
-function chatStillBusy(name) {
-  const L = headless.live(name);
-  return !!(L && (L.state !== 'idle' || L.turn || (L.pending || []).length || (L.inbox || []).length));
-}
 function doneSettled(name, since) {
   const r = claude.get(name);
-  if (!r || r.gone || r.state !== 'needs-you' || r.since !== since || (r.bgTasks || []).length) return false;
-  if (chatStillBusy(name) || watching.watched(name)) return false;
-  const before = new Set(r.shellsAtAsk || []);
-  return (r.bgShells || []).some(id => !before.has(id)) ? 'wait' : true;
+  if (!r || r.gone || r.state !== 'needs-you' || r.since !== since || watching.watched(name)) return false;
+  const w = waitingOn(r, headless.live(name));
+  if (w.agents.length || w.queued || w.busy) return false;
+  return w.shells.length ? 'wait' : true;
 }
 function sendDone(name) {
   const r = { ...(claude.get(name) || {}), tmux: name }; const now = Date.now();
@@ -1018,7 +1014,7 @@ async function api(req, res, url) {
   }
   if (m === 'GET' && parts[0] === 'badge') { // tiny summary for the Mac menubar (xbar / SwiftBar plugin in mac/)
     const cl = snapshot.sessions.filter(x => x.claude); const need = cl.filter(x => x.claude.needsYou); const u = usage.summary();
-    return json(res, 200, { need: need.length, working: cl.filter(x => x.claude.state === 'working' || x.claude.state === 'background').length, sessions: cl.length, today: u.total.today, needList: need.map(x => ({ name: x.name, label: x.claude.label, state: x.claude.state, msg: (x.claude.lastMessage || '').slice(0, 100) })), crashes: recentCrashes().length });
+    return json(res, 200, { need: need.length, working: cl.filter(x => x.claude.state === 'working' || x.claude.state === 'background' || (x.claude.state === 'needs-you' && holds(x.claude.waitingOn))).length, sessions: cl.length, today: u.total.today, needList: need.map(x => ({ name: x.name, label: x.claude.label, state: x.claude.state, msg: (x.claude.lastMessage || '').slice(0, 100) })), crashes: recentCrashes().length });
   }
   if (parts[0] === 'paste-image') {
     // Upload from the web terminal: the page on :7681 is another origin, hence CORS + preflight.

@@ -143,3 +143,37 @@ test('a push the gate or quiet hours dropped does not count as sent for that pro
   await run();
   assert.strictEqual(d.schedule('claude-a', 200, 50), true);
 });
+
+test('waitingOn lists running agents and only the background commands started for this prompt', () => {
+  const { waitingOn, holds } = require('../lib/donepush');
+  const r = { bgTasks: [{ id: 'a1', type: 'agent', description: 'review' }], bgShells: ['bold', 'bnew'], shellsAtAsk: ['bold'], bgShellInfo: [{ id: 'bnew', description: 'npm test' }], stopAt: 1000 };
+  const w = waitingOn(r, null, 2000);
+  assert.deepStrictEqual(w, { agents: [{ id: 'a1', description: 'review' }], shells: [{ id: 'bnew', description: 'npm test' }], queued: 0, busy: false });
+  assert.strictEqual(holds(w), true);
+});
+
+test('waitingOn drops background commands once the turn ended more than the max wait ago', () => {
+  const { waitingOn, holds, MAX_WAIT } = require('../lib/donepush');
+  const r = { bgShells: ['bnew'], shellsAtAsk: [], stopAt: 1000 };
+  assert.strictEqual(waitingOn(r, null, 1000 + MAX_WAIT).shells.length, 1);
+  const w = waitingOn(r, null, 1001 + MAX_WAIT);
+  assert.deepStrictEqual(w.shells, []);
+  assert.strictEqual(holds(w), false);
+});
+
+test('waitingOn counts queued chat messages and a chat that is still mid-turn, but ignores a stale chat', () => {
+  const { waitingOn, holds } = require('../lib/donepush');
+  const r = { bgShells: [], stopAt: 1 };
+  assert.deepStrictEqual(waitingOn(r, { state: 'idle', inbox: ['x', 'y'] }, 2), { agents: [], shells: [], queued: 2, busy: false });
+  assert.strictEqual(waitingOn(r, { state: 'idle', turn: { startedAt: 1 } }, 2).busy, true);
+  assert.strictEqual(waitingOn(r, { state: 'idle', pending: [{ rid: 1 }] }, 2).busy, true);
+  assert.strictEqual(waitingOn(r, { state: 'working' }, 2).busy, true);
+  assert.strictEqual(holds(waitingOn(r, { state: 'working', inbox: ['x'], stale: true }, 2)), false);
+  assert.strictEqual(holds(waitingOn(r, { state: 'idle', inbox: [], pending: [] }, 2)), false);
+});
+
+test('waitingOn handles a missing record and shells without a stored description', () => {
+  const { waitingOn } = require('../lib/donepush');
+  assert.deepStrictEqual(waitingOn(null, null, 0), { agents: [], shells: [], queued: 0, busy: false });
+  assert.deepStrictEqual(waitingOn({ bgShells: ['b1'] }, null, 0).shells, [{ id: 'b1', description: 'b1' }]);
+});
