@@ -8,8 +8,8 @@
 
   // sessions waiting for you, in tmux (alphabetical) order; "Seen" hides one until its state changes
   const waiting = () => {
-    const out = termSessions(true).claude.filter(it => WAIT.has(it.claude?.state) && !holds(it.claude) && !it.claude.settled && !(it.claude.specialist && (it.claude.state === 'needs-you' || it.claude.state === 'error'))).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
-    return out.filter(it => IBX.seen.get(it.name) !== it.claude.since);
+    const out = termSessions(true).claude.filter(it => WAIT.has(it.claude?.state) && (it.claude.state === 'permission' || it.claude.state === 'limit' || it.claude.unseen !== false) && !holds(it.claude) && !it.claude.settled && !(it.claude.specialist && (it.claude.state === 'needs-you' || it.claude.state === 'error'))).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    return out.filter(it => IBX.seen.get(it.name) !== (it.claude.doneAt || it.claude.since));
   };
   const lineOf = it => {
     const cl = it.claude;
@@ -95,7 +95,7 @@
     const permBtns = h('div', { class: 'ibx-perms' }, allowBtn, denyBtn, tellBtn);
     const chatBtn = h('button', { class: 'btn ibx-btn', title: 'open the chat', onclick: () => { close(); openTerm(name); } }, ico('chat', 15), 'Open chat');
     const seenBtn = h('button', { class: 'btn ghost ibx-btn', title: 'mark as seen — hides it until the state changes', onclick: () => {
-      const cl = claudeOf(name); if (cl) IBX.seen.set(name, cl.since);
+      const cl = claudeOf(name); if (cl) IBX.seen.set(name, cl.doneAt || cl.since);
       api('claude-seen', { session: name }).catch(() => {}); render(); renderHeader();   // the tab title / badges count what the Inbox lists
     } }, 'Seen');
     const badge = h('span', { class: 'ibx-badge' }), msg = h('div', { class: 'ibx-msg' }), more = h('button', { class: 'ibx-more hidden', onclick: () => { const x = msg.classList.toggle('open'); more.textContent = x ? 'less' : 'more'; } }, 'more');

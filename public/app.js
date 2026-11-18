@@ -437,7 +437,7 @@ function openTerm(session, o = {}) {   // o.chat: this tab just started it as a 
   if (o.chat) TERM.born.set(session, Date.now());
   if (TERM.active) TERM.lastUsed.set(TERM.active, Date.now());
   TERM.open = true; TERM.showList = false; TERM.active = session; TERM.lastUsed.set(session, Date.now());   // renderTermPanel builds the terminal if it is shown
-  const cl = claudeOf(session); if (cl && (cl.state === 'needs-you' || cl.state === 'error')) api('claude-seen', { session }).catch(() => {});
+  const cl = claudeOf(session); if (cl && unseenOf(cl)) api('claude-seen', { session }).catch(() => {});
   renderTermPanel(true); renderChatPane(true); renderRail();
   const f = TERM.frames.get(session); if (f && !chatMode(session)) setTimeout(() => f.focus(), 50);   // focus ONLY here, never on a state tick
   navTo();   // each chat you open is a history entry: Back returns to the one before
@@ -641,9 +641,12 @@ const STATE_ICON = { working: '●', background: '◐', permission: '⚠', done:
 const STATE_SHORT = { working: 'working', background: 'background', permission: 'permission', done: 'done', 'needs-you': 'done', error: 'error', limit: 'limit', idle: 'idle', unknown: '—', ended: 'exited' };
 const waitingParts = cl => { const w = cl && cl.waitingOn; return w ? [[(w.agents || []).length, 'agent'], [(w.shells || []).length, 'command']].filter(p => p[0]).map(p => plural(p[0], p[1])).concat(w.queued ? [w.queued + ' queued'] : []) : []; };
 const holds = cl => { const w = cl && cl.state === 'needs-you' && cl.waitingOn; return !!w && ((w.agents || []).length > 0 || (w.shells || []).length > 0 || !!w.queued || !!w.busy); };
+const unseenOf = cl => !!cl && (cl.state === 'needs-you' || cl.state === 'error') && cl.unseen !== false;
+const seenFinished = cl => !!cl && (cl.state === 'needs-you' || cl.state === 'error') && cl.unseen === false && !holds(cl);
 function displayState(cl) {
   const st = (cl && cl.state) || 'unknown';
-  if (st === 'needs-you') return holds(cl) ? 'background' : 'done';
+  if (st === 'needs-you') return holds(cl) ? 'background' : cl.unseen === false ? 'idle' : 'done';
+  if (st === 'error') return cl.unseen === false ? 'idle' : 'error';
   return st;
 }
 const stCss = st => st === 'done' ? 'needs-you' : st;
@@ -657,9 +660,9 @@ function stateLabel(cl) {
 }
 const stateKey = cl => cl ? displayState(cl) + '|' + waitingParts(cl).join() : '';
 function stateBadge(cl, compact = false) {
-  if (!cl) return null; const st = displayState(cl);
-  if (compact) return h('span', { class: 'cst ' + stCss(st), title: stateLabel(cl) }, h('i', null, gico(STATE_ICON[st] || '·', 11)), cl.since && st !== 'unknown' ? h('b', null, ' ' + ago(cl.since)) : null);
-  return h('span', { class: 'cst ' + stCss(st), title: stateLabel(cl) + (cl.since ? ' since ' + new Date(cl.since).toLocaleTimeString() : '') }, h('i', null, gico(STATE_ICON[st] || '·', 11)), ' ', STATE_SHORT[st] || st, cl.since && st !== 'unknown' ? h('b', null, ' ' + ago(cl.since)) : null);
+  if (!cl) return null; const st = displayState(cl); const at = st === 'done' ? cl.doneAt || cl.since : cl.since;
+  if (compact) return h('span', { class: 'cst ' + stCss(st), title: stateLabel(cl) }, h('i', null, gico(STATE_ICON[st] || '·', 11)), at && st !== 'unknown' ? h('b', null, ' ' + ago(at)) : null);
+  return h('span', { class: 'cst ' + stCss(st), title: stateLabel(cl) + (at ? ' since ' + new Date(at).toLocaleTimeString() : '') }, h('i', null, gico(STATE_ICON[st] || '·', 11)), ' ', STATE_SHORT[st] || st, at && st !== 'unknown' ? h('b', null, ' ' + ago(at)) : null);
 }
 // which Claude on a project this is: the base one (by account), a numbered extra instance, or a git worktree
 function instOf(it) {
@@ -1092,7 +1095,8 @@ function ctxMeter(name, cl) {
   return h('button', { class: 'ctxm ' + ctxLvl(p), 'data-s': name, title: lines.filter(Boolean).join('\n'), onclick: ev => ctxMenu(ev, name) },
     ctxRing(p, 18, ctxMark(c)), h('b', null, fmtTok(c.used)), h('span', { class: 'of' }, '/ ' + fmtTok(c.window)), ...feat('ctxChip', cl));
 }
-const canCompact = cl => !!cl && cl.mode === 'chat' && ['idle', 'needs-you'].includes(cl.state);
+const restingState = cl => ['idle', 'needs-you'].includes(cl.state) || (cl.state === 'error' && cl.unseen === false);
+const canCompact = cl => !!cl && cl.mode === 'chat' && restingState(cl);
 const notIdleWhy = () => 'Wait until Claude is idle';
 function ctxMenu(ev, name) {
   const cl = claudeOf(name); if (!cl) return;
@@ -1148,7 +1152,7 @@ function sessInfoRow(label, sub, title) {
 }
 function sessMenu(ev, name) {
   const sess = S.runtime.sessions.find(s => s.name === name); const cl = sess && sess.claude; const chat = cl && cl.mode === 'chat';
-  const idle = cl && ['idle', 'needs-you'].includes(cl.state); const logOn = chat && TERM.view[name] === 'term';
+  const idle = cl && restingState(cl); const logOn = chat && TERM.view[name] === 'term';
   const c = cl && cl.ctx; const muted = (S.settings.muted || []).includes(name);
   const mac = copyAttach(name);
   const proj = sess && byId()[sess.project]; const git = proj && gitOf(proj);
@@ -1166,6 +1170,7 @@ function sessMenu(ev, name) {
     chat && !logOn ? { label: 'Focus', sub: CHAT.focus ? 'on: tool calls hidden' : 'off: tool calls shown', icon: ico('focus', 15), title: 'only your messages and Claude\'s replies', onclick: toggleChatFocus } : null,
     cl ? { label: 'Compact context', sub: c ? fmtTok(c.used) + ' · ' + ctxPct(c) + '%' : '', icon: ico('compact', 15), disabled: !canCompact(cl), title: idle ? 'summarise the conversation and continue with a smaller context' : 'only when Claude is idle', onclick: () => compactSession(name) } : null,
     cl ? { label: 'Rename…', icon: ico('pencil', 15), onclick: () => renameDialog(name) } : null,
+    seenFinished(cl) ? { label: 'Mark unread', icon: ico('bell', 15), title: 'show it as done again until someone opens it', onclick: () => api('claude-unread', { session: name }).then(() => toast('marked unread')).catch(e => toast(e.message, 'err')) } : null,
     chat && FEAT.session?.move ? { label: 'Move to folder…', icon: ico('folder', 15), disabled: !idle, title: 'same conversation, Claude continues in another project or folder (only when idle)', onclick: () => FEAT.session.move(name) } : null,
     proj ? { label: 'Project details…', sub: dirty ? dirty + ' changes' : '', icon: ico('folder', 15), title: 'project details — changes, files, logs, branches, docker', onclick: () => openDrawer(proj.id, dirty ? 'changes' : 'overview') } : null,
     (cl && cl.hooked) || muted ? { label: muted ? 'Unmute notifications' : 'Mute notifications', sub: muted ? 'muted now' : '', icon: ico(muted ? 'bell' : 'bellOff', 15), onclick: () => api('claude-mute', { session: name, muted: !muted }).then(r => toast(r.muted.includes(name) ? 'muted' : 'unmuted')).catch(e => toast(e.message, 'err')) } : null,
