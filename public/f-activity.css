@@ -1,4 +1,4 @@
-.act-strip { flex: none; display: flex; align-items: center; justify-content: flex-start; gap: var(--sp-2); min-width: 0; padding: 4px max(24px, 3vw) 6px; background: transparent; font-size: var(--fs-xs); color: var(--muted); overflow: hidden; }
+.act-strip { flex: none; display: flex; align-items: center; justify-content: flex-start; gap: var(--sp-2); min-width: 0; padding: 4px max(20px, 3vw, calc((100% - var(--chat-col)) / 2)) 6px; background: transparent; font-size: var(--fs-xs); color: var(--muted); overflow: hidden; }
 .act-part { --tint: var(--st-work); display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: none; height: 22px; padding: 0 10px 0 8px; border: 1px solid color-mix(in srgb, var(--tint) 32%, transparent); border-radius: 999px; background: color-mix(in srgb, var(--tint) 11%, transparent); white-space: nowrap; line-height: 1; }
 .act-part b { font-weight: 500; color: var(--text); }
 .act-agents { flex: 0 1 auto; max-width: 70%; font: inherit; color: inherit; cursor: pointer; text-align: left; transition: background .12s, border-color .12s; }
