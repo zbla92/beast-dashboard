@@ -400,7 +400,7 @@ test('markSeen takes a run out of the inbox queue and keeps it out', async () =>
 test('the inbox count leaves out specialist sessions in error and needs-you', () => {
   const sess = (name, claude) => ({ name, claude, project: null });
   const items = [sess('claude-a', { state: 'error', since: 1 }), sess('claude-spec-x', { state: 'error', specialist: 'x', since: 1 }), sess('claude-spec-y', { state: 'needs-you', specialist: 'x', since: 1 }), sess('claude-spec-z', { state: 'permission', specialist: 'x', since: 1 })];
-  const sandbox = { FEAT: {}, termSessions: () => ({ claude: items }), h: () => ({}), $: () => null, markTab() {}, document: { addEventListener() {}, body: { classList: { toggle() {} } } }, setInterval: () => 0 };
+  const sandbox = { FEAT: {}, holds: () => false, termSessions: () => ({ claude: items }), h: () => ({}), $: () => null, markTab() {}, document: { addEventListener() {}, body: { classList: { toggle() {} } } }, setInterval: () => 0 };
   vm.createContext(sandbox);
   vm.runInContext(read('f-inbox.js'), sandbox);
   assert.strictEqual(sandbox.FEAT.inbox.count(), 2);

@@ -15,9 +15,11 @@ FEAT.activity = (() => {
     });
   }
 
-  function shellsOf(name) {
+  function shellsOf(name, cl) {
     const s = S.runtime.sessions.find(x => x.name === name);
-    return s && s.toolShells || 0;
+    const count = s && s.toolShells || 0;
+    const described = cl.waitingOn ? (cl.waitingOn.shells || []).map(x => x.description || x.id).slice(0, count) : [];
+    return { count, described };
   }
 
   const spinner = () => h('span', { class: 'act-spin' });
@@ -35,10 +37,10 @@ FEAT.activity = (() => {
     const cl = claudeOf(name);
     if (!cl || cl.mode !== 'chat') return null;
     const agents = agentsOf(name, cl);
-    const shells = shellsOf(name);
+    const shells = shellsOf(name, cl);
     const parts = [
       agents.length ? agentsPart(name, agents) : null,
-      shells ? h('span', { class: 'act-part' }, spinner(), h('b', null, plural(shells, 'command') + ' running')) : null,
+      shells.count ? h('span', { class: 'act-part' }, spinner(), h('b', null, plural(shells.count, 'command') + ' running'), shells.described.length ? h('span', { class: 'act-desc' }, shells.described.join(' · ')) : null) : null,
     ].filter(Boolean);
     return parts.length ? parts : null;
   }

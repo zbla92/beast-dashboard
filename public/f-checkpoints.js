@@ -4,7 +4,7 @@
   const CK = new Map();
   const enc = encodeURIComponent;
   const hm = ts => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  const busyOf = name => ['working', 'background', 'permission'].includes((claudeOf(name) || {}).state);
+  const busyOf = name => isBusy(claudeOf(name));
   const base = p => String(p).split('/').pop();
   const totals = e => e.repos.reduce((a, x) => ({ files: a.files + (x.files || 0), add: a.add + (x.add || 0), del: a.del + (x.del || 0) }), { files: 0, add: 0, del: 0 });
 

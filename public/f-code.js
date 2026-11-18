@@ -925,8 +925,8 @@ FEAT.code = (() => {
         h('span', { class: 'cv-name' }, h('span', { class: 'cv-nm' }, w.branch || 'Detached HEAD')),
         h('span', { class: 'cv-sub' }, h('span', { class: 'cv-dirn' }, w.worktree ? w.path.split('/').slice(-2).join('/') : 'Main checkout'))),
       w.live?.length ? h('span', { class: 'cv-lives' }, w.live.map(name => {
-        const st = sessOf(name)?.claude?.state || 'unknown';
-        return h('button', { class: 'wdot st-' + st, title: `${sessOf(name)?.claude?.label || name}: ${STATE_LABEL[st] || st}. Open this chat.`, 'aria-label': 'Open chat ' + name, onclick: ev => { ev.stopPropagation(); openTerm(name); } });
+        const cl = sessOf(name)?.claude; const st = cl ? stCss(displayState(cl)) : 'unknown';
+        return h('button', { class: 'wdot st-' + st, title: `${cl?.label || name}: ${cl ? stateLabel(cl) : st}. Open this chat.`, 'aria-label': 'Open chat ' + name, onclick: ev => { ev.stopPropagation(); openTerm(name); } });
       })) : null,
       w.dirty ? h('span', { class: 'cv-count', title: plural(w.dirty, 'changed file') }, w.dirty) : null);
     }

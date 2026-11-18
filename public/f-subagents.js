@@ -130,8 +130,8 @@
       T.models = await api('usage/models?days=7');
       const midnight = new Date(); midnight.setHours(0, 0, 0, 0); const flagged = [];
       // one session at a time, and only the ones that can be running subagents (+ the open chat), so a restart does not fan out to every session
-      const BUSY = new Set(['working', 'background', 'needs-you', 'permission']);
-      const names = (S.runtime.sessions || []).filter(s => s.claude && (BUSY.has(s.claude.state) || s.name === (typeof TERM !== 'undefined' && TERM.active))).map(s => s.name);
+      const BUSY = new Set(['working', 'background', 'done', 'permission']);
+      const names = (S.runtime.sessions || []).filter(s => s.claude && (BUSY.has(displayState(s.claude)) || s.name === (typeof TERM !== 'undefined' && TERM.active))).map(s => s.name);
       for (const n of names) {
         try {
           let j = await api('subagents/' + encodeURIComponent(n));

@@ -5,7 +5,6 @@
   ICONS.sun = '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>';
   ICONS.link = '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>';
 
-  const BUSY = new Set(['working', 'background', 'permission']);
   const hm = t => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const tomorrow8 = () => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(8, 0, 0, 0); return d.getTime(); };
 
@@ -25,7 +24,7 @@
 
   function sessMenu(name, sess, cl) {
     if (!cl) return null;
-    const busy = BUSY.has(cl.state);
+    const busy = isBusy(cl);
     const out = [];
     if (cl.sessionId) out.push({ label: 'Fork chat', sub: 'a new chat that starts from this conversation', icon: ico('fork', 15), disabled: busy, title: busy ? 'only when Claude is not in a turn' : 'the new chat has everything said so far; this one stays as it is', onclick: () => fork(name) });
     if (cl.settled) out.push({ label: cl.settled.until ? 'Unsnooze' : 'Unsettle', sub: cl.settled.until ? 'snoozed until ' + hm(cl.settled.until) : 'settled ' + hm(cl.settled.at), icon: ico('sun', 15), onclick: () => settle(name, false) });
