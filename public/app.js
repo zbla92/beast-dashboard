@@ -1671,7 +1671,7 @@ function renderConversation(box, name, t, o) {
   // busy: hooks / pane say so, or the transcript ends in a tool call that hasn't returned yet (Claude is running it)
   const busy = lv ? lv.state === 'working' || !!lv.turn : cl.state === 'working' || cl.state === 'background' || !!t.pending; const justSent = (PENDING[name] || []).length > 0;
   const jobs = (S.claude?.schedule || []).filter(j => j.session === name && j.state !== 'done' && j.state !== 'failed');
-  const compKey = [name, cl.state, stateKey(cl), cl.model, cl.effort, canSwitchModel(cl), busy, justSent, jobs.map(j => j.id + j.state).join(','), followUp()].join('|');
+  const compKey = [name, cl.state, cl.model, cl.effort, canSwitchModel(cl), busy, justSent, jobs.map(j => j.id + j.state).join(','), followUp()].join('|');
   const keptComp = same && box.querySelector('.cbox2'); const C = keptComp && keptComp.dataset.k === compKey ? keptComp._c : composer(box, name, cl, conv, scroller, o, busy, justSent, jobs, prevDraft, compKey);
   const queued = (S.claude?.schedule || []).filter(j => j.session === name && j.whenFree && j.state === 'waiting');
   for (const m of inbox.filter(starts)) if (!(lastUser && lastUser.text.trim() === m.text.trim() && (lastUser.ts || 0) >= m.at - 5000)) items.push(h('div', { class: 'turn user pending' }, h('div', { class: 'who' }, gl('❯ you'), hhmm(m.at), h('span', { class: 'dim' }, ' · sent')), userBody(m.text)));
