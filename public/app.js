@@ -248,6 +248,12 @@ function setFocus(on) { TERM.focus = on; localStorage.setItem('bd.focus', on ? '
 const chatWide = () => localStorage.getItem('bd.chatWide') === '1';
 function setChatWide(on) { localStorage.setItem('bd.chatWide', on ? '1' : '0'); document.body.classList.toggle('chat-wide', on); }
 document.body.classList.toggle('chat-wide', chatWide());
+const railLayout = () => localStorage.getItem('bd.railLayout') === 'cards' ? 'cards' : 'flat';
+document.body.classList.toggle('rail-flat', railLayout() === 'flat');
+function setRailLayout(v) {
+  localStorage.setItem('bd.railLayout', v); document.body.classList.toggle('rail-flat', v === 'flat');
+  renderRail();
+}
 function releaseHiddenFrame() {
   const a = document.activeElement;
   if (!a?.classList?.contains('termframe') || a.getClientRects().length) return;
@@ -2842,6 +2848,7 @@ function settingsModal() {
         row('Continue after a usage limit', 'chat sessions only · sends "continue" a minute after the limit resets, if nothing was sent since', sw(!!s.autoResume, { id: 'set-autoresume' })),
         row('Messages while Claude works', 'chat sessions, this device · ' + (IS_PHONE ? 'the send button does this, the second button the other' : 'Enter does this, Alt+Enter the other'), h('span', { class: 'seg' }, [['steer', 'Send now'], ['queue', 'After the turn']].map(([v, l]) => h('button', { class: 'segb' + (followUp() === v ? ' on' : ''), title: v === 'steer' ? 'goes into the running turn — Claude reads it at its next step' : 'waits in the queue and goes out when the turn is over', onclick: ev => { FEAT.queue?.setFollowUp(v); for (const b of ev.currentTarget.parentElement.children) b.classList.toggle('on', b === ev.currentTarget); renderChatPane(true); } }, l)))),
         row('Full-width chat', 'this device · the chat uses the whole pane instead of a centred column', sw(chatWide(), { onchange: e => setChatWide(e.target.checked) })),
+        row('Session list', 'this device · one row per project, or a card per project that folds', h('span', { class: 'seg' }, [['flat', 'Flat'], ['cards', 'Cards']].map(([v, l]) => h('button', { class: 'segb' + (railLayout() === v ? ' on' : ''), onclick: ev => { setRailLayout(v); for (const b of ev.currentTarget.parentElement.children) b.classList.toggle('on', b === ev.currentTarget); } }, l)))),
         row('Update Claude Code automatically', 'checks every hour and installs a new release. If that fails, Home shows an Update button', sw(s.claudeAutoUpdate !== false, { id: 'set-claudeupdate' })),
         row('Move chats to a new Claude Code', 'when a new version passes the start check, chat sessions restart on it one by one (idle now, busy ones after their turn)', sw(s.chatAutoUpgrade !== false, { id: 'set-chatupgrade' }))),
       sect('plans', 'Plans', 'checkSquare', 'var(--purple)',
@@ -3013,8 +3020,8 @@ function toggleRailGroup(key) {
 }
 function renderRail() {
   const el = $('#rail-list'); if (!el) return;
-  const S3 = termSessions(); const act = TERM.open ? TERM.active : null; const min = Math.floor(Date.now() / 60000);
-  const key = JSON.stringify([act, min, S.projects.length, [...RAIL.collapsed], S3.all.map(x => [x.name, x.pid, x.claude?.state, stateKey(x.claude), x.claude?.needsYou, x.claude?.label, x.rename, x.claude?.title, x.claude?.firstPrompt, x.claude?.since, x.claude?.lastTool, x.claude?.model, x.claude?.worktree?.name, x.claude?.settled?.at, x.claude?.settled?.until, x.project, x.label, x.current, x.cwd, x.ports.map(p => p.port)]), feat('termBarKey', act)]);
+  const S3 = termSessions(); const act = TERM.open ? TERM.active : null; const min = Math.floor(Date.now() / 60000); const flat = railLayout() === 'flat' && !!FEAT.railflat;
+  const key = JSON.stringify([flat, act, min, S.projects.length, [...RAIL.collapsed], S3.all.map(x => [x.name, x.pid, x.claude?.state, stateKey(x.claude), x.claude?.needsYou, x.claude?.label, x.rename, x.claude?.title, x.claude?.firstPrompt, x.claude?.lastPrompt, x.claude?.since, x.claude?.lastTool, x.claude?.model, x.claude?.worktree?.name, x.claude?.settled?.at, x.claude?.settled?.until, x.project, x.label, x.current, x.cwd, x.ports.map(p => p.port)]), feat('termBarKey', act)]);
   if (key === railKey) return; railKey = key;
   const sub = it => {
     const cl = it.claude; if (!cl) return it.label ? it.label + (it.ports.length ? ' · :' + it.ports.map(p => p.port).join(' :') : '') : (it.current || 'bash') + ' · ' + home(it.cwd);
@@ -3023,13 +3030,15 @@ function renderRail() {
     if (st === 'background') return waitingParts(cl).join(' · ');
     return '';
   };
-  const row = (it, kind, tuck) => {
+  const row = (it, kind, tuck, project) => {
     const cl = it.claude; const st = cl ? stCss(displayState(cl)) : kind; const i = kind === 'claude' ? instOf(it) : null;
     const nm = kind === 'claude' ? (isNewChat(it.name) ? chatTitle(cl) : cl?.label || (tuck ? (i.wt ? it.project : '#' + (i.n || 1)) : it.name.startsWith('sh-') ? it.name : it.project)) : it.rename || (kind === 'dev' ? it.project : it.name);
+    const fl = flat && kind === 'claude' ? FEAT.railflat.names(it, project, tuck, nm, i ? (i.wt ? it.project : '#' + (i.n || 1)) : nm) : null;
     const subline = sub(it); const pill = cl ? statePill(cl, it.name, true) : null; const age = cl?.since && st !== 'unknown' ? ago(cl.since).replace(/\.\d+/, '') : '';
     return h('button', { class: 'rrow k-' + kind + ' st-' + st + (tuck ? ' sub' : '') + (act === it.name ? ' on' : '') + (needsYou(cl) ? ' need' : '') + (cl?.settled ? ' settled' : ''), title: it.name + (cl ? ' · ' + stateLabel(cl) : '') + (cl?.settled ? ' · ' + (cl.settled.until ? 'snoozed' : 'settled') : ''), onclick: () => openTerm(it.name) },
       kind === 'claude' && !tuck ? h('span', { class: 'rav' }, avatar(it.pid, 'sm'), h('i', { class: 'rdot' })) : h('i', { class: 'rdot' }),
-      h('span', { class: 'rtx' }, h('span', { class: 'rnm' }, h('b', null, nm), i && i.n && !(tuck && !cl?.label && !i.wt) ? h('em', null, '#' + i.n) : null, i && i.wt ? h('em', { class: 'wt' }, ico('branch', 11), ' ' + i.wt.name) : null, kind === 'claude' && multiAcct() && it.account !== 'personal' ? h('em', { class: 'racc ' + it.account, title: 'Claude Code account: ' + acct(it.account) }, acct(it.account).slice(0, 1)) : null),
+      h('span', { class: 'rtx' }, h('span', { class: 'rnm' }, h('b', null, fl ? fl.name : nm), i && i.n && !(tuck && !cl?.label && !i.wt) ? h('em', null, '#' + i.n) : null, i && i.wt ? h('em', { class: 'wt' }, ico('branch', 11), ' ' + i.wt.name) : null, kind === 'claude' && multiAcct() && it.account !== 'personal' ? h('em', { class: 'racc ' + it.account, title: 'Claude Code account: ' + acct(it.account) }, acct(it.account).slice(0, 1)) : null),
+        fl && fl.line ? h('span', { class: 'rtl' }, fl.line) : null,
         subline || pill ? h('span', { class: 'rln2' }, pill, subline ? h('span', { class: 'rsub' + (st === 'working' ? ' mono' : '') }, subline) : null) : null),
       age ? h('span', { class: 'rage', title: 'since ' + new Date(cl.since).toLocaleTimeString() }, age) : null,
       ...feat('termItem', it.name),
@@ -3040,6 +3049,7 @@ function renderRail() {
     const rows = [];
     for (const g of claudeGroups(og.items)) {
       const one = g.items.length === 1 ? g.items[0] : null;
+      if (flat) { rows.push(...FEAT.railflat.group(g, row)); continue; }
       if (one && !(g.pid && (one.claude?.label || isNewChat(one.name)))) { rows.push(row(one, 'claude')); continue; }
       const col = RAIL.collapsed.has(g.key);
       const top = col ? RAIL_URGENT.find(s => g.items.some(x => x.claude && displayState(x.claude) === s)) : null;

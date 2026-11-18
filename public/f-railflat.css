@@ -1,0 +1,33 @@
+body.rail-flat .rgrp-o { padding-bottom: 0; }
+body.rail-flat .rgrp-p { position: relative; margin: 0; padding: 0; border: 0; border-radius: 0; background: none; }
+body.rail-flat .rgrp-p::before { display: block; left: 19px; top: 40px; bottom: 8px; width: 1px; background: var(--line2); }
+body.rail-flat .rorg { display: flex; padding: 14px 8px 4px; }
+body.rail-flat .rsec { padding: 14px 8px 4px; }
+body.rail-flat .rproj { min-height: 40px; margin: 0; padding: 6px 8px; gap: 9px; font-size: var(--fs-sm); }
+body.rail-flat .rproj b { flex: 0 1 auto; font-weight: 600; }
+body.rail-flat .rproj em { margin-left: auto; font-family: var(--mono); }
+body.rail-flat .rproj .av.sm { width: 28px; height: 28px; border-radius: 8px; font-size: 11px; }
+body.rail-flat .rproj .av.sm .g svg { width: 16px; height: 16px; }
+body.rail-flat .rrow { min-height: 44px; margin-top: 0; margin-bottom: 2px; padding: 7px 8px; border: 0; border-radius: 10px; background: none; }
+body.rail-flat .rrow:hover { background: var(--fill); }
+body.rail-flat .rrow.on { background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent); }
+body.rail-flat .rrow.st-needs-you { background: color-mix(in srgb, var(--st-need) 9%, transparent); }
+body.rail-flat .rrow.st-permission { background: color-mix(in srgb, var(--st-perm) 11%, transparent); }
+body.rail-flat .rrow.on.st-needs-you, body.rail-flat .rrow.on.st-permission { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+body.rail-flat .rrow:not(.sub) .rnm b { font-weight: 600; }
+body.rail-flat .rrow .rav .av.sm { width: 28px; height: 28px; border-radius: 8px; font-size: 11px; }
+body.rail-flat .rrow .rav .av.sm .g svg { width: 16px; height: 16px; }
+body.rail-flat .rrow.sub { min-height: 40px; width: calc(100% - 30px); margin: 0 0 2px 30px; padding: 5px 8px 5px 10px; }
+body.rail-flat .rrow.sub .rnm b { font-weight: 450; }
+body.rail-flat .rtl { display: block; font-size: var(--fs-xs); line-height: 15px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body.rail-flat .titem { min-height: 56px; margin-bottom: 2px; padding: 9px 4px 9px 10px; border: 0; border-radius: var(--r); background: none; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+body.rail-flat .titem:hover { background: var(--fill); }
+body.rail-flat .titem.on { background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent); }
+body.rail-flat .titem.st-needs-you:not(.on) { background: color-mix(in srgb, var(--st-need) 9%, transparent); }
+body.rail-flat .titem.st-permission:not(.on) { background: color-mix(in srgb, var(--st-perm) 11%, transparent); }
+body.rail-flat .tgbox { position: relative; margin-bottom: 2px; border: 0; border-radius: 0; overflow: visible; background: none; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+body.rail-flat .tgbox::before { content: ''; position: absolute; left: 24px; top: 46px; bottom: 10px; width: 1px; background: var(--line2); }
+body.rail-flat .tgbox .tgrp { min-height: 44px; padding: 6px 6px 6px 10px; font-size: var(--fs-md); }
+body.rail-flat .tgbox .titem.sub { min-height: 48px; margin: 0 0 2px 32px; padding: 8px 4px 8px 10px; border: 0; border-radius: var(--r); }
+body.rail-flat .tgbox .titem.sub:not(.on, .st-needs-you, .st-permission) { background: none; }
+body.rail-flat .torg::before { display: none; }
