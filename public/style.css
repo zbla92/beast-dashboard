@@ -949,7 +949,7 @@ body.focus .termpanel { left: 0; }
 .termframe.on { display: block; }
 body.term-open { overflow: hidden; }
 /* touch: pin the document so iOS cannot scroll the page under the panel when the keyboard opens */
-@media (pointer: coarse) { body.term-open { position: fixed; inset: 0; width: 100%; overscroll-behavior: none; } }
+@media (pointer: coarse) { body.term-open:not(.sess-list) { position: fixed; inset: 0; width: 100%; overscroll-behavior: none; } }
 #term-list, .termside { overscroll-behavior: contain; }
 /* session list (phone overlay) */
 .termside { flex-direction: column; min-height: 0; background: var(--bg2); }
