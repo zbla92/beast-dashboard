@@ -33,5 +33,5 @@ body.rail-flat .tgbox .titem.sub:not(.on, .st-needs-you, .st-permission) { backg
 body.rail-flat .torg::before { display: none; }
 @media (max-width: 900px) {
   .termpanel.showlist { background: transparent; box-shadow: none; }
-  body.rail-flat #term-list .torg { margin-bottom: 8px; padding: 0 4px 4px; border-radius: var(--r-lg); background: var(--card-fill); }
+  body.rail-flat #term-list .torg { margin-bottom: 8px; padding: 0 4px 4px; border: 1px solid var(--card-edge); border-radius: var(--r-lg); background: var(--card-fill); box-shadow: var(--card-rim); }
 }
