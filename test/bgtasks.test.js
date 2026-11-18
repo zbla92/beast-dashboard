@@ -73,3 +73,28 @@ test('subagent is done when its transcript ends in an end_turn assistant line', 
   assert.equal(byId.adone.done, true);
   assert.equal(byId.abusy.done, false);
 });
+
+test('a real prompt remembers which background commands were already running; a task notification does not count as a prompt', () => {
+  const n = 'claude-bgask';
+  const h = (body, ts) => claude.onHook({ 'x-tmux-session': n, 'x-ts': String(ts) }, body);
+  h({ hook_event_name: 'SessionStart', source: 'startup' }, 100);
+  h({ hook_event_name: 'UserPromptSubmit', prompt: 'start the dev server' }, 1000);
+  h({ hook_event_name: 'Stop', background_tasks: [{ id: 'bdev', type: 'local_bash', status: 'running', description: 'npm run dev' }] }, 2000);
+  assert.deepStrictEqual(claude.get(n).bgShells, ['bdev']);
+  assert.deepStrictEqual(claude.get(n).shellsAtAsk, []);
+  assert.strictEqual(claude.get(n).askedAt, 1000);
+  h({ hook_event_name: 'UserPromptSubmit', prompt: 'run the tests' }, 3000);
+  assert.deepStrictEqual(claude.get(n).shellsAtAsk, ['bdev']);
+  h({ hook_event_name: 'Stop', background_tasks: [
+    { id: 'bdev', type: 'local_bash', status: 'running' },
+    { id: 'btest', type: 'local_bash', status: 'running' },
+    { id: 'bold', type: 'local_bash', status: 'completed' },
+  ] }, 4000);
+  assert.deepStrictEqual(claude.get(n).bgShells, ['bdev', 'btest']);
+  h({ hook_event_name: 'UserPromptSubmit', prompt: '<task-notification> <task-id>btest</task-id>' }, 5000);
+  assert.strictEqual(claude.get(n).askedAt, 3000);
+  assert.strictEqual(claude.get(n).promptAt, 5000);
+  assert.deepStrictEqual(claude.get(n).shellsAtAsk, ['bdev']);
+  h({ hook_event_name: 'SessionStart', source: 'clear' }, 6000);
+  assert.deepStrictEqual(claude.get(n).bgShells, []);
+});

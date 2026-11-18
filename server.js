@@ -531,6 +531,7 @@ function oneLine(t, n = 80) {
 const pushGate = require('./lib/pushgate').createPushGate();
 // A chat that finishes while you read it isn't waiting for you: no done buzz, and it is marked seen right away.
 const watching = require('./lib/watching').createWatching();
+const { createDonePush, fromNotification } = require('./lib/donepush');
 // Should this event buzz? Respects the per-event toggles, quiet hours and muted sessions from settings.
 function pushAllowed(kind, tmux) {
   const n = settings.get().notify || {}; if (n[kind] === false) return false;
@@ -560,25 +561,49 @@ function chatAskPush(name, req) {
 headless.onEvent((name, o) => { if (o.ev === 'pending') chatAskPush(name, o.req); });
 claude.onChange(checkpoints.onChange);
 claude.onChange((ev, r) => { if (settle.onChange(ev, r)) pushState(true); });
+function chatStillBusy(name) {
+  const L = headless.live(name);
+  return !!(L && (L.state !== 'idle' || L.turn || (L.pending || []).length || (L.inbox || []).length));
+}
+function doneSettled(name, since) {
+  const r = claude.get(name);
+  if (!r || r.gone || r.state !== 'needs-you' || r.since !== since || (r.bgTasks || []).length) return false;
+  if (chatStillBusy(name) || watching.watched(name)) return false;
+  const before = new Set(r.shellsAtAsk || []);
+  return (r.bgShells || []).some(id => !before.has(id)) ? 'wait' : true;
+}
+function sendDone(name) {
+  const r = { ...(claude.get(name) || {}), tmux: name }; const now = Date.now();
+  if (pushGate.blocked(name, 'done', now) || !pushAllowed('done', name)) return false;
+  // One glance: "<project> · done" and ONE short line saying what the task was. No markdown dumps.
+  const title = `${whoOf(r)} · done`;
+  const body = oneLine(r.title || (fromNotification(r.lastPrompt) ? '' : r.lastPrompt) || r.lastMessage || 'finished', 80);
+  pushGate.sent(name, 'done', now);
+  push.notify({ title, body, url: `/?term=${encodeURIComponent(name)}`, tag: name, session: name, kind: 'done', since: r.since }).then(res => { if (res.sent) console.log(`push: ${title} -> ${res.sent}`); });
+}
+const donePush = createDonePush({ ready: doneSettled, send: sendDone });
 claude.onChange((ev, r, prev) => {
+  if (r.state !== 'needs-you') donePush.cancel(r.tmux);
   if (r.state === 'limit') limits.refresh().then(() => { if (isChat(r.tmux)) planResume(r.tmux); pushState(false); });   // the plan numbers just changed: show the fresh reset time right away
   if (!['needs-you', 'permission', 'error', 'limit'].includes(r.state)) return;
   if (r.state === 'needs-you' && prev.state !== 'working' && prev.state !== 'background') return;
-  const kind = r.state === 'needs-you' ? 'done' : r.state;
   const now = Date.now();
-  // One glance: "<project> · done" and ONE short line saying what the task was. No markdown dumps.
-  // Quick turns (under 20 s) don't buzz the phone — the ding in the open dashboard is enough for those.
   const who = whoOf(r);
-  const turn = r.promptAt && r.stopAt ? r.stopAt - r.promptAt : null;
   const title = r.state === 'permission' ? `${who} · needs permission` : r.state === 'error' ? `${who} · error` : r.state === 'limit' ? `${who} · usage limit` : `${who} · done`;
-  const body = r.state === 'permission' ? oneLine(r.lastTool || 'wants to run a tool', 80)
-    : r.state === 'limit' ? oneLine((r.lastMessage || '').replace(/^.*?(resets?[^.]*).*$/i, '$1') || `${r.account || ''} account`, 80)
-    : r.state === 'error' ? oneLine(r.lastMessage || 'API error', 80)
-    : oneLine(r.title || r.lastPrompt || r.lastMessage || 'finished', 80);
-  const skipQuick = r.state === 'needs-you' && turn != null && turn < 20000;
   const watched = r.state === 'needs-you' && watching.watched(r.tmux, now);
   if (watched) setTimeout(() => { claude.seen(r.tmux); pushState(true); }, 0);   // after the other listeners saw needs-you
-  if (!skipQuick && !watched && !pushGate.blocked(r.tmux, kind, now) && pushAllowed(kind, r.tmux)) { pushGate.sent(r.tmux, kind, now); push.notify({ title, body, url: `/?term=${encodeURIComponent(r.tmux)}`, tag: r.tmux, session: r.tmux, kind, since: r.since }).then(res => { if (res.sent) console.log(`push: ${title} -> ${res.sent}`); }); }
+  if (r.state === 'needs-you') {
+    // Quick turns (under 20 s) don't buzz the phone — the ding in the open dashboard is enough for those.
+    const started = r.askedAt || r.promptAt;
+    const quick = started && r.stopAt && r.stopAt - started < 20000;
+    if (!quick && !watched && !isBotSession(r.tmux)) donePush.schedule(r.tmux, r.since, r.askedAt || null);
+  } else {
+    const kind = r.state;
+    const body = r.state === 'permission' ? oneLine(r.lastTool || 'wants to run a tool', 80)
+      : r.state === 'limit' ? oneLine((r.lastMessage || '').replace(/^.*?(resets?[^.]*).*$/i, '$1') || `${r.account || ''} account`, 80)
+      : oneLine(r.lastMessage || 'API error', 80);
+    if (!pushGate.blocked(r.tmux, kind, now) && pushAllowed(kind, r.tmux)) { pushGate.sent(r.tmux, kind, now); push.notify({ title, body, url: `/?term=${encodeURIComponent(r.tmux)}`, tag: r.tmux, session: r.tmux, kind, since: r.since }).then(res => { if (res.sent) console.log(`push: ${title} -> ${res.sent}`); }); }
+  }
   broadcast('ding', { tmux: r.tmux, state: r.state, title });
   setTimeout(tick, 150);
 });
