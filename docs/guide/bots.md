@@ -460,6 +460,10 @@ with `the bot folder path has characters the permission rules can't hold`):
 
 - There are no `allow` rules: the bot's `permissionMode` and its own `.claude/settings.json` decide
   everything else. Deny rules win over both.
+- `.bd/call-settings.json` also sets `env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`. A call's runner
+  exits at the first result, so an agent or command the bot started in the background would be
+  killed and the caller would get a progress note instead of the answer; with background tasks off,
+  agents and commands run inside the turn. The own chat keeps background tasks.
 - Existing (`bin/headless-runner.js`): `--settings` is accepted only together with `--trainer` (the
   runner exits 2 otherwise). T3 lifts that for bot sessions (16.1).
 - Bash is not confined (6.1). Real separation is out of scope (section 13).

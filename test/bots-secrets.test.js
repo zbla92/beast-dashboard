@@ -122,14 +122,14 @@ const chatDeny = dir => [
 ];
 const callDeny = dir => [...chatDeny(dir), ...rules(dir, ['Edit', 'Write', 'NotebookEdit'], ['CLAUDE.md', 'style.md', 'knowledge/**', 'examples/**'])];
 
-test('generated settings: chat and call files hold only deny rules on // paths, never a value; an unsafe folder path is refused', () => {
+test('generated settings: chat and call files hold deny rules on // paths and never a secret, calls also turn background tasks off; an unsafe folder path is refused', () => {
   const p = withAccess();
   assert.strictEqual(store.botSettings(p, 'chat'), path.join(p.dir, '.bd', 'settings.json'));
   assert.strictEqual(store.botSettings(p, 'call'), path.join(p.dir, '.bd', 'call-settings.json'));
   const chat = JSON.parse(fs.readFileSync(path.join(p.dir, '.bd', 'settings.json'), 'utf8'));
   const callSettings = JSON.parse(fs.readFileSync(path.join(p.dir, '.bd', 'call-settings.json'), 'utf8'));
   assert.deepStrictEqual(chat, { permissions: { deny: chatDeny(p.dir) } });
-  assert.deepStrictEqual(callSettings, { permissions: { deny: callDeny(p.dir) } });
+  assert.deepStrictEqual(callSettings, { permissions: { deny: callDeny(p.dir) }, env: { CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1' } });
   assert.ok(chat.permissions.deny.includes(`Read(/${p.dir}/.secrets/**)`) && chat.permissions.deny[0].startsWith('Read(//'));
   assert.ok(!chat.permissions.deny.some(r => /CLAUDE\.md|style\.md|knowledge|examples/.test(r)));
   for (const f of ['settings.json', 'call-settings.json']) {
