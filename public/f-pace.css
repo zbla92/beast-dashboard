@@ -1,0 +1,7 @@
+/* Pace (f-pace.js): a tick on each limit bar where an even pace would be by now, and the 7-day outlook under it */
+.limrow .lb, .ru-bar { position: relative; overflow: visible; }
+.pace-tick { position: absolute; top: -2px; bottom: -2px; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--text); opacity: .75; box-shadow: 0 0 0 1px var(--bg); pointer-events: auto; }
+.lpace { grid-column: 2 / -1; margin-top: -3px; font-size: var(--fs-xs); color: var(--dim); }
+.ru-pace { margin-top: 3px; font-size: var(--fs-xs); line-height: 15px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lpace.early, .ru-pace.early { color: var(--amber); }
+.lpace .pace-budget { color: var(--dim); }

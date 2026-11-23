@@ -923,10 +923,10 @@ const whenStr = ts => { const d = new Date(ts); const hm = d.toLocaleTimeString(
 const resetStr = ts => ts ? whenStr(ts) + ' (in ' + inStr(ts) + ')' : '';
 const RESET_NOTE = 'next window starts with your next message';
 const limCls = w => !w || w.pct == null || w.reset ? '' : w.pct >= 90 || w.severity === 'critical' ? 'hot' : w.pct >= 70 || (w.severity && w.severity !== 'normal') ? 'warn' : '';
-function limitRow(label, w, title, big) {
+function limitRow(label, w, title, big, L) {
   if (!w) return null; const c = limCls(w);
-  return h('div', { class: 'limrow ' + c + (big ? ' big' : ''), title: (title || label) + (w.resetsAt ? ' · resets ' + resetStr(w.resetsAt) : w.reset ? ' · reset at ' + whenStr(w.resetAt) + ' · ' + RESET_NOTE : '') }, h('span', { class: 'll' }, label), h('span', { class: 'lb' }, h('b', { style: `width:${Math.min(100, w.pct || 0)}%` })), h('span', { class: 'lp mono' }, (w.pct ?? '–') + '%'), h('span', { class: 'lr mono' }, w.resetsAt ? inStr(w.resetsAt) : w.reset ? 'reset' : ''),
-    w.resetsAt || w.reset ? h('span', { class: 'lrs' }, w.resetsAt ? [ico('refresh', 11), ' ' + whenStr(w.resetsAt)] : 'reset at ' + whenStr(w.resetAt)) : null);
+  return h('div', { class: 'limrow ' + c + (big ? ' big' : ''), title: (title || label) + (w.resetsAt ? ' · resets ' + resetStr(w.resetsAt) : w.reset ? ' · reset at ' + whenStr(w.resetAt) + ' · ' + RESET_NOTE : '') }, h('span', { class: 'll' }, label), h('span', { class: 'lb' }, h('b', { style: `width:${Math.min(100, w.pct || 0)}%` }), ...feat('limitBar', w, big ? 'session' : 'week', L)), h('span', { class: 'lp mono' }, (w.pct ?? '–') + '%'), h('span', { class: 'lr mono' }, w.resetsAt ? inStr(w.resetsAt) : w.reset ? 'reset' : ''),
+    w.resetsAt || w.reset ? h('span', { class: 'lrs' }, w.resetsAt ? [ico('refresh', 11), ' ' + whenStr(w.resetsAt)] : 'reset at ' + whenStr(w.resetAt)) : null, ...feat('limitPace', w, big ? 'session' : 'week', L));
 }
 // one column of the "Claude usage limits" card: 5 h reset in the header, then the 5 h (big %) / week / Fable / extra rows
 function limitCol(account, L) {
@@ -938,7 +938,7 @@ function limitCol(account, L) {
     h('div', { class: 'k' }, badge, seReset ? h('span', { class: 'mono dim', style: 'font-weight:500' }, seReset) : null),
     se ? null : h('div', { class: 's' }, 'no 5h session window'),
     L.stale && L.fetchedAt ? h('div', { class: 'limstale' }, `as of ${whenStr(L.fetchedAt)}` + (L.error ? ' · ' + L.error : ' · not refreshed since')) : null,
-    h('div', { class: 'lim' }, limitRow('5h', se, '5-hour session', true), limitRow('week', L.weekly, '7-day window, all models'), ...(L.scoped || []).map(w => limitRow(w.name, w, `7-day window, ${w.name} only`)),
+    h('div', { class: 'lim' }, limitRow('5h', se, '5-hour session', true, L), limitRow('week', L.weekly, '7-day window, all models', false, L), ...(L.scoped || []).map(w => limitRow(w.name, w, `7-day window, ${w.name} only`, false, L)),
       L.extra?.enabled ? h('div', { class: 'limrow' }, h('span', { class: 'll' }, 'extra'), h('span', { class: 'lb' }, h('b', { style: `width:${Math.min(100, L.extra.pct || 0)}%` })), h('span', { class: 'lp mono wide' }, `${usd(L.extra.used || 0)} / ${usd(L.extra.limit)}`)) : null));
 }
 function limitsTile(LM) {
@@ -1050,14 +1050,14 @@ function renderRailUsage() {
   if (!L) { el.replaceChildren(); return; }
   const worst = x => { const c = [LM[x].session, LM[x].weekly].map(limCls); return c.includes('hot') ? 'hot' : c.includes('warn') ? 'warn' : ''; };
   const pick = x => () => { RAIL_USAGE.acct = x; localStorage.setItem('bd.usageAcct', x); renderRailUsage(); };
-  const line = (label, w, what) => w ? h('div', { class: 'ru-row ' + limCls(w), title: what + (w.resetsAt ? ' · resets ' + resetStr(w.resetsAt) : w.reset ? ' · ' + RESET_NOTE : '') },
+  const line = (label, w, what, kind) => w ? h('div', { class: 'ru-row ' + limCls(w), title: what + (w.resetsAt ? ' · resets ' + resetStr(w.resetsAt) : w.reset ? ' · ' + RESET_NOTE : '') },
     h('div', { class: 'ru-l' }, h('b', null, label), h('span', { class: 'ru-rs' }, w.resetsAt ? 'Resets ' + inStr(w.resetsAt) : w.reset ? 'Reset' : ''), h('span', { class: 'ru-p' }, w.pct == null ? '–' : w.pct + '%')),
-    h('i', { class: 'ru-bar' }, h('b', { style: `width:${Math.min(100, w.pct || 0)}%` }))) : null;
+    h('i', { class: 'ru-bar' }, h('b', { style: `width:${Math.min(100, w.pct || 0)}%` }), ...feat('limitBar', w, kind, L)), ...feat('limitPace', w, kind, L, 'rail')) : null;
   el.classList.toggle('stale', !!L.stale);
   el.replaceChildren(...[
     accts.length > 1 ? h('div', { class: 'seg ru-acct' }, accts.map(x => h('button', { class: 'segb ' + worst(x) + (x === a ? ' on' : ''), onclick: pick(x) }, acct(x)))) : null,
     L.error && !L.session ? h('div', { class: 'ru-none', title: L.error }, 'Usage unavailable') : null,
-    line('Session', L.session, '5-hour session'), line('Weekly', L.weekly, '7-day window, all models'),
+    line('Session', L.session, '5-hour session', 'session'), line('Weekly', L.weekly, '7-day window, all models', 'week'),
   ].filter(Boolean));
 }
 function renderRailFoot() {
