@@ -1,0 +1,73 @@
+#!/usr/bin/env node
+'use strict';
+const fs = require('fs');
+const path = require('path');
+const { scan, analyze, render, defaultRoots } = require('../lib/cost-report');
+
+const USAGE = `usage: cost-report --out <path> [--days 7] [--top 10] [--root <projects-dir>]... [--now <ISO>]
+Writes a Markdown report of avoidable Claude session cost from the transcripts of the last N days.
+Default roots: every ~/.claude*/projects folder. Never overwrites: an existing path gets -2, -3, ... before the extension.
+`;
+
+const FLAGS = ['--out', '--days', '--top', '--root', '--now'];
+
+const parseArgs = argv => {
+  const pairs = Array.from({ length: Math.ceil(argv.length / 2) }, (_, i) => [argv[2 * i], argv[2 * i + 1]]);
+  if (pairs.some(([flag, value]) => !FLAGS.includes(flag) || value === undefined)) return null;
+  const last = flag => pairs.filter(([f]) => f === flag).map(([, v]) => v).pop();
+  const opts = {
+    out: last('--out') || null,
+    days: last('--days') === undefined ? 7 : Number(last('--days')),
+    top: last('--top') === undefined ? 10 : Number(last('--top')),
+    roots: pairs.filter(([f]) => f === '--root').map(([, v]) => v),
+    now: last('--now') === undefined ? null : Date.parse(last('--now')),
+  };
+  const numbersOk = Number.isFinite(opts.days) && opts.days > 0 && Number.isInteger(opts.top) && opts.top > 0;
+  const nowOk = opts.now === null || Number.isFinite(opts.now);
+  return opts.out && numbersOk && nowOk && !isDirectory(opts.out) ? opts : null;
+};
+
+const isDirectory = target => {
+  try {
+    return fs.statSync(target).isDirectory();
+  } catch {
+    return false;
+  }
+};
+
+const writeNew = (target, text, n = 1) => {
+  const { dir, name, ext } = path.parse(target);
+  const candidate = n === 1 ? target : path.join(dir, `${name}-${n}${ext}`);
+  try {
+    fs.writeFileSync(candidate, text, { flag: 'wx' });
+    return candidate;
+  } catch (error) {
+    if (error.code !== 'EEXIST') throw error;
+    return writeNew(target, text, n + 1);
+  }
+};
+
+const main = argv => {
+  if (argv.includes('-h') || argv.includes('--help')) {
+    process.stdout.write(USAGE);
+    return 0;
+  }
+  const opts = parseArgs(argv);
+  if (!opts) {
+    process.stderr.write(USAGE);
+    return 2;
+  }
+  const now = opts.now === null ? Date.now() : opts.now;
+  const roots = opts.roots.length ? opts.roots : defaultRoots();
+  const analysis = analyze(scan({ roots, days: opts.days, now }));
+  const text = render(analysis, { days: opts.days, now, top: opts.top });
+  try {
+    process.stdout.write(`${writeNew(path.resolve(opts.out), text)}\n`);
+  } catch (error) {
+    process.stderr.write(`cost-report: ${error.message}\n`);
+    return 1;
+  }
+  return 0;
+};
+
+process.exitCode = main(process.argv.slice(2));
